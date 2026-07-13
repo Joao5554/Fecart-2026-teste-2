@@ -1,0 +1,15 @@
+# Ambiente virtual (cada pessoa cria o seu com: python -m venv .venv)
+.venv/
+
+# Cache do Python
+__pycache__/
+*.pyc
+
+# Modelo treinado (gerado pelo script de treinamento; arquivo grande)
+*.pkl
+
+# Arquivos do VSCode, do Claude Code e do sistema
+.vscode/
+.claude/
+Thumbs.db
+desktop.ini
