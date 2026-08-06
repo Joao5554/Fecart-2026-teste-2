@@ -7,6 +7,14 @@ __pycache__/
 
 # Modelo treinado (gerado pelo script de treinamento; arquivo grande)
 *.pkl
+modelo/metadados.json
+
+# Datasets. A base real é grande demais para o git, e os dados sintéticos
+# são gerados por script — quem clonar roda dados/gerar_dados_sinteticos.py.
+dados/*.csv
+
+# Cache do pytest
+.pytest_cache/
 
 # Arquivos do VSCode, do Claude Code e do sistema
 .vscode/
