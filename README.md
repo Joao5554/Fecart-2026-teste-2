@@ -60,6 +60,7 @@ Abra <http://127.0.0.1:8000/docs> para testar tudo pelo navegador.
 | `src/esquema.py`                   | **Contrato de dados** — quais colunas, unidades e faixas        |
 | `src/carregar.py`                  | Lê o CSV e valida contra o contrato antes de treinar            |
 | `src/caracteristicas.py`           | Features derivadas e pré-processamento (imputação + one-hot)    |
+| `src/procedencia.py`               | Registra se o CSV usado é sintético ou real                     |
 | `dados/gerar_dados_sinteticos.py`  | Gera CSV de teste no formato exato do contrato                  |
 | `dados/README.md`                  | **Onde baixar os dados reais** e como montar o rótulo           |
 | `treinamento/treinar_modelo.py`    | Treina, avalia e salva o modelo                                 |
@@ -75,6 +76,23 @@ contrato inteiro:
 ```bash
 python -m src.esquema
 ```
+
+## Como o projeto se protege de erro silencioso
+
+Três cuidados que só aparecem quando algo dá errado — e que evitam o pior
+cenário de um trabalho como este, que é apresentar um número inválido sem
+ninguém perceber:
+
+- **Procedência dos dados.** O gerador marca o CSV sintético com um hash. O
+  treino grava a origem no `metadados.json` e avisa em destaque; a API repete
+  o aviso em `GET /` e `GET /modelo/info`. Trocar o CSV pela base real
+  invalida a marca automaticamente (detalhes em [`dados/README.md`](dados/README.md)).
+- **Assinatura do esquema.** Cada modelo guarda uma impressão digital do
+  contrato de dados com que foi treinado. Se alguém mudar as colunas em
+  `src/esquema.py` e esquecer de retreinar, a API **recusa** o modelo antigo
+  e diz o que fazer, em vez de responder com previsões sem sentido.
+- **Pipeline salvo inteiro.** As transformações vão dentro do `.pkl`, então a
+  API aplica exatamente o mesmo tratamento usado no treino.
 
 ## Como o problema foi modelado
 

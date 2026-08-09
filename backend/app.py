@@ -73,21 +73,55 @@ app.add_middleware(
 
 modelo = None
 metadados: dict = {}
+problema_modelo: str | None = MENSAGEM_SEM_MODELO
 
 
 def carregar_modelo() -> bool:
     """Carrega o modelo e os metadados do disco. Devolve True se conseguiu."""
-    global modelo, metadados
+    global modelo, metadados, problema_modelo
 
     if not ARQUIVO_MODELO.exists():
         modelo, metadados = None, {}
+        problema_modelo = MENSAGEM_SEM_MODELO
         return False
 
-    modelo = joblib.load(ARQUIVO_MODELO)
-    metadados = (
-        json.loads(ARQUIVO_METADADOS.read_text(encoding="utf-8"))
-        if ARQUIVO_METADADOS.exists() else {}
-    )
+    try:
+        modelo = joblib.load(ARQUIVO_MODELO)
+    except Exception as erro:
+        modelo, metadados = None, {}
+        problema_modelo = (
+            f"O arquivo do modelo existe, mas não pôde ser lido ({erro}).\n"
+            "Gere o modelo de novo com: python treinamento/treinar_modelo.py"
+        )
+        return False
+
+    # utf-8-sig lê tanto o arquivo normal quanto um que tenha ganhado BOM ao
+    # ser editado no Windows. Um metadados.json quebrado não pode derrubar a
+    # API: o modelo em si continua utilizável, apenas sem as informações extras.
+    metadados = {}
+    if ARQUIVO_METADADOS.exists():
+        try:
+            metadados = json.loads(ARQUIVO_METADADOS.read_text(encoding="utf-8-sig"))
+        except (json.JSONDecodeError, OSError) as erro:
+            print(f"[aviso] metadados.json ilegível ({erro}); seguindo sem eles.")
+
+    # O modelo no disco pode ter sido treinado com um contrato de dados
+    # diferente do que este código usa agora (por exemplo, depois de um
+    # `git pull` que mudou src/esquema.py). Nesse caso as colunas não
+    # significam mais a mesma coisa: melhor recusar do que prever errado.
+    assinatura_salva = metadados.get("assinatura_esquema")
+    assinatura_atual = esquema.assinatura()
+    if assinatura_salva and assinatura_salva != assinatura_atual:
+        modelo = None
+        problema_modelo = (
+            "O modelo salvo foi treinado com outro formato de dados "
+            f"(assinatura {assinatura_salva}, o código atual espera "
+            f"{assinatura_atual}).\n"
+            "Retreine antes de usar: python treinamento/treinar_modelo.py"
+        )
+        return False
+
+    problema_modelo = None
     return True
 
 
@@ -99,7 +133,7 @@ carregar_modelo()
 def exigir_modelo():
     """Devolve o modelo ou responde 503 com instruções claras."""
     if modelo is None:
-        raise HTTPException(status_code=503, detail=MENSAGEM_SEM_MODELO)
+        raise HTTPException(status_code=503, detail=problema_modelo or MENSAGEM_SEM_MODELO)
     return modelo
 
 
@@ -155,8 +189,10 @@ def raiz():
     return {
         "status": "ok",
         "modelo_carregado": modelo is not None,
-        "mensagem": None if modelo else MENSAGEM_SEM_MODELO,
+        "mensagem": None if modelo else problema_modelo,
         "treinado_em": _treinado_em() if modelo else None,
+        "origem_dados": metadados.get("origem_dados") if modelo else None,
+        "aviso": metadados.get("aviso_dados") if modelo else None,
         "niveis_de_risco": esquema.CLASSES_RISCO,
         "tipos_de_desastre": list(esquema.GRUPOS_COBRADE),
         "documentacao": "/docs",
@@ -196,6 +232,12 @@ def info_modelo():
 
     return {
         "treinado_em": metadados.get("treinado_em"),
+        # Procedência: com qual base este modelo foi treinado, e o aviso
+        # correspondente quando os dados são inventados.
+        "origem_dados": metadados.get("origem_dados"),
+        "aviso": metadados.get("aviso_dados"),
+        "hash_dados_sha256": metadados.get("hash_dados_sha256"),
+        "versao_esquema": metadados.get("versao_esquema"),
         "linhas_de_treino": metadados.get("linhas_totais"),
         "municipios": metadados.get("municipios"),
         "periodo": metadados.get("periodo"),
@@ -223,8 +265,13 @@ def recarregar():
     Evita ter que derrubar e subir o servidor a cada retreino.
     """
     if carregar_modelo():
-        return {"status": "modelo recarregado", "treinado_em": _treinado_em()}
-    raise HTTPException(status_code=404, detail=MENSAGEM_SEM_MODELO)
+        return {
+            "status": "modelo recarregado",
+            "treinado_em": _treinado_em(),
+            "origem_dados": metadados.get("origem_dados"),
+            "aviso": metadados.get("aviso_dados"),
+        }
+    raise HTTPException(status_code=404, detail=problema_modelo or MENSAGEM_SEM_MODELO)
 
 
 @app.post("/prever", response_model=RespostaPrevisao, tags=["previsao"])

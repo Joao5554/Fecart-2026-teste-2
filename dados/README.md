@@ -16,6 +16,21 @@ Gera ~26 mil linhas inventadas, no formato exato do contrato. Servem **só**
 para testar se o pipeline funciona. Nenhum número obtido com esses dados vale
 como resultado — não use na apresentação.
 
+### Como o projeto impede a confusão entre sintético e real
+
+O gerador escreve, ao lado do CSV, um `dados/procedencia.json` com o hash
+SHA-256 do arquivo que acabou de criar. A partir daí:
+
+- o treinamento confere o hash e grava a origem em `modelo/metadados.json`;
+- se a origem for sintética, o treino termina com um aviso em destaque e a
+  API repete esse aviso em `GET /` e `GET /modelo/info`;
+- se alguém substituir o CSV pela base real mantendo o mesmo nome, o hash
+  deixa de bater e a origem passa a ser `desconhecida` — nunca "sintético"
+  por engano.
+
+Ou seja: **não dá para apresentar um número sintético achando que é real
+sem o sistema avisar.**
+
 ## Formato esperado
 
 Uma linha = **um município, em um mês, para um tipo de desastre**.

@@ -23,7 +23,13 @@ Renomeie as colunas do CSV para os nomes abaixo (ou ajuste os nomes aqui).
 Não é preciso mexer no treinamento nem no backend.
 """
 
+import hashlib
+import json
 from dataclasses import dataclass, field
+
+# Versão do contrato de dados. Aumente ao mudar colunas ou classes: serve para
+# uma pessoa entender rapidamente que o formato mudou.
+VERSAO_ESQUEMA = "1.0.0"
 
 
 # --------------------------------------------------------------------------
@@ -252,6 +258,30 @@ POR_NOME: dict[str, Coluna] = {
     c.nome: c
     for c in IDENTIFICACAO + CATEGORICAS + NUMERICAS + DERIVADAS
 }
+
+
+def assinatura() -> str:
+    """
+    Impressão digital do contrato de dados.
+
+    Resume, em um hash curto, tudo que o modelo precisa enxergar: o alvo, as
+    classes e as colunas de entrada. O treinamento grava esta assinatura nos
+    metadados e a API confere na hora de carregar o modelo.
+
+    Serve para pegar o erro silencioso mais chato do projeto: alguém altera as
+    colunas em src/esquema.py, dá `git pull` sem retreinar, e o modelo antigo
+    continua respondendo — com previsões que não significam mais nada.
+    Diferente de um número de versão, esta assinatura não depende de ninguém
+    lembrar de atualizá-la.
+    """
+    contrato = {
+        "alvo": COLUNA_ALVO,
+        "classes": list(CLASSES_RISCO),
+        "numericas": list(COLUNAS_MODELO_NUMERICAS),
+        "categoricas": list(COLUNAS_MODELO_CATEGORICAS),
+    }
+    texto = json.dumps(contrato, sort_keys=True, ensure_ascii=False)
+    return hashlib.sha256(texto.encode("utf-8")).hexdigest()[:16]
 
 
 def descrever() -> str:

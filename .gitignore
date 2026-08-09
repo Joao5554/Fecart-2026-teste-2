@@ -13,6 +13,10 @@ modelo/metadados.json
 # são gerados por script — quem clonar roda dados/gerar_dados_sinteticos.py.
 dados/*.csv
 
+# Registro de procedência do CSV local: descreve o arquivo de dados de cada
+# máquina, então não faz sentido versionar.
+dados/procedencia.json
+
 # Cache do pytest
 .pytest_cache/
 

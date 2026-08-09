@@ -28,7 +28,7 @@ import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from src import esquema  # noqa: E402
+from src import esquema, procedencia  # noqa: E402
 
 
 # --------------------------------------------------------------------------
@@ -413,7 +413,14 @@ def main() -> None:
     args.saida.parent.mkdir(parents=True, exist_ok=True)
     dados.to_csv(args.saida, index=False, encoding="utf-8")
 
+    # Marca o arquivo como sintético. É assim que o treinamento e a API sabem
+    # avisar que os resultados não valem como conclusão sobre desastres reais.
+    registro = procedencia.registrar_sintetico(
+        args.saida, args.semente, (args.anos[0], args.anos[1]), len(dados)
+    )
+
     print(f"\n{len(dados):,} linhas escritas em {args.saida}")
+    print(f"Procedência registrada em {registro.name} (marcado como sintético)")
     print("\nDistribuição do nível de risco:")
     contagem = dados[esquema.COLUNA_ALVO].value_counts()
     for classe in esquema.CLASSES_RISCO:

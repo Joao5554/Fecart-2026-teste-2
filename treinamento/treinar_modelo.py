@@ -43,7 +43,7 @@ from sklearn.pipeline import Pipeline
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from src import caracteristicas, esquema  # noqa: E402
+from src import caracteristicas, esquema, procedencia  # noqa: E402
 from src.carregar import ErroDeDados, carregar_dados, resumir  # noqa: E402
 
 
@@ -202,9 +202,20 @@ def salvar(modelo: Pipeline, dados: pd.DataFrame, metricas: dict,
     # reduz para uma fração disso e custa poucos segundos a mais no carregamento.
     joblib.dump(modelo, ARQUIVO_MODELO, compress=3)
 
+    origem = procedencia.identificar(argumentos.dados)
+
     metadados = {
         "treinado_em": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        # Assinatura do contrato de dados. A API recusa carregar um modelo cuja
+        # assinatura não bata com a do código atual (ver src/esquema.assinatura).
+        "versao_esquema": esquema.VERSAO_ESQUEMA,
+        "assinatura_esquema": esquema.assinatura(),
         "arquivo_dados": str(argumentos.dados),
+        # Identidade exata da base usada. Permite provar, meses depois, com
+        # quais dados este modelo foi treinado.
+        "origem_dados": origem["origem"],
+        "hash_dados_sha256": origem["hash_sha256"],
+        "aviso_dados": origem.get("aviso"),
         "linhas_totais": int(len(dados)),
         "proporcao_teste": argumentos.proporcao_teste,
         "classes": esquema.CLASSES_RISCO,
@@ -248,6 +259,13 @@ def salvar(modelo: Pipeline, dados: pd.DataFrame, metricas: dict,
     titulo("ARQUIVOS SALVOS")
     print(f"Modelo:     {ARQUIVO_MODELO}  ({tamanho_mb:.1f} MB)")
     print(f"Metadados:  {ARQUIVO_METADADOS}")
+    print(f"Origem dos dados: {origem['origem'].upper()}  "
+          f"(sha256 {origem['hash_sha256'][:12]}...)")
+
+    if origem["origem"] == procedencia.SINTETICO:
+        print("\n" + "!" * 66)
+        print(procedencia.AVISO_SINTETICO)
+        print("!" * 66)
     print("\nPara servir as previsões, rode:")
     print("    uvicorn backend.app:app --reload")
 
