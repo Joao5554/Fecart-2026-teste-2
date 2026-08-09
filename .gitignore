@@ -1,12 +1,22 @@
 # Ambiente virtual (cada pessoa cria o seu com: python -m venv .venv)
 .venv/
 
-# Cache do Python
+# Cache do Python e dos testes
 __pycache__/
 *.pyc
+.pytest_cache/
 
-# Modelo treinado (gerado pelo script de treinamento; arquivo grande)
-*.pkl
+# Modelo treinado e seus metadados.
+# NÃO vão para o GitHub: são gerados por `python treinamento/treinar_modelo.py`
+# e o .pkl é grande. Cada pessoa gera o seu a partir dos mesmos dados.
+modelos/*.pkl
+modelos/*.json
+
+# Base de dados real (pode ser grande e ter licença própria).
+# A base sintética em dados/exemplo/ fica versionada de propósito,
+# para o projeto rodar logo após o clone.
+dados/bruto/*
+!dados/bruto/.gitkeep
 
 # Arquivos do VSCode, do Claude Code e do sistema
 .vscode/

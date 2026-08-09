@@ -1,0 +1,8 @@
+# Padroniza a quebra de linha no repositório (LF), evitando que o Git
+# marque arquivos inteiros como alterados só porque um integrante usa
+# Windows e outro usa Linux ou macOS.
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.pkl binary
