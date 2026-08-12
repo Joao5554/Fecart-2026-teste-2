@@ -1,0 +1,168 @@
+{
+  "treinado_em": "2026-08-12T23:34:05+00:00",
+  "versao_esquema": "2.0.0",
+  "assinatura_esquema": "bf84b75999e96937",
+  "arquivo_dados": "C:\\Users\\jpcos\\OneDrive\\Documentos\\Fecart 2026\\dados\\dados.csv",
+  "origem_dados": "real",
+  "hash_dados_sha256": "c1aa965d0f07098d2e67dd61c9cb983c0c34e4d16c1570c257a5a92b52ef707c",
+  "aviso_dados": null,
+  "linhas_totais": 187008,
+  "divisao_treino_teste": {
+    "tipo": "temporal",
+    "ano_corte": 2022
+  },
+  "classes": [
+    "baixo",
+    "medio",
+    "alto"
+  ],
+  "distribuicao_classes": {
+    "baixo": 140236,
+    "alto": 28419,
+    "medio": 18353
+  },
+  "grupos_cobrade": [
+    "ALAGAMENTO",
+    "CHUVAS_INTENSAS",
+    "DESLIZAMENTO",
+    "ENXURRADA",
+    "EROSAO",
+    "ESTIAGEM_SECA",
+    "GRANIZO",
+    "INCENDIO_FLORESTAL",
+    "INUNDACAO",
+    "VENDAVAL_CICLONE"
+  ],
+  "municipios": 5012,
+  "periodo": {
+    "ano_inicial": 2010,
+    "ano_final": 2025
+  },
+  "colunas_entrada": {
+    "numericas": [
+      "mes",
+      "ocorrencias_12m",
+      "ocorrencias_24m",
+      "ocorrencias_60m",
+      "ocorrencias_total_historico",
+      "meses_desde_ultima_ocorrencia",
+      "ja_ocorreu",
+      "anos_de_historico",
+      "ocorrencias_mesmo_mes_historico",
+      "reconhecimentos_historico",
+      "mortos_historico",
+      "afetados_historico",
+      "prejuizo_historico_log",
+      "ocorrencias_municipio_12m",
+      "ocorrencias_uf_grupo_12m",
+      "mes_seno",
+      "mes_cosseno",
+      "ocorrencias_por_ano",
+      "proporcao_reconhecidas",
+      "gravidade_media_historica"
+    ],
+    "categoricas": [
+      "uf",
+      "regiao",
+      "grupo_desastre"
+    ]
+  },
+  "hiperparametros": {
+    "n_estimators": 100,
+    "max_depth": 20,
+    "class_weight": {
+      "baixo": 1.0,
+      "medio": 3.0,
+      "alto": 6.0
+    },
+    "min_samples_leaf": 5,
+    "random_state": 42
+  },
+  "metricas": {
+    "acuracia": 0.6807750553333592,
+    "acuracia_balanceada": 0.49863859342578193,
+    "f1_macro": 0.5065954126681561,
+    "matriz_confusao": [
+      [
+        29061,
+        1043,
+        4508
+      ],
+      [
+        4981,
+        1172,
+        870
+      ],
+      [
+        4802,
+        238,
+        4831
+      ]
+    ],
+    "relatorio_por_classe": {
+      "baixo": {
+        "precision": 0.7481464318813716,
+        "recall": 0.8396220963827574,
+        "f1-score": 0.7912491831844914,
+        "support": 34612.0
+      },
+      "medio": {
+        "precision": 0.47778230737871996,
+        "recall": 0.1668802506051545,
+        "f1-score": 0.24736175601519628,
+        "support": 7023.0
+      },
+      "alto": {
+        "precision": 0.4732099128220198,
+        "recall": 0.4894134332894337,
+        "f1-score": 0.4811752988047809,
+        "support": 9871.0
+      },
+      "accuracy": 0.6807750553333592,
+      "macro avg": {
+        "precision": 0.5663795506940371,
+        "recall": 0.49863859342578193,
+        "f1-score": 0.5065954126681561,
+        "support": 51506.0
+      },
+      "weighted avg": {
+        "precision": 0.6585905427419124,
+        "recall": 0.6807750553333592,
+        "f1-score": 0.65766356764995,
+        "support": 51506.0
+      }
+    }
+  },
+  "validacao_cruzada": null,
+  "importancia_variaveis": {
+    "ocorrencias_uf_grupo_12m": 0.15387799689135442,
+    "meses_desde_ultima_ocorrencia": 0.11212354099146842,
+    "uf": 0.0914133596892622,
+    "grupo_desastre": 0.07656258423251022,
+    "mes": 0.06357664823330055,
+    "anos_de_historico": 0.06010283554128275,
+    "mes_seno": 0.048279831724303016,
+    "mes_cosseno": 0.04516234623202034,
+    "regiao": 0.04237055149102462,
+    "ocorrencias_por_ano": 0.03248581260576423,
+    "ocorrencias_municipio_12m": 0.0323005704924546,
+    "prejuizo_historico_log": 0.028248938207726306,
+    "ocorrencias_mesmo_mes_historico": 0.027987061110452228,
+    "afetados_historico": 0.02561078786928284,
+    "gravidade_media_historica": 0.02477986380975286,
+    "ocorrencias_total_historico": 0.02393445085469067,
+    "proporcao_reconhecidas": 0.023903608301136196,
+    "ocorrencias_24m": 0.022869344689983907,
+    "reconhecimentos_historico": 0.021862144142356182,
+    "ocorrencias_60m": 0.021306700301718773,
+    "ocorrencias_12m": 0.017370087142621313,
+    "ja_ocorreu": 0.002117066546700631,
+    "mortos_historico": 0.0017538688988327053
+  },
+  "versoes": {
+    "python": "3.14.7",
+    "scikit-learn": "1.9.0",
+    "pandas": "3.0.3",
+    "numpy": "2.5.1"
+  }
+}

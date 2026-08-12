@@ -5,15 +5,19 @@
 __pycache__/
 *.pyc
 
-# Modelo treinado (gerado pelo script de treinamento; arquivo grande)
+# O modelo treinado (23 MB) VAI para o repositório, de propósito: assim quem
+# clonar consegue rodar o sistema na hora, sem baixar a base do Atlas nem
+# treinar. É o que permite apresentar o projeto em outro computador com um
+# `git clone`. Modelos de teste em outros lugares continuam ignorados.
 *.pkl
-modelo/metadados.json
+!modelo/modelo.pkl
 
-# Datasets. Nada de CSV vai para o Git:
-#  - a base bruta do Atlas tem 82 MB (acima do limite do GitHub);
-#  - dados.csv e ocorrencias.csv são gerados por dados/preparar_dados.py.
-# Quem clonar baixa a base bruta uma vez e roda o script.
+# Datasets:
+#  - ocorrencias.csv (5 MB) VAI: é o histórico que a API consulta em execução;
+#  - dados.csv (24 MB) fica de fora: só serve para treinar e é regenerável;
+#  - a base bruta do Atlas (82 MB) fica de fora: é dado de terceiro e pesado.
 dados/*.csv
+!dados/ocorrencias.csv
 dados/bruto/
 
 # Registro de procedência do CSV local: descreve o arquivo de dados de cada

@@ -45,24 +45,7 @@ python -m venv .venv
 pip install -r requirements.txt
 ```
 
-**4. Baixar a base do Atlas**
-
-Baixe a base consolidada em <https://atlasdigital.mi.gov.br> (arquivo
-`BD_Atlas_..._Consolidado.csv`) e salve em `dados/bruto/`.
-
-**5. Preparar o dataset**
-
-```bash
-python dados/preparar_dados.py
-```
-
-**6. Treinar o modelo**
-
-```bash
-python treinamento/treinar_modelo.py
-```
-
-**7. Subir o sistema**
+**4. Subir o sistema**
 
 ```bash
 uvicorn backend.app:app --reload
@@ -70,6 +53,38 @@ uvicorn backend.app:app --reload
 
 - Interface: **http://127.0.0.1:8000/app**
 - Documentação da API: **http://127.0.0.1:8000/docs**
+
+Pronto. **O modelo treinado vem junto no repositório** (23 MB), assim como o
+histórico de ocorrências que a API consulta — não é preciso baixar a base do
+Atlas nem treinar para apresentar o projeto.
+
+---
+
+## Treinar de novo (opcional)
+
+Só é necessário para mexer no modelo ou nos dados. Para apenas rodar o
+sistema, pule esta seção.
+
+**1. Baixar a base do Atlas**
+
+Baixe a base consolidada em <https://atlasdigital.mi.gov.br> (arquivo
+`BD_Atlas_..._Consolidado.csv`) e salve em `dados/bruto/`. São 82 MB, e por
+isso ela não fica no repositório.
+
+**2. Preparar o dataset**
+
+```bash
+python dados/preparar_dados.py
+```
+
+**3. Treinar**
+
+```bash
+python treinamento/treinar_modelo.py
+```
+
+O treino sobrescreve `modelo/modelo.pkl`. Se o resultado for melhor, comite o
+arquivo novo; se foi só um teste, desfaça com `git checkout modelo/`.
 
 ---
 
@@ -189,9 +204,12 @@ históricas a partir do Atlas.
 
 ## Levar o projeto para outro computador
 
-A pasta inteira passa de 500 MB, mas quase tudo é descartável na hora de
-apresentar. Para **rodar** o sistema bastam o código, o modelo treinado e o
-histórico que a API consulta:
+**Com internet, o caminho mais simples é o `git clone`** dos passos acima: o
+modelo já vem junto, então em três comandos o sistema está no ar.
+
+Se o computador não tiver internet (ou bloquear o `pip`), monte um pacote e
+leve no pendrive. A pasta inteira passa de 500 MB, mas quase tudo é
+descartável na hora de apresentar:
 
 ```bash
 python ferramentas/preparar_apresentacao.py
