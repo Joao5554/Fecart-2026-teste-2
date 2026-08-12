@@ -12,6 +12,15 @@ const MESES = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
 
 const CORES = { baixo: "#2E7D32", medio: "#F9A825", alto: "#C62828" };
 
+// Tipos de desastre, iguais aos de src/esquema.py (GRUPOS_COBRADE).
+// Ficam aqui para o formulário funcionar mesmo antes de a API responder.
+// O teste testes/test_frontend.py falha se esta lista sair de sincronia
+// com o esquema do projeto.
+const TIPOS_DESASTRE = [
+  "ESTIAGEM_SECA", "INUNDACAO", "ENXURRADA", "ALAGAMENTO", "CHUVAS_INTENSAS",
+  "DESLIZAMENTO", "VENDAVAL_CICLONE", "GRANIZO", "INCENDIO_FLORESTAL", "EROSAO",
+];
+
 const EXPLICACAO = {
   baixo: "Nenhuma ocorrência esperada para este mês, segundo o histórico.",
   medio: "Ocorrência provável, sem sinal de gravidade excepcional.",
@@ -47,15 +56,25 @@ const $ = (id) => document.getElementById(id);
 // ---------------------------------------------------------------------------
 
 async function iniciar() {
+  // Meses e tipos são listas fixas: preenchidas ANTES de qualquer chamada de
+  // rede. Se dependessem da API, uma falha de conexão deixaria o formulário
+  // vazio e sem explicação — foi exatamente o que acontecia antes.
   preencherMeses();
+  preencherTipos(TIPOS_DESASTRE);
 
   try {
     const estado = await pedir("/");
+
+    // O servidor é a fonte da verdade: se ele conhecer outros tipos (porque
+    // alguém mudou src/esquema.py), a lista local é substituída.
+    if (estado.tipos_de_desastre && estado.tipos_de_desastre.length) {
+      preencherTipos(estado.tipos_de_desastre);
+    }
+
     if (!estado.modelo_carregado) {
-      mostrarAviso(estado.mensagem || "O modelo ainda não foi treinado.", true);
+      bloquearFormulario(estado.mensagem || "O modelo ainda não foi treinado.");
       return;
     }
-    preencherTipos(estado.tipos_de_desastre);
 
     const info = await pedir("/modelo/info");
     $("rodape-modelo").textContent =
@@ -64,13 +83,26 @@ async function iniciar() {
       + `${(info.linhas_de_treino || 0).toLocaleString("pt-BR")} linhas`;
     if (info.aviso) mostrarAviso(info.aviso, false);
   } catch (erro) {
-    mostrarAviso(
+    const abertoComoArquivo = location.protocol === "file:";
+    bloquearFormulario(
       "Não foi possível falar com a API.\n\n"
-      + "Suba o servidor a partir da raiz do projeto:\n"
-      + "    uvicorn backend.app:app --reload",
-      true,
+      + (abertoComoArquivo
+        ? "Esta página foi aberta direto do arquivo, e o navegador bloqueia "
+          + "esse tipo de acesso.\n\n"
+          + "Suba o servidor a partir da raiz do projeto:\n"
+          + "    uvicorn backend.app:app --reload\n\n"
+          + "e abra http://127.0.0.1:8000/app"
+        : "Verifique se o servidor está no ar:\n"
+          + "    uvicorn backend.app:app --reload")
     );
   }
+}
+
+function bloquearFormulario(mensagem) {
+  mostrarAviso(mensagem, true);
+  $("botao").disabled = true;
+  $("busca").disabled = true;
+  $("busca").placeholder = "indisponível — veja o aviso acima";
 }
 
 function preencherMeses() {
@@ -84,10 +116,15 @@ function preencherMeses() {
 
 function preencherTipos(tipos) {
   const seletor = $("tipo");
+  const escolhaAtual = seletor.value;
+
   seletor.innerHTML = "";
   (tipos || []).forEach((tipo) => {
     seletor.add(new Option(formatarTipo(tipo), tipo));
   });
+
+  // Não perde a escolha da pessoa quando a lista é atualizada pela API.
+  if (escolhaAtual && tipos.includes(escolhaAtual)) seletor.value = escolhaAtual;
 }
 
 // ---------------------------------------------------------------------------
