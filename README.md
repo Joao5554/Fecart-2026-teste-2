@@ -2,192 +2,225 @@
 
 Sistema que estima o **nível de risco** (baixo, médio ou alto) de desastres
 naturais por município brasileiro, a partir do histórico de ocorrências do
-**S2iD** (Defesa Civil) combinado com dados climáticos e territoriais.
+**Atlas Digital de Desastres** (S2iD / Defesa Civil), 1991–2025.
 
-A previsão é servida por uma API, no formato que um mapa interativo do Brasil
-consome diretamente.
+A previsão é servida por uma API e consultada por uma interface web.
+Tudo roda **localmente**: o modelo é treinado e executado na própria máquina,
+sem serviço pago, sem chave de API e sem enviar dados para a internet.
 
-> **Estado atual:** o pipeline está completo e testado, rodando sobre dados
-> **sintéticos**. A base real ainda não foi incorporada. Os números de acurácia
-> abaixo servem para verificar o encanamento, não como resultado do projeto.
+> **Base de dados:** real. 76 mil ocorrências registradas em 5.256 municípios,
+> entre 1991 e 2025. A base bruta não vai para o Git (82 MB) — cada pessoa
+> baixa uma vez e roda o script de preparação.
+
+---
 
 ## Como rodar (primeira vez)
+
+**1. Clonar e entrar na pasta**
+
+```bash
+git clone https://github.com/Joao5554/Fecart-2026-teste-2.git
+cd Fecart-2026-teste-2
+```
+
+**2. Criar e ativar o ambiente virtual**
 
 ```bash
 python -m venv .venv
 ```
 
-Ative o ambiente virtual (Windows/PowerShell):
-
 ```powershell
 .venv\Scripts\activate
 ```
 
-> Se aparecer erro de "execução de scripts foi desabilitada", rode uma vez
-> `Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser` e abra
-> um novo terminal.
+> Se aparecer *"a execução de scripts foi desabilitada neste sistema"*, rode
+> uma vez e abra um novo terminal:
+> ```powershell
+> Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+> ```
 
-Instale as bibliotecas:
+**3. Instalar as bibliotecas**
 
 ```bash
 pip install -r requirements.txt
 ```
 
-Gere os dados de teste (enquanto a base real não chega):
+**4. Baixar a base do Atlas**
+
+Baixe a base consolidada em <https://atlasdigital.mi.gov.br> (arquivo
+`BD_Atlas_..._Consolidado.csv`) e salve em `dados/bruto/`.
+
+**5. Preparar o dataset**
 
 ```bash
-python dados/gerar_dados_sinteticos.py
+python dados/preparar_dados.py
 ```
 
-Treine o modelo:
+**6. Treinar o modelo**
 
 ```bash
 python treinamento/treinar_modelo.py
 ```
 
-Suba a API:
+**7. Subir o sistema**
 
 ```bash
 uvicorn backend.app:app --reload
 ```
 
-Abra <http://127.0.0.1:8000/docs> para testar tudo pelo navegador.
+- Interface: **http://127.0.0.1:8000/app**
+- Documentação da API: **http://127.0.0.1:8000/docs**
+
+---
 
 ## Estrutura do projeto
 
 | Pasta / arquivo                    | O que é                                                        |
 | ---------------------------------- | -------------------------------------------------------------- |
 | `src/esquema.py`                   | **Contrato de dados** — quais colunas, unidades e faixas        |
+| `src/atlas.py`                     | Converte o Atlas bruto no dataset e calcula as features         |
 | `src/carregar.py`                  | Lê o CSV e valida contra o contrato antes de treinar            |
 | `src/caracteristicas.py`           | Features derivadas e pré-processamento (imputação + one-hot)    |
-| `src/procedencia.py`               | Registra se o CSV usado é sintético ou real                     |
-| `dados/gerar_dados_sinteticos.py`  | Gera CSV de teste no formato exato do contrato                  |
-| `dados/README.md`                  | **Onde baixar os dados reais** e como montar o rótulo           |
+| `src/procedencia.py`               | Registra se o dataset veio da base real ou de dados sintéticos  |
+| `dados/preparar_dados.py`          | Gera `dados.csv` a partir da base bruta                         |
+| `dados/README.md`                  | **Metodologia dos dados** e limitações — leitura obrigatória    |
 | `treinamento/treinar_modelo.py`    | Treina, avalia e salva o modelo                                 |
 | `backend/app.py`                   | API que serve as previsões                                      |
-| `backend/esquemas_api.py`          | Formato de entrada e saída da API                               |
-| `testes/`                          | Testes automatizados (`pytest testes/`)                         |
+| `frontend/`                        | Interface web (HTML/CSS/JS puro, sem bibliotecas)               |
+| `testes/`                          | Testes automatizados (`pytest`)                                 |
 | `modelo/`                          | Saída do treino: `modelo.pkl` e `metadados.json`                |
 
-`src/esquema.py` é a peça central: treino e API leem dele, então nunca há
-divergência entre o que o modelo aprendeu e o que a API aceita. Para ver o
-contrato inteiro:
+`src/esquema.py` é a peça central: treino, API e testes leem dele, então nunca
+há divergência entre o que o modelo aprendeu e o que a API aceita.
 
 ```bash
 python -m src.esquema
 ```
 
-## Como o projeto se protege de erro silencioso
-
-Três cuidados que só aparecem quando algo dá errado — e que evitam o pior
-cenário de um trabalho como este, que é apresentar um número inválido sem
-ninguém perceber:
-
-- **Procedência dos dados.** O gerador marca o CSV sintético com um hash. O
-  treino grava a origem no `metadados.json` e avisa em destaque; a API repete
-  o aviso em `GET /` e `GET /modelo/info`. Trocar o CSV pela base real
-  invalida a marca automaticamente (detalhes em [`dados/README.md`](dados/README.md)).
-- **Assinatura do esquema.** Cada modelo guarda uma impressão digital do
-  contrato de dados com que foi treinado. Se alguém mudar as colunas em
-  `src/esquema.py` e esquecer de retreinar, a API **recusa** o modelo antigo
-  e diz o que fazer, em vez de responder com previsões sem sentido.
-- **Pipeline salvo inteiro.** As transformações vão dentro do `.pkl`, então a
-  API aplica exatamente o mesmo tratamento usado no treino.
+---
 
 ## Como o problema foi modelado
 
-Uma linha do dataset = **um município, em um mês, para um tipo de desastre**.
-O tipo de desastre (COBRADE) entra como variável de entrada, o que permite um
-único modelo cobrir inundação, deslizamento, seca, vendaval e os demais — em
-vez de manter nove modelos separados.
+Uma linha = **um município, em um mês, para um tipo de desastre**. O tipo entra
+como variável de entrada, o que permite um único modelo cobrir os dez grupos
+(inundação, deslizamento, seca, vendaval, granizo, incêndio florestal e outros).
 
-- **Entrada:** 38 variáveis — território (declividade, população, área de
-  risco), clima do período (chuva, umidade, temperatura, vento) e histórico do
-  S2iD (ocorrências, decretos, danos).
-- **Saída:** `baixo`, `medio` ou `alto`, com a probabilidade de cada nível.
-- **Algoritmo:** Random Forest dentro de um `Pipeline` do scikit-learn, que
-  inclui o pré-processamento. O pipeline inteiro é salvo, então a API aplica
-  exatamente as mesmas transformações do treino.
+As features são de três naturezas — **onde** (UF, região, tipo), **quando**
+(mês, que carrega a sazonalidade) e **histórico** (o que já aconteceu ali).
+Todas contam apenas o que ocorreu **antes** do mês previsto.
 
-Três decisões que valem menção na apresentação:
+A metodologia completa — construção do rótulo, exemplos negativos e vazamento
+temporal — está em [`dados/README.md`](dados/README.md).
 
-1. **`class_weight="balanced"`** — risco alto é ~12% dos casos. Sem isso o
-   modelo aprende a chutar "baixo" sempre e exibe uma acurácia alta e inútil.
-2. **Acurácia balanceada como métrica principal** — a acurácia simples engana
-   quando as classes são desbalanceadas.
-3. **Recall da classe "alto"** é o número que mais importa. Num sistema de
-   alerta, deixar de avisar um risco real custa muito mais caro que um alarme
-   falso — e o treino imprime esse número em destaque.
+---
 
-## Treinar o modelo
+## Resultados
 
-```bash
-python treinamento/treinar_modelo.py
-```
+Medidos em **divisão temporal**: o modelo treina com 2010–2021 e é avaliado em
+2022–2025, que ele nunca viu. É assim que o sistema seria usado de verdade.
 
-Opções úteis:
+| Métrica | Valor |
+| --- | --- |
+| Acurácia | 68,1% |
+| Acurácia balanceada | 49,9% |
+| F1 macro | 0,507 |
+| Casos de risco **alto** identificados | **48,7%** |
 
-```bash
-python treinamento/treinar_modelo.py --sem-validacao-cruzada
-```
+| Classe | Precisão | Recall | F1 |
+| --- | --- | --- | --- |
+| baixo | 0,748 | 0,841 | 0,792 |
+| medio | 0,495 | 0,168 | 0,251 |
+| alto  | 0,472 | 0,487 | 0,479 |
 
-| Opção                     | Para que serve                                  |
-| ------------------------- | ----------------------------------------------- |
-| `--dados CAMINHO`         | usar outro CSV                                  |
-| `--arvores N`             | número de árvores (padrão: 300)                 |
-| `--profundidade N`        | limitar a profundidade das árvores              |
-| `--proporcao-teste 0.2`   | fração reservada para teste                     |
-| `--sem-validacao-cruzada` | pula a validação cruzada (bem mais rápido)      |
+**Como ler isso com honestidade.** A acurácia de 68% não é o número importante:
+como 75% das linhas são "baixo", chutar sempre "baixo" já daria mais que isso.
+O número que importa num sistema de alerta é quantos casos graves o modelo
+**pega** — 48,7% — e ele foi obtido pesando o erro: deixar de avisar um risco
+alto custa mais caro que um alarme falso. Com pesos neutros, o modelo acertava
+mais no total e detectava bem menos casos graves.
 
-O script valida os dados, treina, avalia e salva `modelo/modelo.pkl` junto de
-`modelo/metadados.json` — que registra métricas, período coberto, versões das
-bibliotecas e importância das variáveis daquele treino.
+A classe `medio` é a mais difícil (recall 0,168), o que faz sentido: ela é
+justamente a faixa ambígua entre "nada aconteceu" e "aconteceu algo grave".
+
+O modelo aprendeu padrões coerentes com a realidade — a variável mais
+importante é a atividade recente do mesmo tipo de desastre na UF, seguida do
+tempo desde a última ocorrência no município e da sazonalidade do mês.
+
+---
+
+## Como o projeto se protege de erro silencioso
+
+- **Sem vazamento temporal.** As features de um mês nunca usam aquele mês nem o
+  futuro, e um teste confere isso linha a linha.
+- **Divisão temporal.** Treina no passado, testa no futuro. A validação cruzada
+  aleatória também é calculada, e o próprio treino avisa que ela é otimista.
+- **Procedência dos dados.** O dataset carrega um registro com hash SHA-256 da
+  origem; a API informa se o modelo foi treinado com base real ou sintética.
+- **Assinatura do esquema.** Cada modelo guarda a impressão digital do contrato
+  de dados com que foi treinado. Mudou a coluna e esqueceu de retreinar? A API
+  **recusa** o modelo antigo em vez de responder besteira.
+- **Um único cálculo de features.** Treino e consulta da API passam pela mesma
+  função (`src/atlas.calcular_features`), e um teste garante que produzem
+  números idênticos.
+- **Pipeline salvo inteiro.** As transformações vão dentro do `.pkl`.
+
+---
 
 ## A API
 
-| Método | Rota                 | O que faz                                        |
-| ------ | -------------------- | ------------------------------------------------ |
-| GET    | `/`                  | estado da API e do modelo                        |
-| GET    | `/esquema`           | contrato de dados (quais campos enviar)          |
-| GET    | `/modelo/info`       | métricas e metadados do modelo carregado         |
-| POST   | `/modelo/recarregar` | recarrega o `.pkl` sem reiniciar o servidor      |
-| POST   | `/prever`            | previsão para um município                       |
-| POST   | `/prever/lote`       | previsão para vários municípios de uma vez       |
-| POST   | `/mapa/risco`        | **GeoJSON pronto para o mapa interativo**        |
+| Método | Rota | O que faz |
+| --- | --- | --- |
+| `GET` | `/` | Estado da API e do modelo |
+| `GET` | `/esquema` | Contrato de dados (quais campos enviar) |
+| `GET` | `/modelo/info` | Métricas e procedência do modelo carregado |
+| `POST` | `/modelo/recarregar` | Recarrega o `.pkl` sem reiniciar o servidor |
+| `GET` | `/municipios` | Busca municípios por nome (ignora acento) ou UF |
+| `GET` | `/municipios/{ibge}/historico` | Ocorrências já registradas no município |
+| `POST` | `/prever/municipio` | **Previsão a partir de município, tipo e mês** |
+| `POST` | `/prever` | Previsão informando todas as features manualmente |
+| `POST` | `/prever/lote` | Várias previsões de uma vez |
+| `POST` | `/mapa/risco` | GeoJSON pronto para um mapa interativo |
 
-`/mapa/risco` devolve o formato padrão que Leaflet, Mapbox e OpenLayers
-consomem direto. Cada ponto já vem com `properties.cor` e
-`properties.nivel_risco`, então o frontend só precisa jogar o resultado numa
-camada do mapa.
+O endpoint que a interface usa é o `/prever/municipio`: quem consulta informa
+apenas **onde, o quê e quando**, e o backend calcula as quinze variáveis
+históricas a partir do Atlas.
 
-Para pintar o país inteiro, use `/mapa/risco` ou `/prever/lote` com todos os
-municípios de uma vez — uma chamada com N linhas é muito mais rápida que N
-chamadas.
+---
 
 ## Testes
 
 ```bash
-pytest testes/ -v
+pytest
 ```
 
-Cobrem o contrato de dados, as features derivadas, a validação, o pipeline de
-treino e todos os endpoints da API. Os testes da API são pulados
-automaticamente se ainda não houver modelo treinado.
+71 testes cobrindo o ETL, o contrato de dados, o vazamento temporal, o modelo,
+a API e a interface. **Rode antes de todo commit.**
+
+---
+
+## Limitações (para responder à banca)
+
+- **Sem gatilho climático.** O Atlas não traz chuva nem temperatura. O modelo
+  sabe que Petrópolis é perigosa em fevereiro, mas não sabe se vai chover neste
+  fevereiro. Incorporar o INMET é o próximo passo natural.
+- **Subnotificação.** Município que não registra ocorrência aparece como sem
+  risco.
+- **Probabilidade relativa, não absoluta.** Os meses sem desastre foram
+  amostrados; use para comparar e priorizar municípios.
+- **O rótulo é uma construção do trabalho**, derivada dos danos declarados.
+
+---
 
 ## Próximos passos
 
-1. **Incorporar a base real do S2iD** — ver [`dados/README.md`](dados/README.md),
-   que lista as fontes e explica como construir o rótulo `nivel_risco`.
-2. **Trocar a divisão treino/teste por uma divisão temporal** (treinar até
-   2022, testar em 2023–2024). Com dados reais e série temporal, o split
-   aleatório superestima o desempenho.
-3. **Conferir vazamento temporal** — as features de um mês têm que prever o mês
-   seguinte, nunca o próprio.
-4. **Construir o mapa interativo** consumindo `/mapa/risco`.
+- [ ] Incorporar chuva e temperatura do INMET/CEMADEN
+- [ ] Adicionar coordenadas do IBGE para ativar o mapa (`/mapa/risco` já existe)
+- [ ] Testar divisão temporal mais longa (treinar até 2019, testar 2020–2025)
+- [ ] Melhorar a detecção da classe `medio`
 
-## Fluxo de trabalho no git
+---
 
-Antes de começar a programar:
+## Fluxo de trabalho no Git
 
 ```bash
 git pull origin main
@@ -196,11 +229,9 @@ git pull origin main
 Depois de alterar o código:
 
 ```bash
-git add . ; git commit -m "Mensagem descrevendo a alteração" ; git push origin main
-```
-
-Se instalar uma biblioteca nova, atualize o `requirements.txt`:
-
-```bash
-pip freeze > requirements.txt
+pytest
+git status
+git add .
+git commit -m "Mensagem descrevendo a alteração"
+git push origin main
 ```

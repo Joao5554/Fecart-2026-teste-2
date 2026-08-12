@@ -133,7 +133,7 @@ def validar(dados: pd.DataFrame, exigir_alvo: bool = True) -> Relatorio:
             )
 
     # --- 6. Linhas duplicadas -------------------------------------------------
-    chave = ["codigo_ibge", "ano", "mes", "cobrade_grupo"]
+    chave = esquema.CHAVE_LINHA
     duplicadas = int(dados.duplicated(subset=chave).sum())
     if duplicadas:
         rel.avisos.append(
@@ -228,7 +228,7 @@ def resumir(dados: pd.DataFrame) -> None:
     print(f"UFs distintas: {dados['uf'].nunique()}")
 
     print("\nLinhas por grupo de desastre:")
-    for grupo, n in dados["cobrade_grupo"].value_counts().items():
+    for grupo, n in dados["grupo_desastre"].value_counts().items():
         print(f"  {grupo:<20} {n:>8,}")
 
     if esquema.COLUNA_ALVO in dados.columns:

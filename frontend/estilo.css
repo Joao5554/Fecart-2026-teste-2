@@ -1,0 +1,217 @@
+/* Estilo da interface do projeto Fecart 2026.
+   Sem bibliotecas externas: o projeto inteiro roda offline. */
+
+:root {
+  --verde: #2E7D32;
+  --amarelo: #F9A825;
+  --vermelho: #C62828;
+
+  --tinta: #1a1f26;
+  --tinta-fraca: #5b6672;
+  --fundo: #eef1f5;
+  --papel: #ffffff;
+  --borda: #d7dde5;
+  --destaque: #0d47a1;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: "Segoe UI", system-ui, -apple-system, Arial, sans-serif;
+  background: var(--fundo);
+  color: var(--tinta);
+  line-height: 1.55;
+}
+
+.conteudo {
+  max-width: 860px;
+  margin: 0 auto;
+  padding: 0 20px;
+}
+
+.cabecalho {
+  background: linear-gradient(135deg, #12305e, #0d47a1);
+  color: #fff;
+  padding: 28px 0;
+  margin-bottom: 24px;
+}
+
+.cabecalho h1 { margin: 0 0 6px; font-size: 1.6rem; }
+
+.subtitulo { margin: 0; opacity: .85; font-size: .92rem; }
+
+.cartao {
+  background: var(--papel);
+  border: 1px solid var(--borda);
+  border-radius: 10px;
+  padding: 20px;
+  margin-bottom: 20px;
+}
+
+.cartao h2 { margin: 0 0 4px; font-size: 1.15rem; }
+.cartao h3 { margin: 20px 0 8px; font-size: .95rem; color: var(--tinta-fraca); }
+
+.ajuda { color: var(--tinta-fraca); font-size: .88rem; margin: 4px 0 14px; }
+
+/* ---------- formulário ---------- */
+
+.formulario {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  align-items: end;
+}
+
+.campo { position: relative; display: flex; flex-direction: column; }
+.campo-busca { grid-column: 1 / -1; }
+
+label {
+  font-size: .8rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .03em;
+  color: var(--tinta-fraca);
+  margin-bottom: 5px;
+}
+
+input, select, button {
+  font: inherit;
+  padding: 10px 12px;
+  border: 1px solid var(--borda);
+  border-radius: 7px;
+  background: #fff;
+  color: var(--tinta);
+}
+
+input:focus, select:focus {
+  outline: 2px solid var(--destaque);
+  outline-offset: -1px;
+}
+
+button {
+  grid-column: 1 / -1;
+  background: var(--destaque);
+  color: #fff;
+  border: none;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 12px;
+}
+
+button:hover:not(:disabled) { background: #093784; }
+button:disabled { background: #9aa7b8; cursor: not-allowed; }
+
+/* ---------- autocomplete ---------- */
+
+.sugestoes {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: 10;
+  margin: 2px 0 0;
+  padding: 0;
+  list-style: none;
+  background: #fff;
+  border: 1px solid var(--borda);
+  border-radius: 7px;
+  max-height: 240px;
+  overflow-y: auto;
+  box-shadow: 0 6px 18px rgba(0,0,0,.10);
+}
+
+.sugestoes li { padding: 9px 12px; cursor: pointer; font-size: .92rem; }
+.sugestoes li:hover { background: #eef3fb; }
+.sugestoes .uf { color: var(--tinta-fraca); font-size: .82rem; }
+
+.escolhido {
+  margin: 8px 0 0;
+  font-size: .86rem;
+  color: var(--verde);
+  font-weight: 600;
+}
+
+/* ---------- resultado ---------- */
+
+.resultado-topo { display: flex; gap: 16px; align-items: center; }
+
+.selo {
+  min-width: 132px;
+  padding: 16px 10px;
+  border-radius: 10px;
+  text-align: center;
+  color: #fff;
+  font-weight: 700;
+  font-size: 1.2rem;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+
+.selo.baixo { background: var(--verde); }
+.selo.medio { background: var(--amarelo); color: #3a2d00; }
+.selo.alto  { background: var(--vermelho); }
+
+.resultado-titulo { margin: 0 0 4px; font-size: 1.05rem; font-weight: 600; }
+
+.barras { display: flex; flex-direction: column; gap: 8px; }
+
+.barra-linha { display: grid; grid-template-columns: 64px 1fr 56px; align-items: center; gap: 10px; }
+.barra-nome { font-size: .85rem; text-transform: capitalize; color: var(--tinta-fraca); }
+.barra-trilho { background: #e9edf3; border-radius: 5px; height: 20px; overflow: hidden; }
+.barra-preenchida { height: 100%; border-radius: 5px; transition: width .35s ease; }
+.barra-valor { font-size: .85rem; text-align: right; font-variant-numeric: tabular-nums; }
+
+/* ---------- gráfico do ano ---------- */
+
+.grafico {
+  display: grid;
+  grid-template-columns: repeat(12, 1fr);
+  gap: 5px;
+  align-items: end;
+  height: 190px;
+  padding-top: 8px;
+}
+
+.coluna { display: flex; flex-direction: column; align-items: center; height: 100%; justify-content: flex-end; gap: 4px; }
+.coluna-valor { font-size: .68rem; color: var(--tinta-fraca); font-variant-numeric: tabular-nums; }
+.coluna-barra { width: 100%; background: var(--vermelho); border-radius: 4px 4px 0 0; min-height: 2px; transition: height .35s ease; }
+.coluna-mes { font-size: .7rem; color: var(--tinta-fraca); }
+.coluna.destaque .coluna-barra { outline: 2px solid var(--destaque); outline-offset: 1px; }
+
+/* ---------- tabelas ---------- */
+
+.tabela { width: 100%; border-collapse: collapse; font-size: .87rem; }
+.tabela th, .tabela td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--borda); }
+.tabela th { color: var(--tinta-fraca); font-weight: 600; }
+.tabela td.numero { text-align: right; font-variant-numeric: tabular-nums; }
+
+.detalhes { margin-top: 18px; }
+.detalhes summary { cursor: pointer; font-weight: 600; font-size: .9rem; color: var(--destaque); }
+
+/* ---------- avisos ---------- */
+
+.aviso {
+  background: #fff4e5;
+  border: 1px solid #f0c68a;
+  border-left: 4px solid var(--amarelo);
+  border-radius: 7px;
+  padding: 12px 14px;
+  margin-bottom: 20px;
+  font-size: .89rem;
+  white-space: pre-line;
+}
+
+.aviso.erro { background: #fdecea; border-color: #e6a29c; border-left-color: var(--vermelho); }
+
+.cartao-nota { background: #f7f9fc; }
+.cartao-nota p { font-size: .89rem; margin: 0 0 10px; }
+
+.oculto { display: none; }
+
+@media (max-width: 620px) {
+  .formulario { grid-template-columns: 1fr; }
+  .resultado-topo { flex-direction: column; align-items: stretch; text-align: center; }
+  .grafico { height: 150px; }
+  .coluna-valor { display: none; }
+}

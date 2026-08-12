@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Previsão de Risco de Desastres Naturais — Fecart 2026</title>
+  <link rel="stylesheet" href="estilo.css">
+</head>
+<body>
+
+<header class="cabecalho">
+  <div class="conteudo">
+    <h1>Previsão de Risco de Desastres Naturais</h1>
+    <p class="subtitulo">
+      Modelo treinado com o Atlas Digital de Desastres (S2iD / Defesa Civil),
+      1991–2025 · Fecart 2026
+    </p>
+  </div>
+</header>
+
+<main class="conteudo">
+
+  <!-- Aviso de estado do modelo (aparece só quando há problema) -->
+  <div id="aviso-modelo" class="aviso oculto"></div>
+
+  <section class="cartao">
+    <h2>Consultar risco</h2>
+    <p class="ajuda">
+      Escolha o município, o tipo de desastre e o mês. O histórico do município
+      é buscado automaticamente no Atlas — você não precisa preencher nada além disso.
+    </p>
+
+    <form id="formulario" class="formulario">
+      <div class="campo campo-busca">
+        <label for="busca">Município</label>
+        <input type="text" id="busca" placeholder="Digite o nome (ex.: Petropolis)"
+               autocomplete="off" required>
+        <ul id="sugestoes" class="sugestoes oculto"></ul>
+        <p id="municipio-escolhido" class="escolhido oculto"></p>
+      </div>
+
+      <div class="campo">
+        <label for="tipo">Tipo de desastre</label>
+        <select id="tipo" required></select>
+      </div>
+
+      <div class="campo">
+        <label for="mes">Mês</label>
+        <select id="mes" required></select>
+      </div>
+
+      <button type="submit" id="botao" disabled>Prever risco</button>
+    </form>
+  </section>
+
+  <section id="resultado" class="cartao oculto">
+    <h2>Resultado</h2>
+
+    <div class="resultado-topo">
+      <div id="selo" class="selo">—</div>
+      <div class="resultado-texto">
+        <p id="resultado-titulo" class="resultado-titulo"></p>
+        <p id="resultado-detalhe" class="ajuda"></p>
+      </div>
+    </div>
+
+    <h3>Probabilidade de cada nível</h3>
+    <div id="barras" class="barras"></div>
+
+    <details class="detalhes">
+      <summary>Como o modelo chegou a isso</summary>
+      <p class="ajuda">
+        Estas são as variáveis calculadas a partir do histórico do município,
+        contando apenas o que aconteceu <strong>antes</strong> do mês consultado.
+      </p>
+      <table id="tabela-features" class="tabela"></table>
+    </details>
+  </section>
+
+  <section id="secao-ano" class="cartao oculto">
+    <h2>O ano inteiro</h2>
+    <p class="ajuda">
+      Probabilidade de risco <strong>alto</strong> em cada mês, para o mesmo
+      município e tipo de desastre. É aqui que a sazonalidade aparece.
+    </p>
+    <div id="grafico" class="grafico"></div>
+  </section>
+
+  <section id="secao-historico" class="cartao oculto">
+    <h2>Histórico registrado</h2>
+    <p id="historico-resumo" class="ajuda"></p>
+    <table id="tabela-historico" class="tabela"></table>
+  </section>
+
+  <section class="cartao cartao-nota">
+    <h2>Como ler estes números</h2>
+    <p>
+      O modelo estima o risco <strong>relativo</strong> de um município em
+      relação aos outros, a partir do que já aconteceu ali. Ele não é uma
+      previsão meteorológica: o Atlas registra ocorrências, mas não traz chuva,
+      temperatura nem umidade. Quando essas séries do INMET forem incorporadas,
+      a previsão passa a considerar também o gatilho climático do evento.
+    </p>
+    <p>
+      As probabilidades não devem ser lidas como "chance absoluta de acontecer",
+      porque os meses sem desastre foram amostrados para o treino caber na
+      memória. Use como ferramenta de comparação e priorização.
+    </p>
+    <p id="rodape-modelo" class="ajuda"></p>
+  </section>
+
+</main>
+
+<script src="app.js"></script>
+</body>
+</html>

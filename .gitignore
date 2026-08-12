@@ -9,9 +9,12 @@ __pycache__/
 *.pkl
 modelo/metadados.json
 
-# Datasets. A base real é grande demais para o git, e os dados sintéticos
-# são gerados por script — quem clonar roda dados/gerar_dados_sinteticos.py.
+# Datasets. Nada de CSV vai para o Git:
+#  - a base bruta do Atlas tem 82 MB (acima do limite do GitHub);
+#  - dados.csv e ocorrencias.csv são gerados por dados/preparar_dados.py.
+# Quem clonar baixa a base bruta uma vez e roda o script.
 dados/*.csv
+dados/bruto/
 
 # Registro de procedência do CSV local: descreve o arquivo de dados de cada
 # máquina, então não faz sentido versionar.

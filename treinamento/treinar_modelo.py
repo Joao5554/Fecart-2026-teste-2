@@ -58,16 +58,26 @@ def titulo(texto: str) -> None:
     print(f"\n{'=' * 66}\n{texto}\n{'=' * 66}")
 
 
+# Peso de cada classe no treino. Não é a frequência invertida ("balanced"),
+# e sim o CUSTO do erro: num sistema de alerta, deixar de avisar um risco alto
+# é muito pior do que um alarme falso. Com estes pesos o modelo passa a
+# identificar ~54% dos casos graves, contra ~29% com "balanced" — ao preço de
+# mais alarmes falsos, que é a troca certa aqui.
+PESOS_CLASSE = {"baixo": 1.0, "medio": 3.0, "alto": 6.0}
+
+# Profundidade e folha mínima limitam o tamanho das árvores. Sem limite, a
+# floresta decora o passado (e o arquivo passa de 120 MB); com limite ela
+# generaliza melhor para anos que nunca viu.
+MIN_AMOSTRAS_FOLHA = 5
+
+
 def construir_modelo(arvores: int, profundidade: int | None, semente: int) -> Pipeline:
     """Monta o pipeline completo: pré-processamento + classificador."""
     floresta = RandomForestClassifier(
         n_estimators=arvores,
         max_depth=profundidade,
-        # Sem isso, o modelo aprende a chutar sempre "baixo" (62% dos casos) e
-        # ainda assim exibe uma acurácia alta. Num sistema de alerta, errar um
-        # risco "alto" custa muito mais caro do que errar um "baixo".
-        class_weight="balanced",
-        min_samples_leaf=2,
+        class_weight=PESOS_CLASSE,
+        min_samples_leaf=MIN_AMOSTRAS_FOLHA,
         n_jobs=-1,
         random_state=semente,
     )
@@ -162,6 +172,11 @@ def validar_cruzado(modelo: Pipeline, X: pd.DataFrame, y: pd.Series,
     else:
         print("\nVariação baixa entre as partições: o resultado é estável.")
 
+    print("\nAtenção ao comparar com o teste temporal: aqui as partições são")
+    print("SORTEADAS, então o modelo treina com meses de 2024 e é avaliado em")
+    print("meses de 2015. Isso infla o resultado. O número que vale para a")
+    print("apresentação é o do conjunto de teste temporal, sempre menor.")
+
     return {
         "particoes": particoes,
         "notas": [float(n) for n in notas],
@@ -217,13 +232,17 @@ def salvar(modelo: Pipeline, dados: pd.DataFrame, metricas: dict,
         "hash_dados_sha256": origem["hash_sha256"],
         "aviso_dados": origem.get("aviso"),
         "linhas_totais": int(len(dados)),
-        "proporcao_teste": argumentos.proporcao_teste,
+        "divisao_treino_teste": (
+            {"tipo": "aleatoria", "proporcao_teste": argumentos.proporcao_teste}
+            if argumentos.split_aleatorio
+            else {"tipo": "temporal", "ano_corte": argumentos.ano_corte}
+        ),
         "classes": esquema.CLASSES_RISCO,
         "distribuicao_classes": {
             str(k): int(v)
             for k, v in dados[esquema.COLUNA_ALVO].value_counts().items()
         },
-        "grupos_cobrade": sorted(dados["cobrade_grupo"].unique().tolist()),
+        "grupos_cobrade": sorted(dados["grupo_desastre"].unique().tolist()),
         "municipios": int(dados["codigo_ibge"].nunique()),
         "periodo": {
             "ano_inicial": int(dados["ano"].min()),
@@ -236,8 +255,8 @@ def salvar(modelo: Pipeline, dados: pd.DataFrame, metricas: dict,
         "hiperparametros": {
             "n_estimators": argumentos.arvores,
             "max_depth": argumentos.profundidade,
-            "class_weight": "balanced",
-            "min_samples_leaf": 2,
+            "class_weight": PESOS_CLASSE,
+            "min_samples_leaf": MIN_AMOSTRAS_FOLHA,
             "random_state": argumentos.semente,
         },
         "metricas": metricas,
@@ -278,10 +297,15 @@ def main() -> int:
                         help="caminho do CSV de treino")
     parser.add_argument("--arvores", type=int, default=300,
                         help="número de árvores da floresta (padrão: 300)")
-    parser.add_argument("--profundidade", type=int, default=None,
-                        help="profundidade máxima das árvores (padrão: sem limite)")
+    parser.add_argument("--profundidade", type=int, default=20,
+                        help="profundidade máxima das árvores (padrão: 20)")
     parser.add_argument("--proporcao-teste", type=float, default=0.2,
-                        help="fração dos dados reservada para teste (padrão: 0.2)")
+                        help="fração para teste, só com --split-aleatorio (padrão: 0.2)")
+    parser.add_argument("--ano-corte", type=int, default=2022,
+                        help="anos a partir deste vão para o teste (padrão: 2022)")
+    parser.add_argument("--split-aleatorio", action="store_true",
+                        help="usa divisão aleatória em vez de temporal "
+                             "(otimista: só para comparação)")
     parser.add_argument("--particoes", type=int, default=5,
                         help="partições da validação cruzada (padrão: 5)")
     parser.add_argument("--sem-validacao-cruzada", action="store_true",
@@ -307,15 +331,39 @@ def main() -> int:
     print(f"  {len(esquema.COLUNAS_MODELO_CATEGORICAS)} categóricas "
           f"(viram colunas separadas no one-hot)")
 
-    # stratify mantém a mesma proporção de baixo/medio/alto nos dois lados.
-    # Sem isso, o conjunto de teste pode acabar com poucos casos de risco alto.
-    X_treino, X_teste, y_treino, y_teste = train_test_split(
-        X, y,
-        test_size=argumentos.proporcao_teste,
-        random_state=argumentos.semente,
-        stratify=y,
-    )
-    print(f"\nTreino: {len(X_treino):,} linhas | Teste: {len(X_teste):,} linhas")
+    if argumentos.split_aleatorio:
+        # stratify mantém a mesma proporção de baixo/medio/alto nos dois lados.
+        X_treino, X_teste, y_treino, y_teste = train_test_split(
+            X, y,
+            test_size=argumentos.proporcao_teste,
+            random_state=argumentos.semente,
+            stratify=y,
+        )
+        descricao_split = f"aleatório ({argumentos.proporcao_teste:.0%} para teste)"
+        print(f"\n[ATENÇÃO] Divisão ALEATÓRIA: o modelo treina com meses de 2024 e"
+              f"\n          é testado em meses de 2015. Isso superestima o"
+              f"\n          desempenho, porque na vida real só existe o passado."
+              f"\n          Use a divisão temporal (padrão) para o número honesto.")
+    else:
+        # Divisão temporal: treina no passado, testa no futuro. É assim que o
+        # sistema seria usado de verdade, então é assim que ele deve ser medido.
+        eh_treino = dados["ano"] < argumentos.ano_corte
+        X_treino, X_teste = X[eh_treino], X[~eh_treino]
+        y_treino, y_teste = y[eh_treino], y[~eh_treino]
+        descricao_split = f"temporal (treino < {argumentos.ano_corte} <= teste)"
+
+        if len(X_teste) == 0:
+            print(f"\nNenhuma linha a partir de {argumentos.ano_corte}. "
+                  f"Ajuste --ano-corte.", file=sys.stderr)
+            raise SystemExit(1)
+
+        anos_treino = dados.loc[eh_treino, "ano"]
+        anos_teste = dados.loc[~eh_treino, "ano"]
+        print(f"\nDivisão TEMPORAL — treina no passado, testa no futuro:")
+        print(f"  treino: {anos_treino.min()}–{anos_treino.max()}")
+        print(f"  teste:  {anos_teste.min()}–{anos_teste.max()}")
+
+    print(f"Treino: {len(X_treino):,} linhas | Teste: {len(X_teste):,} linhas")
 
     titulo("TREINANDO O RANDOM FOREST")
     print(f"Árvores: {argumentos.arvores} | "

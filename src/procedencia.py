@@ -28,6 +28,7 @@ RAIZ = Path(__file__).resolve().parent.parent
 ARQUIVO_PROCEDENCIA = RAIZ / "dados" / "procedencia.json"
 
 SINTETICO = "sintetico"
+REAL = "real"
 DESCONHECIDA = "desconhecida"
 
 AVISO_SINTETICO = (
@@ -68,6 +69,29 @@ def registrar_sintetico(caminho_csv: Path, semente: int, anos: tuple[int, int],
     return ARQUIVO_PROCEDENCIA
 
 
+def registrar_real(caminho_csv: Path, fonte: str, arquivo_bruto: str,
+                   linhas: int, periodo: tuple[int, int]) -> Path:
+    """Grava o registro de que o CSV veio de uma base histórica real."""
+    registro = {
+        "origem": REAL,
+        "arquivo": caminho_csv.name,
+        "hash_sha256": hash_arquivo(caminho_csv),
+        "linhas": linhas,
+        "fonte": fonte,
+        "arquivo_bruto": arquivo_bruto,
+        "periodo": {"ano_inicial": periodo[0], "ano_final": periodo[1]},
+        "gerado_em": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "gerado_por": "dados/preparar_dados.py",
+        "aviso": None,
+    }
+
+    ARQUIVO_PROCEDENCIA.parent.mkdir(parents=True, exist_ok=True)
+    ARQUIVO_PROCEDENCIA.write_text(
+        json.dumps(registro, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
+    return ARQUIVO_PROCEDENCIA
+
+
 def identificar(caminho_csv: Path) -> dict:
     """
     Descobre a origem do CSV informado.
@@ -90,11 +114,20 @@ def identificar(caminho_csv: Path) -> dict:
     mesmo_arquivo = registro.get("arquivo") == caminho_csv.name
     mesmo_conteudo = registro.get("hash_sha256") == hash_atual
 
+    # O registro só vale se descrever exatamente este arquivo. Se o CSV foi
+    # trocado depois, a origem volta a ser desconhecida — o lado seguro.
     if mesmo_arquivo and mesmo_conteudo:
-        resultado["origem"] = SINTETICO
-        resultado["aviso"] = AVISO_SINTETICO
-        resultado["semente"] = registro.get("semente")
+        origem = registro.get("origem", DESCONHECIDA)
+        resultado["origem"] = origem
         resultado["gerado_em"] = registro.get("gerado_em")
+
+        if origem == SINTETICO:
+            resultado["aviso"] = AVISO_SINTETICO
+            resultado["semente"] = registro.get("semente")
+        elif origem == REAL:
+            resultado["fonte"] = registro.get("fonte")
+            resultado["arquivo_bruto"] = registro.get("arquivo_bruto")
+            resultado["periodo"] = registro.get("periodo")
 
     return resultado
 

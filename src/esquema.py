@@ -7,20 +7,28 @@ então nunca há divergência entre o que o modelo aprendeu e o que a API recebe
 
 Formato dos dados
 -----------------
-Uma linha = um município, em um mês, para um grupo de desastre.
+Uma linha = **um município, em um mês, para um tipo de desastre**.
 
-    codigo_ibge | ano | mes | cobrade_grupo    | ... | nivel_risco
-    3550308     | 2024| 2   | INUNDACAO        | ... | alto
-    3550308     | 2024| 2   | DESLIZAMENTO     | ... | medio
-    3550308     | 2024| 3   | INUNDACAO        | ... | baixo
+    codigo_ibge | ano  | mes | grupo_desastre | ... | nivel_risco
+    3303906     | 2024 | 2   | DESLIZAMENTO   | ... | alto
+    3303906     | 2024 | 2   | INUNDACAO      | ... | medio
+    3303906     | 2024 | 3   | DESLIZAMENTO   | ... | baixo
 
-Ou seja, o mesmo município aparece várias vezes: uma vez por mês e por tipo
-de desastre. Isso permite um único modelo cobrir todos os tipos, como no S2iD.
+O mesmo município aparece várias vezes: uma por mês e por tipo de desastre.
+Isso permite um único modelo cobrir todos os tipos, como no S2iD.
 
-Quando a base real chegar
--------------------------
-Renomeie as colunas do CSV para os nomes abaixo (ou ajuste os nomes aqui).
-Não é preciso mexer no treinamento nem no backend.
+De onde vêm as colunas
+----------------------
+Todas as variáveis são construídas a partir do **Atlas de Desastres**
+(S2iD/SEDEC), pelo módulo `src/atlas.py`. São de três naturezas:
+
+  - **onde**: UF, região e o tipo de desastre em questão;
+  - **quando**: o mês, que carrega a sazonalidade;
+  - **histórico**: o que já aconteteu naquele município antes do mês previsto.
+
+O Atlas **não traz dados climáticos** (chuva, temperatura, umidade). Quando
+essas séries forem obtidas do INMET/CEMADEN, entram como colunas novas aqui
+e no ETL — o restante do projeto não precisa mudar.
 """
 
 import hashlib
@@ -29,7 +37,8 @@ from dataclasses import dataclass, field
 
 # Versão do contrato de dados. Aumente ao mudar colunas ou classes: serve para
 # uma pessoa entender rapidamente que o formato mudou.
-VERSAO_ESQUEMA = "1.0.0"
+# 2.0.0 — troca da base sintética pelo Atlas de Desastres real.
+VERSAO_ESQUEMA = "2.0.0"
 
 
 # --------------------------------------------------------------------------
@@ -49,28 +58,35 @@ CORES_RISCO = {
     "alto": "#C62828",    # vermelho
 }
 
+# Como o rótulo é construído a partir do que o S2iD registra. Esta é uma
+# decisão metodológica do trabalho, não um dado pronto da base.
+CRITERIO_ROTULO = {
+    "baixo": "Nenhuma ocorrência registrada no município, no mês, para o tipo",
+    "medio": "Ocorrência registrada, sem reconhecimento federal e sem mortos",
+    "alto": "Ocorrência com mortos ou com reconhecimento de emergência/calamidade",
+}
+
 
 # --------------------------------------------------------------------------
 # Grupos de desastre (COBRADE — Codificação Brasileira de Desastres)
 # --------------------------------------------------------------------------
-# Agrupados para o modelo. O código COBRADE completo tem 4 níveis; aqui usamos
-# o agrupamento que a Defesa Civil usa nos relatórios públicos.
+# Agrupamento das tipologias do Atlas. O mapeamento tipologia -> grupo está
+# em src/atlas.py (TIPOLOGIA_PARA_GRUPO).
 
 GRUPOS_COBRADE = {
-    "INUNDACAO": "1.2.1.0.0 — Inundações",
-    "ENXURRADA": "1.2.2.0.0 — Enxurradas",
-    "ALAGAMENTO": "1.2.3.0.0 — Alagamentos",
-    "DESLIZAMENTO": "1.1.3.1.4 — Movimento de massa / deslizamentos",
-    "ESTIAGEM_SECA": "1.4.1.0.0 — Estiagem e seca",
-    "VENDAVAL_CICLONE": "1.3.2.1.5 — Vendaval / ciclone",
-    "GRANIZO": "1.3.2.1.3 — Chuvas de granizo",
-    "INCENDIO_FLORESTAL": "1.4.1.4.0 — Incêndio florestal",
-    "EROSAO": "1.1.4.0.0 — Erosão",
+    "ESTIAGEM_SECA": "Estiagem e seca",
+    "INUNDACAO": "Inundações",
+    "ENXURRADA": "Enxurradas",
+    "ALAGAMENTO": "Alagamentos",
+    "CHUVAS_INTENSAS": "Chuvas intensas",
+    "DESLIZAMENTO": "Movimento de massa / deslizamentos",
+    "VENDAVAL_CICLONE": "Vendavais, ciclones e tornados",
+    "GRANIZO": "Chuvas de granizo",
+    "INCENDIO_FLORESTAL": "Incêndio florestal",
+    "EROSAO": "Erosão",
 }
 
 REGIOES = ["Norte", "Nordeste", "Centro-Oeste", "Sudeste", "Sul"]
-
-BIOMAS = ["Amazonia", "Cerrado", "Mata Atlantica", "Caatinga", "Pampa", "Pantanal"]
 
 UFS = [
     "AC", "AL", "AM", "AP", "BA", "CE", "DF", "ES", "GO", "MA", "MG", "MS",
@@ -106,131 +122,104 @@ IDENTIFICACAO = [
            minimo=1_000_000, maximo=9_999_999, fonte="IBGE"),
     Coluna("municipio", "Nome do município", "categorico", fonte="IBGE"),
     Coluna("ano", "Ano de referência do registro", "numerico",
-           minimo=1990, maximo=2100, fonte="S2iD"),
-    Coluna("mes", "Mês de referência (1 a 12)", "numerico",
-           minimo=1, maximo=12, fonte="S2iD"),
+           minimo=1990, maximo=2100, fonte="Atlas de Desastres"),
 ]
 
 
 # Colunas categóricas que entram no modelo.
 CATEGORICAS = [
     Coluna("uf", "Unidade federativa", "categorico",
-           categorias=UFS, fonte="IBGE"),
+           categorias=UFS, fonte="Atlas de Desastres"),
     Coluna("regiao", "Região do país", "categorico",
-           categorias=REGIOES, fonte="IBGE"),
-    Coluna("bioma", "Bioma predominante no município", "categorico",
-           categorias=BIOMAS, fonte="IBGE / MapBiomas"),
-    Coluna("cobrade_grupo", "Grupo de desastre (COBRADE)", "categorico",
-           categorias=list(GRUPOS_COBRADE), fonte="S2iD"),
+           categorias=REGIOES, fonte="Atlas de Desastres"),
+    Coluna("grupo_desastre", "Tipo de desastre avaliado", "categorico",
+           categorias=list(GRUPOS_COBRADE), fonte="Atlas de Desastres (COBRADE)"),
 ]
 
 
-# Colunas numéricas que entram no modelo, separadas por origem do dado.
-
-# --- Características fixas do município (mudam pouco ao longo do tempo) ---
-NUMERICAS_TERRITORIO = [
-    Coluna("latitude", "Latitude do centroide do município", "numerico", "graus",
-           minimo=-34.0, maximo=6.0, fonte="IBGE"),
-    Coluna("longitude", "Longitude do centroide do município", "numerico", "graus",
-           minimo=-74.0, maximo=-34.0, fonte="IBGE"),
-    Coluna("area_km2", "Área territorial", "numerico", "km²",
-           minimo=1.0, maximo=200_000.0, fonte="IBGE"),
-    Coluna("populacao", "População estimada", "numerico", "habitantes",
-           minimo=0.0, maximo=15_000_000.0, fonte="IBGE"),
-    Coluna("densidade_demografica", "Densidade demográfica", "numerico", "hab/km²",
-           minimo=0.0, maximo=15_000.0, fonte="IBGE"),
-    Coluna("altitude_media_m", "Altitude média", "numerico", "m",
-           minimo=-10.0, maximo=3_000.0, fonte="IBGE / SRTM"),
-    Coluna("declividade_media_graus", "Declividade média do terreno", "numerico", "graus",
-           minimo=0.0, maximo=60.0, fonte="SRTM / CPRM"),
-    Coluna("percentual_area_urbana", "Percentual de área urbanizada", "numerico", "%",
-           minimo=0.0, maximo=100.0, fonte="IBGE"),
-    Coluna("percentual_domicilios_area_risco",
-           "Percentual de domicílios em área de risco", "numerico", "%",
-           minimo=0.0, maximo=100.0, fonte="IBGE — Áreas de Risco"),
-    Coluna("indice_vegetacao", "Índice de cobertura vegetal (NDVI médio)", "numerico", "0-1",
-           minimo=0.0, maximo=1.0, fonte="MapBiomas / INPE"),
-    Coluna("distancia_curso_agua_km", "Distância média da mancha urbana ao curso d'água",
-           "numerico", "km", minimo=0.0, maximo=200.0, fonte="ANA"),
+# Quando: o mês carrega a sazonalidade (seca tem época, deslizamento também).
+NUMERICAS_TEMPO = [
+    Coluna("mes", "Mês de referência (1 a 12)", "numerico",
+           minimo=1, maximo=12, fonte="Atlas de Desastres"),
 ]
 
-# --- Condições climáticas do mês de referência ---
-NUMERICAS_CLIMA = [
-    Coluna("chuva_acumulada_mm", "Chuva acumulada no mês", "numerico", "mm",
-           minimo=0.0, maximo=2_000.0, fonte="INMET / CEMADEN"),
-    Coluna("chuva_max_24h_mm", "Maior volume de chuva em 24h no mês", "numerico", "mm",
-           minimo=0.0, maximo=600.0, fonte="INMET / CEMADEN"),
-    Coluna("chuva_max_72h_mm", "Maior volume de chuva em 72h no mês", "numerico", "mm",
-           minimo=0.0, maximo=1_000.0, fonte="INMET / CEMADEN"),
-    Coluna("dias_com_chuva", "Número de dias com chuva no mês", "numerico", "dias",
-           minimo=0.0, maximo=31.0, fonte="INMET"),
-    Coluna("anomalia_chuva_percentual",
-           "Desvio da chuva em relação à média histórica do mês", "numerico", "%",
-           minimo=-100.0, maximo=500.0, fonte="INMET (normais climatológicas)"),
-    Coluna("temperatura_media_c", "Temperatura média do mês", "numerico", "°C",
-           minimo=-5.0, maximo=45.0, fonte="INMET"),
-    Coluna("temperatura_max_c", "Temperatura máxima do mês", "numerico", "°C",
-           minimo=0.0, maximo=50.0, fonte="INMET"),
-    Coluna("umidade_relativa_media", "Umidade relativa média do ar", "numerico", "%",
-           minimo=0.0, maximo=100.0, fonte="INMET"),
-    Coluna("umidade_solo_percentual", "Umidade do solo", "numerico", "%",
-           minimo=0.0, maximo=100.0, permite_nulo=True, fonte="CEMADEN"),
-    Coluna("nivel_rio_m", "Nível do rio na estação mais próxima", "numerico", "m",
-           minimo=0.0, maximo=50.0, permite_nulo=True,
-           fonte="ANA — HidroWeb (nulo onde não há estação)"),
-    Coluna("velocidade_vento_max_kmh", "Velocidade máxima do vento no mês",
-           "numerico", "km/h", minimo=0.0, maximo=250.0, fonte="INMET"),
-]
-
-# --- Histórico de desastres do município (o coração do S2iD) ---
+# Histórico do próprio município para AQUELE tipo de desastre.
+# Todas contam apenas o que ocorreu ANTES do mês previsto.
 NUMERICAS_HISTORICO = [
-    Coluna("ocorrencias_12m",
-           "Ocorrências deste grupo de desastre nos últimos 12 meses",
-           "numerico", "registros", minimo=0.0, maximo=100.0, fonte="S2iD"),
+    Coluna("ocorrencias_12m", "Ocorrências deste tipo nos 12 meses anteriores",
+           "numerico", unidade="ocorrências", minimo=0, maximo=200,
+           fonte="Atlas de Desastres"),
+    Coluna("ocorrencias_24m", "Ocorrências deste tipo nos 24 meses anteriores",
+           "numerico", unidade="ocorrências", minimo=0, maximo=400,
+           fonte="Atlas de Desastres"),
+    Coluna("ocorrencias_60m", "Ocorrências deste tipo nos 60 meses anteriores",
+           "numerico", unidade="ocorrências", minimo=0, maximo=800,
+           fonte="Atlas de Desastres"),
     Coluna("ocorrencias_total_historico",
-           "Total histórico de ocorrências deste grupo no município",
-           "numerico", "registros", minimo=0.0, maximo=1_000.0, fonte="S2iD"),
+           "Total de ocorrências deste tipo já registradas no município",
+           "numerico", unidade="ocorrências", minimo=0, maximo=2000,
+           fonte="Atlas de Desastres"),
     Coluna("meses_desde_ultima_ocorrencia",
-           "Meses desde a última ocorrência deste grupo (999 = nunca ocorreu)",
-           "numerico", "meses", minimo=0.0, maximo=999.0, fonte="S2iD"),
-    Coluna("decretos_emergencia_5anos",
-           "Decretos de emergência ou calamidade nos últimos 5 anos",
-           "numerico", "decretos", minimo=0.0, maximo=50.0, fonte="S2iD"),
-    # Os tetos aqui são altos de propósito: as enchentes do RS em 2024
-    # afetaram mais de 2 milhões de pessoas, e prejuízos municipais na casa
-    # da dezena de bilhões de reais são registrados no S2iD. Um limite
-    # apertado rejeitaria justamente os eventos mais graves da base.
-    Coluna("media_afetados_historico",
-           "Média de pessoas afetadas nas ocorrências passadas",
-           "numerico", "pessoas", minimo=0.0, maximo=5_000_000.0, fonte="S2iD"),
-    Coluna("danos_materiais_historico_reais",
-           "Média de danos materiais declarados nas ocorrências passadas",
-           "numerico", "R$", minimo=0.0, maximo=100_000_000_000.0, fonte="S2iD"),
+           "Meses desde a última ocorrência deste tipo (-1 se nunca ocorreu)",
+           "numerico", unidade="meses", minimo=-1, maximo=1200,
+           fonte="Atlas de Desastres"),
+    Coluna("ja_ocorreu", "1 se este tipo já ocorreu alguma vez no município",
+           "numerico", minimo=0, maximo=1, fonte="Atlas de Desastres"),
+    Coluna("anos_de_historico",
+           "Anos decorridos desde a primeira ocorrência conhecida",
+           "numerico", unidade="anos", minimo=0, maximo=120,
+           fonte="Atlas de Desastres"),
+    Coluna("ocorrencias_mesmo_mes_historico",
+           "Vezes que este tipo já ocorreu neste mesmo mês do calendário",
+           "numerico", unidade="ocorrências", minimo=0, maximo=200,
+           fonte="Atlas de Desastres"),
+    Coluna("reconhecimentos_historico",
+           "Ocorrências anteriores com reconhecimento de emergência/calamidade",
+           "numerico", unidade="ocorrências", minimo=0, maximo=1000,
+           fonte="Atlas de Desastres"),
+    Coluna("mortos_historico", "Total de mortos em ocorrências anteriores",
+           "numerico", unidade="pessoas", minimo=0, maximo=100_000,
+           fonte="Atlas de Desastres"),
+    Coluna("afetados_historico", "Total de afetados em ocorrências anteriores",
+           "numerico", unidade="pessoas", minimo=0, maximo=100_000_000,
+           fonte="Atlas de Desastres"),
+    Coluna("prejuizo_historico_log",
+           "Prejuízo acumulado em ocorrências anteriores, em log(1+reais)",
+           "numerico", unidade="log(R$)", minimo=0, maximo=30,
+           fonte="Atlas de Desastres"),
 ]
 
+# Contexto: o que acontece em volta do município.
+NUMERICAS_CONTEXTO = [
+    Coluna("ocorrencias_municipio_12m",
+           "Ocorrências de qualquer tipo no município nos 12 meses anteriores",
+           "numerico", unidade="ocorrências", minimo=0, maximo=500,
+           fonte="Atlas de Desastres"),
+    Coluna("ocorrencias_uf_grupo_12m",
+           "Ocorrências deste tipo em toda a UF nos 12 meses anteriores",
+           "numerico", unidade="ocorrências", minimo=0, maximo=20_000,
+           fonte="Atlas de Desastres"),
+]
 
-NUMERICAS = NUMERICAS_TERRITORIO + NUMERICAS_CLIMA + NUMERICAS_HISTORICO
+NUMERICAS = NUMERICAS_TEMPO + NUMERICAS_HISTORICO + NUMERICAS_CONTEXTO
 
 
-# --------------------------------------------------------------------------
-# Colunas derivadas
-# --------------------------------------------------------------------------
-# Calculadas automaticamente a partir das colunas acima, no treino e na
-# previsão. Não precisam estar no CSV.
-
+# Colunas calculadas pelo pipeline a partir das anteriores.
+# Não precisam existir no CSV: src/caracteristicas.py as cria.
 DERIVADAS = [
     Coluna("mes_seno", "Componente cíclica do mês (seno)", "numerico",
-           minimo=-1.0, maximo=1.0),
+           minimo=-1, maximo=1),
     Coluna("mes_cosseno", "Componente cíclica do mês (cosseno)", "numerico",
-           minimo=-1.0, maximo=1.0),
-    Coluna("intensidade_chuva",
-           "Razão entre a chuva máxima em 24h e a acumulada no mês "
-           "(quanto maior, mais concentrada foi a chuva)",
-           "numerico", minimo=0.0, maximo=1.0),
-    Coluna("chuva_por_dia_chuvoso", "Chuva média por dia chuvoso", "numerico", "mm/dia",
-           minimo=0.0, maximo=600.0),
-    Coluna("ja_ocorreu", "1 se o desastre já ocorreu alguma vez no município", "numerico",
-           minimo=0.0, maximo=1.0),
+           minimo=-1, maximo=1),
+    Coluna("ocorrencias_por_ano",
+           "Frequência média de ocorrências por ano de histórico", "numerico",
+           minimo=0, maximo=200),
+    Coluna("proporcao_reconhecidas",
+           "Fração das ocorrências anteriores que viraram emergência oficial",
+           "numerico", minimo=0, maximo=1),
+    Coluna("gravidade_media_historica",
+           "Afetados por ocorrência anterior (mede o porte típico do evento)",
+           "numerico", minimo=0, maximo=10_000_000),
 ]
 
 
@@ -244,9 +233,12 @@ COLUNAS_DERIVADAS = [c.nome for c in DERIVADAS]
 COLUNAS_IDENTIFICACAO = [c.nome for c in IDENTIFICACAO]
 
 # O que o modelo recebe como entrada (na ordem em que o pipeline espera).
-# 'mes' entra também como número puro, além das componentes cíclicas.
-COLUNAS_MODELO_NUMERICAS = COLUNAS_NUMERICAS + ["mes"] + COLUNAS_DERIVADAS
+COLUNAS_MODELO_NUMERICAS = COLUNAS_NUMERICAS + COLUNAS_DERIVADAS
 COLUNAS_MODELO_CATEGORICAS = COLUNAS_CATEGORICAS
+
+# O que identifica uma linha de forma única. Duas linhas com a mesma chave
+# são repetição, e repetição dá peso extra àquele caso no treino.
+CHAVE_LINHA = ["codigo_ibge", "ano", "mes", "grupo_desastre"]
 
 # O que o CSV precisa ter, no mínimo.
 COLUNAS_OBRIGATORIAS = (
@@ -289,16 +281,20 @@ def descrever() -> str:
     linhas = [
         f"Alvo: {COLUNA_ALVO} -> {', '.join(CLASSES_RISCO)}",
         "",
-        f"Identificação ({len(IDENTIFICACAO)} colunas, não entram no modelo):",
+        "Como o rótulo é definido:",
     ]
+    for classe, criterio in CRITERIO_ROTULO.items():
+        linhas.append(f"  - {classe}: {criterio}")
+
+    linhas += ["", f"Identificação ({len(IDENTIFICACAO)} colunas, não entram no modelo):"]
     for c in IDENTIFICACAO:
         linhas.append(f"  - {c.nome}: {c.descricao}")
 
     for titulo, grupo in [
         ("Categóricas", CATEGORICAS),
-        ("Território", NUMERICAS_TERRITORIO),
-        ("Clima", NUMERICAS_CLIMA),
-        ("Histórico", NUMERICAS_HISTORICO),
+        ("Tempo", NUMERICAS_TEMPO),
+        ("Histórico do município", NUMERICAS_HISTORICO),
+        ("Contexto regional", NUMERICAS_CONTEXTO),
         ("Derivadas (calculadas, não precisam estar no CSV)", DERIVADAS),
     ]:
         linhas.append("")
@@ -318,3 +314,4 @@ if __name__ == "__main__":
     print(f"Total de features vistas pelo modelo: "
           f"{len(COLUNAS_MODELO_NUMERICAS) + len(COLUNAS_MODELO_CATEGORICAS)} "
           f"(antes do one-hot)")
+    print(f"Assinatura do contrato: {assinatura()}")

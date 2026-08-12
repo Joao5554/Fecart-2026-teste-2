@@ -35,22 +35,24 @@ def adicionar_derivadas(dados: pd.DataFrame) -> pd.DataFrame:
     dados["mes_seno"] = np.sin(angulo)
     dados["mes_cosseno"] = np.cos(angulo)
 
-    # 300 mm espalhados pelo mês é uma coisa; 300 mm em 24h é outra.
-    # Essa razão captura o quanto a chuva se concentrou.
-    acumulada = dados["chuva_acumulada_mm"].replace(0, np.nan)
-    dados["intensidade_chuva"] = (dados["chuva_max_24h_mm"] / acumulada).fillna(0.0)
-    dados["intensidade_chuva"] = dados["intensidade_chuva"].clip(0.0, 1.0)
-
-    dias = dados["dias_com_chuva"].replace(0, np.nan)
-    dados["chuva_por_dia_chuvoso"] = (
-        dados["chuva_acumulada_mm"] / dias
+    # Frequência: 10 ocorrências em 30 anos é muito diferente de 10 em 3 anos.
+    anos = dados["anos_de_historico"].clip(lower=1.0)
+    dados["ocorrencias_por_ano"] = (
+        dados["ocorrencias_total_historico"] / anos
     ).fillna(0.0)
 
-    # Município que nunca teve o desastre tem comportamento diferente de um
-    # que teve há muito tempo. O valor 999 sozinho confundiria o modelo.
-    dados["ja_ocorreu"] = (
-        dados["meses_desde_ultima_ocorrencia"] < 999
-    ).astype(float)
+    # Que fração dos eventos passados foi grave o bastante para virar
+    # emergência oficial. Separa município que sofre eventos pequenos e
+    # frequentes de outro que sofre poucos, porém graves.
+    total = dados["ocorrencias_total_historico"].replace(0, np.nan)
+    dados["proporcao_reconhecidas"] = (
+        dados["reconhecimentos_historico"] / total
+    ).fillna(0.0).clip(0.0, 1.0)
+
+    # Porte típico do evento naquele município.
+    dados["gravidade_media_historica"] = (
+        dados["afetados_historico"] / total
+    ).fillna(0.0)
 
     return dados
 

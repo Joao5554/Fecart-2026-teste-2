@@ -18,27 +18,31 @@ Endpoints:
 
 import json
 import sys
+import unicodedata
 from pathlib import Path
 
 import joblib
 import pandas as pd
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from backend.esquemas_api import (  # noqa: E402
+    ConsultaMunicipio,
     EntradaLote,
     EntradaPrevisao,
     Previsao,
     RespostaLote,
     RespostaPrevisao,
 )
-from src import caracteristicas, esquema  # noqa: E402
+from src import atlas, caracteristicas, esquema  # noqa: E402
 
 RAIZ = Path(__file__).resolve().parent.parent
 ARQUIVO_MODELO = RAIZ / "modelo" / "modelo.pkl"
 ARQUIVO_METADADOS = RAIZ / "modelo" / "metadados.json"
+ARQUIVO_OCORRENCIAS = RAIZ / "dados" / "ocorrencias.csv"
 
 MENSAGEM_SEM_MODELO = (
     "O modelo ainda não foi treinado. Rode, a partir da raiz do projeto:\n"
@@ -130,6 +134,63 @@ def carregar_modelo() -> bool:
 carregar_modelo()
 
 
+# --------------------------------------------------------------------------
+# Histórico dos municípios (para as consultas simplificadas)
+# --------------------------------------------------------------------------
+
+ocorrencias: pd.DataFrame | None = None
+_municipios: pd.DataFrame | None = None
+
+
+def _sem_acento(texto: str) -> str:
+    """Remove acentos e baixa a caixa, para a busca por nome ser tolerante."""
+    normalizado = unicodedata.normalize("NFKD", str(texto))
+    return "".join(c for c in normalizado if not unicodedata.combining(c)).lower()
+
+
+def carregar_ocorrencias() -> bool:
+    """
+    Carrega as ocorrências limpas do Atlas.
+
+    São elas que permitem a interface perguntar só "município, tipo e mês":
+    o histórico é calculado aqui, com a mesma função usada no treino.
+    """
+    global ocorrencias, _municipios
+
+    if not ARQUIVO_OCORRENCIAS.exists():
+        ocorrencias, _municipios = None, None
+        return False
+
+    ocorrencias = pd.read_csv(ARQUIVO_OCORRENCIAS)
+    _municipios = (
+        ocorrencias.sort_values("ano")
+        .groupby("codigo_ibge")
+        .agg(municipio=("municipio", "last"), uf=("uf", "last"),
+             regiao=("regiao", "last"), ocorrencias=("ano", "size"))
+        .reset_index()
+        .sort_values(["uf", "municipio"])
+    )
+    # Coluna auxiliar sem acento: quem digita "Petropolis" precisa encontrar
+    # "Petrópolis". Fica pronta aqui para a busca não recalcular a cada chamada.
+    _municipios["_busca"] = _municipios["municipio"].map(_sem_acento)
+    return True
+
+
+carregar_ocorrencias()
+
+
+def _exigir_ocorrencias() -> pd.DataFrame:
+    if ocorrencias is None:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Histórico de ocorrências não encontrado (dados/ocorrencias.csv).\n"
+                "Rode: python dados/preparar_dados.py"
+            ),
+        )
+    return ocorrencias
+
+
 def exigir_modelo():
     """Devolve o modelo ou responde 503 com instruções claras."""
     if modelo is None:
@@ -164,7 +225,7 @@ def _prever_muitos(entradas: list[EntradaPrevisao]) -> list[Previsao]:
         resultados.append(Previsao(
             codigo_ibge=entrada.codigo_ibge,
             municipio=entrada.municipio,
-            cobrade_grupo=entrada.cobrade_grupo,
+            grupo_desastre=entrada.grupo_desastre,
             nivel_risco=nivel,
             confianca=por_classe[nivel],
             probabilidades=por_classe,
@@ -298,6 +359,123 @@ def prever_lote(entrada: EntradaLote):
     )
 
 
+@app.get("/municipios", tags=["consulta"])
+def listar_municipios(uf: str | None = None, busca: str | None = None,
+                      limite: int = 500):
+    """
+    Municípios com histórico no Atlas — é o que alimenta a busca da interface.
+
+    Filtra por UF e/ou por parte do nome.
+    """
+    _exigir_ocorrencias()
+    tabela = _municipios
+
+    if uf:
+        tabela = tabela[tabela["uf"].str.upper() == uf.strip().upper()]
+    if busca:
+        tabela = tabela[tabela["_busca"].str.contains(
+            _sem_acento(busca.strip()), regex=False, na=False
+        )]
+
+    return {
+        "total": int(len(tabela)),
+        "municipios": tabela.drop(columns=["_busca"]).head(limite).to_dict("records"),
+    }
+
+
+@app.get("/municipios/{codigo_ibge}/historico", tags=["consulta"])
+def historico_municipio(codigo_ibge: int):
+    """Resumo do que já aconteceu no município, por tipo de desastre."""
+    registros = _exigir_ocorrencias()
+    do_municipio = registros[registros["codigo_ibge"] == codigo_ibge]
+
+    if do_municipio.empty:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Município {codigo_ibge} não tem ocorrências no Atlas.",
+        )
+
+    por_tipo = (
+        do_municipio.groupby("grupo_desastre")
+        .agg(ocorrencias=("ano", "size"), mortos=("mortos", "sum"),
+             afetados=("afetados", "sum"), ultimo_ano=("ano", "max"))
+        .reset_index()
+        .sort_values("ocorrencias", ascending=False)
+    )
+
+    return {
+        "codigo_ibge": codigo_ibge,
+        "municipio": do_municipio["municipio"].iloc[-1],
+        "uf": do_municipio["uf"].iloc[-1],
+        "regiao": do_municipio["regiao"].iloc[-1],
+        "total_ocorrencias": int(len(do_municipio)),
+        "periodo": {
+            "primeiro_ano": int(do_municipio["ano"].min()),
+            "ultimo_ano": int(do_municipio["ano"].max()),
+        },
+        "por_tipo": por_tipo.to_dict("records"),
+    }
+
+
+@app.post("/prever/municipio", tags=["consulta"])
+def prever_municipio(consulta: ConsultaMunicipio):
+    """
+    Previsão a partir apenas de município, tipo de desastre e mês.
+
+    As quinze variáveis históricas são calculadas aqui, a partir do Atlas,
+    com a mesma função usada no treino. É o endpoint que a interface usa.
+    """
+    registros = _exigir_ocorrencias()
+    modelo_ativo = exigir_modelo()
+
+    do_municipio = registros[registros["codigo_ibge"] == consulta.codigo_ibge]
+    if do_municipio.empty:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Município {consulta.codigo_ibge} não tem histórico no Atlas.",
+        )
+
+    features = atlas.features_para_consulta(
+        registros, consulta.codigo_ibge, consulta.grupo_desastre,
+        consulta.ano, consulta.mes,
+    )
+
+    entrada = pd.DataFrame([{
+        **features,
+        "uf": do_municipio["uf"].iloc[-1],
+        "regiao": do_municipio["regiao"].iloc[-1],
+        "grupo_desastre": consulta.grupo_desastre,
+    }])
+
+    X = caracteristicas.preparar_para_previsao(entrada)
+    probabilidades = modelo_ativo.predict_proba(X)[0]
+    classes = list(modelo_ativo.classes_)
+
+    por_classe = {
+        c: round(float(dict(zip(classes, probabilidades)).get(c, 0.0)), 4)
+        for c in esquema.CLASSES_RISCO
+    }
+    nivel = max(por_classe, key=por_classe.get)
+
+    return {
+        "codigo_ibge": consulta.codigo_ibge,
+        "municipio": do_municipio["municipio"].iloc[-1],
+        "uf": do_municipio["uf"].iloc[-1],
+        "grupo_desastre": consulta.grupo_desastre,
+        "ano": consulta.ano,
+        "mes": consulta.mes,
+        "nivel_risco": nivel,
+        "confianca": por_classe[nivel],
+        "probabilidades": por_classe,
+        "cor": esquema.CORES_RISCO[nivel],
+        # Devolvido para a interface poder explicar a previsão a quem consulta.
+        "historico_usado": {
+            k: v for k, v in features.items() if k != "mes"
+        },
+        "modelo_treinado_em": _treinado_em(),
+    }
+
+
 @app.post("/mapa/risco", tags=["mapa"])
 def mapa_risco(entrada: EntradaLote):
     """Devolve as previsões como GeoJSON, pronto para o mapa interativo.
@@ -322,7 +500,7 @@ def mapa_risco(entrada: EntradaLote):
                 "codigo_ibge": previsao.codigo_ibge,
                 "municipio": previsao.municipio,
                 "uf": item.uf,
-                "tipo_desastre": previsao.cobrade_grupo,
+                "tipo_desastre": previsao.grupo_desastre,
                 "nivel_risco": previsao.nivel_risco,
                 "confianca": previsao.confianca,
                 "probabilidades": previsao.probabilidades,
@@ -347,3 +525,20 @@ def mapa_risco(entrada: EntradaLote):
             "modelo_treinado_em": _treinado_em(),
         },
     }
+
+
+# --------------------------------------------------------------------------
+# Interface web
+# --------------------------------------------------------------------------
+# Servir o frontend pela própria API evita depender do Live Server e elimina
+# problemas de CORS: tudo passa a sair da mesma origem.
+# Fica por último para não capturar as rotas declaradas acima.
+
+PASTA_FRONTEND = RAIZ / "frontend"
+
+if PASTA_FRONTEND.exists():
+    app.mount(
+        "/app",
+        StaticFiles(directory=PASTA_FRONTEND, html=True),
+        name="frontend",
+    )

@@ -1,48 +1,67 @@
 # Pasta de dados
 
 O treinamento espera um arquivo `dados/dados.csv` no formato definido em
-[`src/esquema.py`](../src/esquema.py).
+[`src/esquema.py`](../src/esquema.py). Esse arquivo é **gerado** a partir da
+base bruta do Atlas de Desastres:
 
-Os CSVs desta pasta **não vão para o Git** (ver `.gitignore`): a base real é
-grande demais, e a sintética é reproduzível por script.
-
-## Enquanto a base real não chega
-
-```bash
-python dados/gerar_dados_sinteticos.py
+```
+dados/
+├── bruto/            base bruta baixada do Atlas (não vai para o Git)
+├── dados.csv         dataset de treino (gerado)
+├── ocorrencias.csv   ocorrências limpas, usadas pela API nas consultas (gerado)
+└── procedencia.json  registro da origem do dataset (gerado)
 ```
 
-Gera ~26 mil linhas inventadas, no formato exato do contrato. Servem **só**
-para testar se o pipeline funciona. Nenhum número obtido com esses dados vale
-como resultado — não use na apresentação.
+Nenhum CSV desta pasta vai para o Git: a base bruta tem 82 MB e os arquivos
+derivados são reproduzíveis por script.
 
-### Como o projeto impede a confusão entre sintético e real
+## Como gerar o dataset
 
-O gerador escreve, ao lado do CSV, um `dados/procedencia.json` com o hash
-SHA-256 do arquivo que acabou de criar. A partir daí:
+1. Baixe a base consolidada no **Atlas Digital de Desastres no Brasil**:
+   <https://atlasdigital.mi.gov.br> — o arquivo tem nome parecido com
+   `BD_Atlas_1991_2025_v1.1_..._Consolidado.csv`.
+2. Salve em `dados/bruto/`.
+3. Rode, a partir da raiz do projeto:
 
-- o treinamento confere o hash e grava a origem em `modelo/metadados.json`;
-- se a origem for sintética, o treino termina com um aviso em destaque e a
-  API repete esse aviso em `GET /` e `GET /modelo/info`;
-- se alguém substituir o CSV pela base real mantendo o mesmo nome, o hash
-  deixa de bater e a origem passa a ser `desconhecida` — nunca "sintético"
-  por engano.
+```bash
+python dados/preparar_dados.py
+```
 
-Ou seja: **não dá para apresentar um número sintético achando que é real
-sem o sistema avisar.**
+O script encontra o arquivo sozinho, limpa, monta o dataset e registra a
+procedência como **real**.
 
-## Formato esperado
+## O que a base bruta traz (e o que não traz)
+
+O Atlas é um registro de **ocorrências**: cada linha é um desastre que
+aconteceu, com município, data, tipologia COBRADE, danos humanos e prejuízos
+declarados. São 76 mil registros entre 1991 e 2025, em 5.256 municípios.
+
+O que ele **não** traz: chuva, temperatura, umidade, declividade, vegetação.
+Ou seja, o Atlas diz *o que aconteceu*, mas não traz o *gatilho climático*.
+Por isso as variáveis do modelo são de histórico, sazonalidade e geografia.
+Quando as séries do INMET/CEMADEN forem incorporadas, elas entram como
+colunas novas em `src/esquema.py` e no ETL — o resto do projeto não muda.
+
+### Detalhes do arquivo bruto
+
+Coisas que quebram a leitura se ignoradas, e que o ETL já trata:
+
+| Característica | Valor |
+| --- | --- |
+| Separador | ponto e vírgula (`;`) |
+| Decimal | vírgula (`,`) |
+| Codificação | **cp850** (não é UTF-8 nem latin-1) |
+| Data | `DD/MM/AAAA` |
+
+## Como o dataset de treino é construído
 
 Uma linha = **um município, em um mês, para um tipo de desastre**.
 
-| codigo_ibge | municipio  | ano  | mes | cobrade_grupo | ... | nivel_risco |
-| ----------- | ---------- | ---- | --- | ------------- | --- | ----------- |
-| 3303906     | Petropolis | 2024 | 2   | DESLIZAMENTO  | ... | alto        |
-| 3303906     | Petropolis | 2024 | 2   | INUNDACAO     | ... | medio       |
-| 3303906     | Petropolis | 2024 | 3   | DESLIZAMENTO  | ... | baixo       |
-
-O mesmo município aparece repetidas vezes — uma por mês e por tipo de
-desastre. É isso que permite um único modelo cobrir todos os tipos.
+| codigo_ibge | municipio  | ano  | mes | grupo_desastre | ... | nivel_risco |
+| ----------- | ---------- | ---- | --- | -------------- | --- | ----------- |
+| 3303906     | Petrópolis | 2024 | 2   | DESLIZAMENTO   | ... | alto        |
+| 3303906     | Petrópolis | 2024 | 2   | INUNDACAO      | ... | medio       |
+| 3303906     | Petrópolis | 2024 | 3   | DESLIZAMENTO   | ... | baixo       |
 
 Para ver a lista completa de colunas, com unidade e faixa de cada uma:
 
@@ -50,68 +69,87 @@ Para ver a lista completa de colunas, com unidade e faixa de cada uma:
 python -m src.esquema
 ```
 
-## Onde conseguir os dados reais
+### 1. Os exemplos negativos
 
-O dataset final vem da junção de várias fontes públicas, todas com o
-**código IBGE do município** como chave de ligação.
+O Atlas só registra o que **aconteceu**. Um modelo treinado só com desastres
+aprenderia que tudo é desastre. O ETL então gera as linhas de meses em que
+**nada** ocorreu — são elas que definem o nível `baixo`.
 
-### 1. Histórico de desastres — a base principal
+Por padrão são amostrados 3 meses sem ocorrência para cada mês com ocorrência.
+A proporção real de meses tranquilos é muito maior; a amostragem existe para o
+arquivo caber no treino.
 
-**S2iD — Sistema Integrado de Informações sobre Desastres** (SEDEC/MIDR)
-<https://s2id.mi.gov.br>
+> **Consequência a declarar na apresentação:** as probabilidades do modelo
+> medem risco **relativo** entre municípios, não a chance absoluta de um
+> desastre acontecer naquele mês.
 
-É de onde vêm as colunas de histórico (`ocorrencias_12m`,
-`ocorrencias_total_historico`, `decretos_emergencia_5anos`,
-`media_afetados_historico`, `danos_materiais_historico_reais`) e, principalmente,
-**o rótulo `nivel_risco`**.
+### 2. O rótulo `nivel_risco`
 
-O S2iD publica registros de ocorrência com data, município, código COBRADE,
-danos humanos e prejuízos declarados. Também vale olhar o
-[Atlas Digital de Desastres no Brasil](http://atlasdigital.mi.gov.br), que
-disponibiliza os mesmos dados já consolidados e mais fáceis de baixar.
-
-### 2. Dados climáticos
-
-- **INMET — Banco de Dados Meteorológicos**: <https://bdmep.inmet.gov.br>
-  Chuva, temperatura, umidade e vento por estação. As normais climatológicas
-  (1991–2020) servem para calcular `anomalia_chuva_percentual`.
-- **CEMADEN**: <https://www.cemaden.gov.br/mapainterativo/>
-  Pluviômetros automáticos e umidade do solo, com resolução melhor que a do
-  INMET em área urbana.
-- **ANA — HidroWeb**: <https://www.snirh.gov.br/hidroweb/>
-  Nível e vazão dos rios. Só existe onde há estação — daí `nivel_rio_m`
-  aceitar valor vazio.
-
-### 3. Dados do município
-
-- **IBGE** (<https://www.ibge.gov.br>): área, população, densidade, biomas e
-  malha municipal. O IBGE também publica o levantamento de
-  **domicílios em áreas de risco**, que alimenta
-  `percentual_domicilios_area_risco`.
-- **Altitude e declividade**: modelo de elevação SRTM/TOPODATA (INPE) ou
-  cartas geotécnicas da CPRM.
-- **Cobertura vegetal**: MapBiomas (<https://mapbiomas.org>) ou TerraBrasilis
-  (INPE), para o `indice_vegetacao`.
-
-## Como definir o `nivel_risco` (a parte mais delicada)
-
-O S2iD registra **o que aconteceu**, não "o nível de risco". O rótulo precisa
-ser construído a partir dos registros, e essa decisão é metodológica — vale
+O S2iD registra **o que aconteceu**, não "o nível de risco". O rótulo é
+construído a partir dos registros, e essa decisão é metodológica — vale
 descrevê-la na apresentação, porque é o coração do trabalho.
 
-Uma regra defensável, a partir dos danos declarados no próprio S2iD:
+| nivel_risco | critério |
+| ----------- | --------------------------------------------------------- |
+| `baixo`     | nenhuma ocorrência registrada no município, no mês, para o tipo |
+| `medio`     | ocorrência registrada, sem reconhecimento federal e sem mortos |
+| `alto`      | ocorrência com mortos, ou com reconhecimento de emergência/calamidade |
 
-| nivel_risco | critério no mês seguinte ao das features                          |
-| ----------- | ----------------------------------------------------------------- |
-| `baixo`     | nenhuma ocorrência registrada                                     |
-| `medio`     | ocorrência registrada, sem decreto de emergência                   |
-| `alto`      | ocorrência com decreto de emergência ou calamidade, ou com mortos  |
+A coluna `Status` do Atlas distingue `Registro` de `Reconhecido` — é ela que
+separa `medio` de `alto`, junto com `DH_MORTOS`.
 
-**Cuidado com vazamento temporal.** As features de um mês precisam prever o
-mês *seguinte*. Se o rótulo de fevereiro for construído com a chuva de
-fevereiro, o modelo aprende a "prever" o passado e a acurácia sai alta e
-inútil. Ao montar o CSV, desloque o alvo em um mês.
+### 3. As features, sem vazamento temporal
 
-Pelo mesmo motivo, quando a base real entrar, vale trocar o
-`train_test_split` aleatório por uma **divisão temporal** (treinar até 2022,
-testar em 2023–2024). É mais honesto: é assim que o sistema será usado.
+Todas as variáveis de um mês são calculadas **apenas** com ocorrências
+anteriores a ele. O corte usa busca binária com `side="left"`, o que exclui o
+próprio mês.
+
+Isso é o ponto mais delicado do projeto: se o histórico de fevereiro incluísse
+o que aconteceu em fevereiro, o modelo "preveria" o passado e a acurácia sairia
+alta e inútil. O teste
+[`test_historico_nao_usa_o_proprio_mes_nem_o_futuro`](../testes/test_dados.py)
+confere isso linha a linha.
+
+Pelo mesmo motivo, o treinamento usa **divisão temporal** (treina até 2021,
+testa de 2022 em diante) em vez de divisão aleatória. É assim que o sistema
+seria usado de verdade.
+
+### 4. Tipologias aproveitadas
+
+Dez grupos, cobrindo 97,6% dos registros:
+
+`ESTIAGEM_SECA`, `INUNDACAO`, `ENXURRADA`, `ALAGAMENTO`, `CHUVAS_INTENSAS`,
+`DESLIZAMENTO`, `VENDAVAL_CICLONE`, `GRANIZO`, `INCENDIO_FLORESTAL`, `EROSAO`.
+
+Descartadas: `Outros` (sem definição própria), `Doenças infecciosas` (não é
+desastre climático/geofísico), `Onda de Frio`, `Onda de Calor` e
+`Rompimento/Colapso de barragens` (poucos registros e sem variável explicativa
+no que o Atlas oferece hoje).
+
+## Limitações conhecidas
+
+Vale ter estas respostas prontas para a banca:
+
+- **Subnotificação.** Município que não registra ocorrência aparece como sem
+  risco. O número de registros cresce ao longo dos anos, o que reflete tanto
+  mais eventos quanto mais notificação.
+- **Sem gatilho climático.** O modelo sabe que Petrópolis é perigosa em
+  fevereiro, mas não sabe se vai chover neste fevereiro.
+- **Só municípios com histórico.** Quem nunca registrou nada não está na base;
+  o sistema não opina sobre eles.
+- **O rótulo é uma construção nossa**, derivada dos danos declarados, e não
+  uma medida oficial de risco.
+
+## Outras fontes, para os próximos passos
+
+- **INMET (BDMEP)**: <https://bdmep.inmet.gov.br> — chuva, temperatura, umidade
+  e vento por estação. As normais climatológicas (1991–2020) permitem calcular
+  anomalia de chuva.
+- **CEMADEN**: <https://www.cemaden.gov.br/mapainterativo/> — pluviômetros
+  automáticos e umidade do solo.
+- **IBGE**: área, população, densidade e a malha municipal (que traz também as
+  coordenadas necessárias para o mapa).
+- **TOPODATA/INPE** ou **CPRM**: altitude e declividade.
+- **MapBiomas**: <https://mapbiomas.org> — cobertura vegetal.
+
+Todas se ligam ao Atlas pelo **código IBGE do município**.

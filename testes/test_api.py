@@ -30,7 +30,7 @@ precisa_de_modelo = pytest.mark.skipif(
 def montar_entrada(linha: dict) -> dict:
     """Converte uma linha do dataset no corpo esperado pelo POST /prever."""
     campos = (
-        ["codigo_ibge", "municipio", "mes"]
+        ["codigo_ibge", "municipio"]
         + esquema.COLUNAS_CATEGORICAS
         + esquema.COLUNAS_NUMERICAS
     )
@@ -41,6 +41,11 @@ def montar_entrada(linha: dict) -> dict:
         if isinstance(valor, float) and math.isnan(valor):
             valor = None
         entrada[campo] = valor
+
+    # Coordenadas não vêm do Atlas (ele não traz lat/lon). São usadas apenas
+    # pelo endpoint do mapa, então os testes fornecem valores plausíveis.
+    entrada["latitude"] = -22.5
+    entrada["longitude"] = -43.2
     return entrada
 
 
@@ -203,20 +208,32 @@ def test_mes_invalido_e_rejeitado(linha_exemplo):
     assert cliente.post("/prever", json=entrada).status_code == 422
 
 
-def test_chuva_negativa_e_rejeitada(linha_exemplo):
+def test_contagem_negativa_e_rejeitada(linha_exemplo):
     entrada = montar_entrada(linha_exemplo)
-    entrada["chuva_acumulada_mm"] = -10
+    entrada["ocorrencias_12m"] = -10
 
     assert cliente.post("/prever", json=entrada).status_code == 422
 
 
+def test_grupo_de_desastre_desconhecido_nao_quebra(linha_exemplo):
+    """
+    `handle_unknown="ignore"` no one-hot faz o modelo tolerar uma categoria
+    nunca vista. A API responde em vez de estourar erro 500.
+    """
+    entrada = montar_entrada(linha_exemplo)
+    entrada["grupo_desastre"] = "TIPO_QUE_NAO_EXISTE"
+
+    resposta = cliente.post("/prever", json=entrada)
+    assert resposta.status_code == 200, resposta.text
+
+
 def test_campo_faltando_e_rejeitado(linha_exemplo):
     entrada = montar_entrada(linha_exemplo)
-    del entrada["declividade_media_graus"]
+    del entrada["ocorrencias_total_historico"]
 
     resposta = cliente.post("/prever", json=entrada)
     assert resposta.status_code == 422
-    assert "declividade_media_graus" in resposta.text
+    assert "ocorrencias_total_historico" in resposta.text
 
 
 def test_lote_vazio_e_rejeitado():

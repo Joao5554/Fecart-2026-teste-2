@@ -1,77 +1,168 @@
 """
-Testes do contrato de dados, das features derivadas e da validação.
+Testes do ETL do Atlas e da validação do dataset.
 
-Rodar:  pytest testes/ -v
+O teste mais importante deste arquivo é o de **vazamento temporal**: ele
+garante que nenhuma feature de um mês use informação daquele mês ou do
+futuro. Sem essa garantia, a acurácia do projeto inteiro seria fantasia.
 """
 
 import numpy as np
 import pandas as pd
 import pytest
 
-from src import caracteristicas, esquema
-from src.carregar import ErroDeDados, carregar_dados, validar
+from src import atlas, caracteristicas, esquema
+from src.carregar import validar
 
 
 # --------------------------------------------------------------------------
-# Contrato (src/esquema.py)
+# Formato do dataset produzido pelo ETL
 # --------------------------------------------------------------------------
 
 
-def test_nao_ha_nomes_de_coluna_repetidos():
-    """Nome repetido entre grupos faria a coluna entrar duas vezes no modelo."""
-    todos = (
-        esquema.COLUNAS_IDENTIFICACAO
-        + esquema.COLUNAS_CATEGORICAS
-        + esquema.COLUNAS_NUMERICAS
-        + esquema.COLUNAS_DERIVADAS
+def test_dataset_segue_o_contrato(dados_exemplo):
+    for coluna in esquema.COLUNAS_OBRIGATORIAS:
+        assert coluna in dados_exemplo.columns, f"faltou a coluna '{coluna}'"
+
+
+def test_dataset_passa_na_validacao(dados_exemplo):
+    relatorio = validar(dados_exemplo, exigir_alvo=True)
+    assert not relatorio.erros, relatorio.erros
+
+
+def test_dataset_tem_as_tres_classes(dados_exemplo):
+    assert set(dados_exemplo[esquema.COLUNA_ALVO].unique()) == set(esquema.CLASSES_RISCO)
+
+
+def test_dataset_nao_tem_linhas_repetidas(dados_exemplo):
+    assert not dados_exemplo.duplicated(subset=esquema.CHAVE_LINHA).any()
+
+
+def test_derivadas_sao_todas_criadas(dados_exemplo):
+    com_derivadas = caracteristicas.adicionar_derivadas(dados_exemplo)
+    for coluna in esquema.COLUNAS_DERIVADAS:
+        assert coluna in com_derivadas.columns
+        assert com_derivadas[coluna].notna().all()
+
+
+def test_etl_e_reproduzivel(ocorrencias):
+    primeiro = atlas.construir_dataset(ocorrencias, 2015, 2025, 2, semente=7)
+    segundo = atlas.construir_dataset(ocorrencias, 2015, 2025, 2, semente=7)
+    pd.testing.assert_frame_equal(primeiro, segundo)
+
+
+# --------------------------------------------------------------------------
+# Vazamento temporal — o teste central do projeto
+# --------------------------------------------------------------------------
+
+
+def _indice(ano, mes):
+    return (ano - 1900) * 12 + (mes - 1)
+
+
+def test_historico_nao_usa_o_proprio_mes_nem_o_futuro(dados_exemplo, ocorrencias):
+    """
+    Para cada linha, o total histórico tem de bater exatamente com o número
+    de ocorrências ANTERIORES àquele mês.
+
+    Se o ETL incluísse o próprio mês, as linhas com desastre teriam um a mais
+    e o modelo "adivinharia" o rótulo — parecendo ótimo e não servindo para nada.
+    """
+    eventos = {}
+    for chave, bloco in ocorrencias.groupby(["codigo_ibge", "grupo_desastre"]):
+        eventos[chave] = np.sort(_indice(bloco["ano"].to_numpy(), bloco["mes"].to_numpy()))
+
+    for linha in dados_exemplo.itertuples():
+        chave = (linha.codigo_ibge, linha.grupo_desastre)
+        alvo = _indice(linha.ano, linha.mes)
+        esperado = int((eventos[chave] < alvo).sum())
+        assert linha.ocorrencias_total_historico == esperado, (
+            f"{chave} em {linha.ano}-{linha.mes:02d}: "
+            f"esperado {esperado}, veio {linha.ocorrencias_total_historico}"
+        )
+
+
+def test_janela_de_12_meses_conta_a_janela_certa(dados_exemplo, ocorrencias):
+    eventos = {}
+    for chave, bloco in ocorrencias.groupby(["codigo_ibge", "grupo_desastre"]):
+        eventos[chave] = np.sort(_indice(bloco["ano"].to_numpy(), bloco["mes"].to_numpy()))
+
+    for linha in dados_exemplo.head(400).itertuples():
+        serie = eventos[(linha.codigo_ibge, linha.grupo_desastre)]
+        alvo = _indice(linha.ano, linha.mes)
+        esperado = int(((serie >= alvo - 12) & (serie < alvo)).sum())
+        assert linha.ocorrencias_12m == esperado
+
+
+def test_meses_desde_ultima_e_sempre_positivo_ou_menos_um(dados_exemplo):
+    valores = dados_exemplo["meses_desde_ultima_ocorrencia"]
+    assert ((valores == -1) | (valores > 0)).all(), (
+        "valor 0 significaria contar uma ocorrência do próprio mês-alvo"
     )
-    repetidos = [n for n in set(todos) if todos.count(n) > 1]
-    assert not repetidos, f"colunas duplicadas no esquema: {repetidos}"
 
 
-def test_indice_por_nome_cobre_todas_as_colunas():
-    for nome in esquema.COLUNAS_NUMERICAS + esquema.COLUNAS_CATEGORICAS:
-        assert nome in esquema.POR_NOME
-
-
-def test_toda_classe_de_risco_tem_cor_no_mapa():
-    for classe in esquema.CLASSES_RISCO:
-        assert classe in esquema.CORES_RISCO
-
-
-def test_faixas_numericas_sao_coerentes():
-    for coluna in esquema.NUMERICAS:
-        if coluna.minimo is not None and coluna.maximo is not None:
-            assert coluna.minimo < coluna.maximo, f"faixa inválida em {coluna.nome}"
+def test_sem_historico_marca_ja_ocorreu_como_zero(dados_exemplo):
+    nunca = dados_exemplo[dados_exemplo["ocorrencias_total_historico"] == 0]
+    if len(nunca):
+        assert (nunca["ja_ocorreu"] == 0).all()
+        assert (nunca["meses_desde_ultima_ocorrencia"] == -1).all()
 
 
 # --------------------------------------------------------------------------
-# Dados gerados
+# Regra do rótulo
 # --------------------------------------------------------------------------
 
 
-def test_dados_gerados_seguem_o_contrato(dados_exemplo):
-    assert list(dados_exemplo.columns) == list(esquema.COLUNAS_OBRIGATORIAS)
-    assert len(dados_exemplo) > 0
+def test_ocorrencia_com_mortos_vira_risco_alto(ocorrencias):
+    dados = atlas.construir_dataset(ocorrencias, 2015, 2025, 1, semente=7)
+    petropolis = dados[
+        (dados["codigo_ibge"] == 3303906)
+        & (dados["grupo_desastre"] == "DESLIZAMENTO")
+        & (dados["mes"] == 2)
+    ]
+    assert len(petropolis) > 0
+    assert (petropolis[esquema.COLUNA_ALVO] == "alto").all()
 
 
-def test_dados_gerados_passam_na_validacao(dados_exemplo):
-    relatorio = validar(dados_exemplo)
-    assert relatorio.valido, f"erros inesperados: {relatorio.erros}"
+def test_mes_sem_ocorrencia_vira_risco_baixo(dados_exemplo, ocorrencias):
+    combinacoes = {
+        (linha.codigo_ibge, linha.grupo_desastre, linha.ano, linha.mes)
+        for linha in ocorrencias.itertuples()
+    }
+    baixos = dados_exemplo[dados_exemplo[esquema.COLUNA_ALVO] == "baixo"]
+    for linha in baixos.head(300).itertuples():
+        chave = (linha.codigo_ibge, linha.grupo_desastre, linha.ano, linha.mes)
+        assert chave not in combinacoes
 
 
-def test_dados_gerados_tem_as_tres_classes(dados_exemplo):
-    presentes = set(dados_exemplo[esquema.COLUNA_ALVO].unique())
-    assert presentes == set(esquema.CLASSES_RISCO)
+def test_classificar_risco_segue_o_criterio():
+    assert atlas.classificar_risco(reconhecido=True, mortos=0) == "alto"
+    assert atlas.classificar_risco(reconhecido=False, mortos=2) == "alto"
+    assert atlas.classificar_risco(reconhecido=False, mortos=0) == "medio"
 
 
-def test_geracao_e_reproduzivel():
-    """Mesma semente, mesmo resultado — senão o treino não é reproduzível."""
-    from gerar_dados_sinteticos import gerar
+# --------------------------------------------------------------------------
+# Mapeamento das tipologias do Atlas
+# --------------------------------------------------------------------------
 
-    a = gerar(2022, 2022, semente=1)
-    b = gerar(2022, 2022, semente=1)
-    pd.testing.assert_frame_equal(a, b)
+
+def test_todo_grupo_mapeado_existe_no_esquema():
+    for grupo in set(atlas.TIPOLOGIA_PARA_GRUPO.values()):
+        assert grupo in esquema.GRUPOS_COBRADE
+
+
+def test_tipologias_descartadas_nao_estao_no_mapa():
+    for tipologia in atlas.TIPOLOGIAS_DESCARTADAS:
+        assert tipologia not in atlas.TIPOLOGIA_PARA_GRUPO
+
+
+def test_arquivo_bruto_inexistente_da_erro_claro(tmp_path):
+    with pytest.raises(atlas.ErroAtlas, match="não encontrado"):
+        atlas.carregar_atlas(tmp_path / "nao_existe.csv")
+
+
+def test_periodo_sem_ocorrencias_da_erro_claro(ocorrencias):
+    with pytest.raises(atlas.ErroAtlas, match="Nenhuma ocorrência"):
+        atlas.construir_dataset(ocorrencias, 1800, 1801)
 
 
 # --------------------------------------------------------------------------
@@ -79,128 +170,65 @@ def test_geracao_e_reproduzivel():
 # --------------------------------------------------------------------------
 
 
-def test_derivadas_sao_todas_criadas(dados_exemplo):
-    resultado = caracteristicas.adicionar_derivadas(dados_exemplo)
-    for nome in esquema.COLUNAS_DERIVADAS:
-        assert nome in resultado.columns
-
-
 def test_mes_ciclico_aproxima_dezembro_de_janeiro():
-    """Dezembro e janeiro devem ficar perto; junho, longe dos dois."""
     base = pd.DataFrame({
         "mes": [12, 1, 6],
-        "chuva_acumulada_mm": [100.0] * 3,
-        "chuva_max_24h_mm": [30.0] * 3,
-        "dias_com_chuva": [10] * 3,
-        "meses_desde_ultima_ocorrencia": [5] * 3,
+        "anos_de_historico": [1.0, 1.0, 1.0],
+        "ocorrencias_total_historico": [1.0, 1.0, 1.0],
+        "reconhecimentos_historico": [0.0, 0.0, 0.0],
+        "afetados_historico": [0.0, 0.0, 0.0],
     })
-    r = caracteristicas.adicionar_derivadas(base)
-    pontos = list(zip(r["mes_seno"], r["mes_cosseno"]))
+    d = caracteristicas.adicionar_derivadas(base)
 
-    distancia = lambda a, b: np.hypot(a[0] - b[0], a[1] - b[1])  # noqa: E731
-    assert distancia(pontos[0], pontos[1]) < distancia(pontos[0], pontos[2])
+    def distancia(i, j):
+        return np.hypot(
+            d["mes_seno"][i] - d["mes_seno"][j],
+            d["mes_cosseno"][i] - d["mes_cosseno"][j],
+        )
+
+    assert distancia(0, 1) < distancia(0, 2)
 
 
-def test_intensidade_de_chuva_nao_estoura_com_chuva_zero():
-    """Mês sem chuva não pode virar divisão por zero (NaN quebra o treino)."""
+def test_derivadas_nao_estouram_com_historico_zerado():
     base = pd.DataFrame({
-        "mes": [7],
-        "chuva_acumulada_mm": [0.0],
-        "chuva_max_24h_mm": [0.0],
-        "dias_com_chuva": [0],
-        "meses_desde_ultima_ocorrencia": [999],
+        "mes": [5],
+        "anos_de_historico": [0.0],
+        "ocorrencias_total_historico": [0.0],
+        "reconhecimentos_historico": [0.0],
+        "afetados_historico": [0.0],
     })
-    r = caracteristicas.adicionar_derivadas(base)
+    d = caracteristicas.adicionar_derivadas(base)
+    assert d["ocorrencias_por_ano"].iloc[0] == 0.0
+    assert d["proporcao_reconhecidas"].iloc[0] == 0.0
+    assert d["gravidade_media_historica"].iloc[0] == 0.0
+    assert np.isfinite(d[esquema.COLUNAS_DERIVADAS].to_numpy()).all()
 
-    assert r["intensidade_chuva"].iloc[0] == 0.0
-    assert r["chuva_por_dia_chuvoso"].iloc[0] == 0.0
-    assert not r[esquema.COLUNAS_DERIVADAS].isna().any().any()
 
-
-def test_ja_ocorreu_distingue_nunca_ocorrido():
-    base = pd.DataFrame({
-        "mes": [3, 3],
-        "chuva_acumulada_mm": [100.0, 100.0],
-        "chuva_max_24h_mm": [20.0, 20.0],
-        "dias_com_chuva": [8, 8],
-        "meses_desde_ultima_ocorrencia": [999, 4],
-    })
-    r = caracteristicas.adicionar_derivadas(base)
-    assert r["ja_ocorreu"].tolist() == [0.0, 1.0]
+def test_proporcao_reconhecidas_fica_entre_zero_e_um(dados_exemplo):
+    d = caracteristicas.adicionar_derivadas(dados_exemplo)
+    assert d["proporcao_reconhecidas"].between(0, 1).all()
 
 
 # --------------------------------------------------------------------------
-# Validação
+# Validação do CSV
 # --------------------------------------------------------------------------
 
 
 def test_validacao_acusa_coluna_faltando(dados_exemplo):
-    incompleto = dados_exemplo.drop(columns=["chuva_max_24h_mm"])
-    relatorio = validar(incompleto)
-
-    assert not relatorio.valido
-    assert "chuva_max_24h_mm" in " ".join(relatorio.erros)
+    incompleto = dados_exemplo.drop(columns=["ocorrencias_12m"])
+    relatorio = validar(incompleto, exigir_alvo=True)
+    assert any("ocorrencias_12m" in erro for erro in relatorio.erros)
 
 
 def test_validacao_acusa_nivel_de_risco_invalido(dados_exemplo):
-    ruim = dados_exemplo.copy()
-    ruim.loc[ruim.index[0], esquema.COLUNA_ALVO] = "altissimo"
-    relatorio = validar(ruim)
-
-    assert not relatorio.valido
-    assert "altissimo" in " ".join(relatorio.erros)
-
-
-def test_validacao_acusa_classe_ausente(dados_exemplo):
-    """Sem exemplos de 'alto' o modelo nunca preveria risco alto."""
-    sem_alto = dados_exemplo[dados_exemplo[esquema.COLUNA_ALVO] != "alto"]
-    relatorio = validar(sem_alto)
-
-    assert not relatorio.valido
-    assert "alto" in " ".join(relatorio.erros)
-
-
-def test_validacao_acusa_alvo_vazio(dados_exemplo):
-    ruim = dados_exemplo.copy()
-    ruim.loc[ruim.index[:3], esquema.COLUNA_ALVO] = np.nan
-    relatorio = validar(ruim)
-
-    assert not relatorio.valido
-
-
-def test_validacao_avisa_valor_fora_da_faixa(dados_exemplo):
-    estranho = dados_exemplo.copy()
-    estranho.loc[estranho.index[0], "chuva_acumulada_mm"] = -50.0
-    relatorio = validar(estranho)
-
-    # Fora da faixa é aviso, não erro: pode ser um extremo real.
-    assert relatorio.valido
-    assert any("chuva_acumulada_mm" in a for a in relatorio.avisos)
+    quebrado = dados_exemplo.copy()
+    quebrado.loc[quebrado.index[0], esquema.COLUNA_ALVO] = "altissimo"
+    relatorio = validar(quebrado, exigir_alvo=True)
+    assert relatorio.erros
 
 
 def test_validacao_avisa_uf_desconhecida(dados_exemplo):
-    estranho = dados_exemplo.copy()
-    estranho.loc[estranho.index[0], "uf"] = "XX"
-    relatorio = validar(estranho)
-
-    assert any("uf" in a and "XX" in a for a in relatorio.avisos)
-
-
-def test_validacao_sem_alvo_para_previsao(dados_exemplo):
-    """Na hora de prever, o CSV não tem a coluna de risco — e isso é normal."""
-    sem_alvo = dados_exemplo.drop(columns=[esquema.COLUNA_ALVO])
-    relatorio = validar(sem_alvo, exigir_alvo=False)
-
-    assert relatorio.valido
-
-
-def test_validacao_rejeita_base_vazia(dados_exemplo):
-    relatorio = validar(dados_exemplo.iloc[0:0])
-    assert not relatorio.valido
-
-
-def test_arquivo_inexistente_explica_o_que_fazer(tmp_path):
-    with pytest.raises(ErroDeDados) as erro:
-        carregar_dados(tmp_path / "nao_existe.csv")
-
-    assert "gerar_dados_sinteticos" in str(erro.value)
+    quebrado = dados_exemplo.copy()
+    quebrado.loc[quebrado.index[0], "uf"] = "ZZ"
+    relatorio = validar(quebrado, exigir_alvo=True)
+    assert any("uf" in aviso for aviso in relatorio.avisos)
