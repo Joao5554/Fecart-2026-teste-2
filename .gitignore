@@ -23,6 +23,11 @@ dados/procedencia.json
 # Cache do pytest
 .pytest_cache/
 
+# Pacote para apresentar em outro computador. É gerado por
+# ferramentas/preparar_apresentacao.py e contém o modelo treinado.
+apresentacao/
+apresentacao.zip
+
 # Arquivos do VSCode, do Claude Code e do sistema
 .vscode/
 .claude/

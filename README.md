@@ -187,6 +187,64 @@ históricas a partir do Atlas.
 
 ---
 
+## Levar o projeto para outro computador
+
+A pasta inteira passa de 500 MB, mas quase tudo é descartável na hora de
+apresentar. Para **rodar** o sistema bastam o código, o modelo treinado e o
+histórico que a API consulta:
+
+```bash
+python ferramentas/preparar_apresentacao.py
+```
+
+Gera a pasta `apresentacao/` com **28 MB** — cabe em qualquer pendrive. Dentro
+dela vai um `LEIAME.md` com o passo a passo para quem for rodar.
+
+Se o computador da escola não tiver internet (ou bloquear o `pip`), inclua as
+bibliotecas junto:
+
+```bash
+python ferramentas/preparar_apresentacao.py --com-bibliotecas --zip
+```
+
+São 93 MB compactados, e a instalação passa a funcionar offline.
+
+### O que fica de fora, e por quê
+
+| Item | Tamanho | Por que não vai |
+| --- | --- | --- |
+| `.venv/` | 336 MB | Recriado com `pip`; ambiente virtual não se copia entre máquinas |
+| `dados/bruto/` | 82 MB | Base crua do Atlas — só serve para **treinar** de novo |
+| `dados/dados.csv` | 24 MB | Dataset de treino — o modelo já está pronto |
+
+### E cortar anos antigos da base, para aliviar?
+
+Foi medido, e **não compensa**. O período do dataset afeta bastante a
+qualidade, enquanto o número de árvores da floresta afeta o tamanho:
+
+| Período | Árvores | Modelo | Acurácia balanceada | Risco alto detectado |
+| --- | --- | --- | --- | --- |
+| 2010–2025 | 300 | 68,8 MB | 0,499 | 48,7% |
+| **2010–2025** | **100** | **22,8 MB** | **0,499** | **48,9%** |
+| 2015–2025 | 100 | 15,6 MB | 0,476 | 43,4% |
+| 2018–2025 | 100 | 10,4 MB | 0,455 | 36,2% |
+
+Reduzir de 300 para 100 árvores deixa o modelo **3× menor sem custo nenhum** —
+por isso 100 é o padrão. Já cortar até 2018 economizaria só mais 12 MB e
+derrubaria a detecção de casos graves de 49% para 36%.
+
+Se ainda assim quiser um dataset menor (para treinar mais rápido, por exemplo):
+
+```bash
+python dados/preparar_dados.py --anos 2015 2025
+```
+
+> Detalhe importante: cortar o **período do dataset** não apaga o histórico. As
+> variáveis de cada linha continuam usando todas as ocorrências desde 1991 —
+> o corte só reduz quantos meses viram exemplo de treino.
+
+---
+
 ## Testes
 
 ```bash

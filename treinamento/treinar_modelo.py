@@ -295,8 +295,12 @@ def main() -> int:
     )
     parser.add_argument("--dados", type=Path, default=ARQUIVO_DADOS_PADRAO,
                         help="caminho do CSV de treino")
-    parser.add_argument("--arvores", type=int, default=300,
-                        help="número de árvores da floresta (padrão: 300)")
+    # 100 árvores medidas contra 300: acurácia balanceada e detecção de risco
+    # alto ficam iguais (0,499 e ~49%), mas o modelo.pkl cai de 68 MB para
+    # 23 MB. Arquivo menor é o que torna o projeto transportável para
+    # apresentar em outro computador.
+    parser.add_argument("--arvores", type=int, default=100,
+                        help="número de árvores da floresta (padrão: 100)")
     parser.add_argument("--profundidade", type=int, default=20,
                         help="profundidade máxima das árvores (padrão: 20)")
     parser.add_argument("--proporcao-teste", type=float, default=0.2,
