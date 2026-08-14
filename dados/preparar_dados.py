@@ -20,15 +20,56 @@ import argparse
 import sys
 from pathlib import Path
 
+import numpy as np
+import pandas as pd
+
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from src import atlas, esquema, procedencia  # noqa: E402
+from src import atlas, clima, esquema, procedencia  # noqa: E402
 
 RAIZ = Path(__file__).resolve().parent.parent
 PASTA_BRUTO = RAIZ / "dados" / "bruto"
 SAIDA_PADRAO = RAIZ / "dados" / "dados.csv"
+ARQUIVO_CLIMA = RAIZ / "dados" / "clima_mensal.csv"
 
 FONTE = "Atlas Digital de Desastres no Brasil — S2iD/SEDEC/MIDR"
+
+
+def juntar_clima(dados: pd.DataFrame, caminho: Path) -> pd.DataFrame:
+    """
+    Acrescenta as variáveis de chuva, se os dados do INMET já tiverem sido
+    preparados. Sem eles, o dataset segue sem clima e o modelo usa apenas
+    histórico e sazonalidade.
+    """
+    if not caminho.exists():
+        print(f"\n[sem clima] {caminho.name} não encontrado.")
+        print("            As colunas de chuva entram vazias, e o modelo segue")
+        print("            usando apenas histórico e sazonalidade.")
+        print("            Para preenchê-las: python dados/preparar_clima.py")
+
+        # As colunas precisam existir mesmo vazias: o contrato de dados as
+        # declara, e o pipeline do modelo sabe imputar valor faltante. Sem
+        # isso, quem não baixou os 1,8 GB do INMET não conseguiria treinar.
+        dados = dados.copy()
+        for coluna in clima.COLUNAS_CLIMA:
+            dados[coluna] = np.nan
+        dados["meses_de_clima_disponiveis"] = 0
+        return dados
+
+    print(f"\nJuntando o clima de {caminho.name}...")
+    tabela_clima = pd.read_csv(caminho)
+    com_clima = clima.adicionar_features(dados, tabela_clima)
+
+    cobertura = clima.resumir_cobertura(com_clima)
+    print(f"  {cobertura['com_chuva_do_mes_anterior']:,} de "
+          f"{cobertura['linhas']:,} linhas com chuva do mês anterior "
+          f"({cobertura['pct_com_chuva']:.1%})")
+    print(f"  {cobertura['com_anomalia']:,} com anomalia em relação à normal "
+          f"({cobertura['pct_com_anomalia']:.1%})")
+    print(f"  {cobertura['tres_meses_completos']:,} com os três meses anteriores "
+          f"completos")
+
+    return com_clima
 
 
 def localizar_arquivo_bruto(pasta: Path) -> Path:
@@ -60,6 +101,10 @@ def main() -> int:
                         help="meses sem desastre por mês com desastre (padrão: 3)")
     parser.add_argument("--semente", type=int, default=42,
                         help="semente da amostragem, para ser reproduzível")
+    parser.add_argument("--clima", type=Path, default=ARQUIVO_CLIMA,
+                        help="CSV de clima mensal (gerado por preparar_clima.py)")
+    parser.add_argument("--sem-clima", action="store_true",
+                        help="ignora os dados de chuva, mesmo se existirem")
     args = parser.parse_args()
 
     try:
@@ -83,6 +128,9 @@ def main() -> int:
     except atlas.ErroAtlas as erro:
         print(f"\n{erro}", file=sys.stderr)
         return 1
+
+    if not args.sem_clima:
+        dados = juntar_clima(dados, args.clima)
 
     args.saida.parent.mkdir(parents=True, exist_ok=True)
     dados.to_csv(args.saida, index=False, encoding="utf-8")

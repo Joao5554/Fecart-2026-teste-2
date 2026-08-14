@@ -17,6 +17,7 @@ Endpoints:
 """
 
 import json
+import math
 import sys
 import unicodedata
 from pathlib import Path
@@ -520,8 +521,12 @@ def prever_municipio(consulta: ConsultaMunicipio):
         "probabilidades": por_classe,
         "cor": esquema.CORES_RISCO[nivel],
         # Devolvido para a interface poder explicar a previsão a quem consulta.
+        # NaN não existe em JSON: variável sem medição vira null, que o
+        # JavaScript entende. Deixar NaN produziria um JSON que parsers
+        # estritos recusam.
         "historico_usado": {
-            k: v for k, v in features.items() if k != "mes"
+            chave: (None if isinstance(valor, float) and math.isnan(valor) else valor)
+            for chave, valor in features.items() if chave != "mes"
         },
         "modelo_treinado_em": _treinado_em(),
     }

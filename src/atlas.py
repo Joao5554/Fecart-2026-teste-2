@@ -320,9 +320,19 @@ def features_para_consulta(ocorrencias: pd.DataFrame, codigo_ibge: int,
         "mes": mes,
         "prejuizo_historico_log": float(np.log1p(linha["prejuizo_historico"])),
     }
+
     for coluna in esquema.COLUNAS_NUMERICAS:
-        if coluna not in features:
+        if coluna in features:
+            continue
+        # As variáveis de clima não vêm do Atlas. Quem chama pode preenchê-las
+        # depois, com os dados do INMET; sem elas o pipeline imputa.
+        if coluna in esquema.COLUNAS_CLIMA:
+            features[coluna] = (
+                0.0 if coluna == "meses_de_clima_disponiveis" else float("nan")
+            )
+        else:
             features[coluna] = float(linha[coluna])
+
     return features
 
 
@@ -454,6 +464,14 @@ def construir_dataset(
     dados = dados.drop(columns=[
         "indice_mes", "houve_ocorrencia", "reconhecido", "mortos", "prejuizo_historico",
     ])
+
+    # As colunas de clima não vêm do Atlas: são preenchidas depois, por
+    # src/clima.py, quando os dados do INMET existem. Entram aqui vazias para
+    # que o dataset esteja sempre completo segundo o contrato — quem não tem
+    # os dados do INMET consegue treinar do mesmo jeito.
+    for coluna in esquema.COLUNAS_CLIMA:
+        if coluna not in dados.columns:
+            dados[coluna] = 0.0 if coluna == "meses_de_clima_disponiveis" else np.nan
 
     colunas = (
         esquema.COLUNAS_IDENTIFICACAO

@@ -92,6 +92,30 @@ def test_le_o_cabecalho_da_estacao(tmp_path):
     assert metadados["altitude"] == pytest.approx(800.0)
 
 
+def test_cabecalho_com_acentuacao_corrompida(tmp_path):
+    """
+    Nos arquivos de 2019 o próprio INMET gravou 'REGI?O' e 'ESTAC?O', com a
+    acentuação quebrada na origem. O leitor precisa entender assim mesmo.
+    """
+    cabecalho_quebrado = (CABECALHO
+                          .replace("REGIAO:", "REGI?O:")
+                          .replace("ESTACAO:", "ESTAC?O:")
+                          .replace("DATA DE FUNDACAO:", "DATA DE FUNDAC?O:"))
+    arquivo = tmp_path / "2019.CSV"
+    arquivo.write_text(
+        "\n".join([cabecalho_quebrado, COLUNAS_ANTIGAS,
+                   "2019/01/01;0000 UTC;1,0;25,0;80,0;10,0;"]),
+        encoding="latin-1",
+    )
+
+    metadados, medicoes = inmet.ler_estacao(arquivo)
+
+    assert metadados["estacao"] == "PETROPOLIS"
+    assert metadados["uf"] == "RJ"
+    assert metadados["latitude"] == pytest.approx(-22.5047, abs=1e-3)
+    assert len(medicoes) == 1
+
+
 def test_cabecalho_sem_estacao_da_erro_claro(tmp_path):
     arquivo = tmp_path / "ruim.CSV"
     arquivo.write_text("qualquer coisa\n" * 10, encoding="latin-1")

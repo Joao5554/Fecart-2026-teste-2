@@ -38,7 +38,8 @@ from dataclasses import dataclass, field
 # Versão do contrato de dados. Aumente ao mudar colunas ou classes: serve para
 # uma pessoa entender rapidamente que o formato mudou.
 # 2.0.0 — troca da base sintética pelo Atlas de Desastres real.
-VERSAO_ESQUEMA = "2.0.0"
+# 3.0.0 — entrada dos dados de chuva do INMET.
+VERSAO_ESQUEMA = "3.0.0"
 
 
 # --------------------------------------------------------------------------
@@ -201,7 +202,46 @@ NUMERICAS_CONTEXTO = [
            fonte="Atlas de Desastres"),
 ]
 
-NUMERICAS = NUMERICAS_TEMPO + NUMERICAS_HISTORICO + NUMERICAS_CONTEXTO
+# Clima do INMET. Todas se referem aos meses ANTERIORES ao mês previsto — a
+# chuva do próprio mês não pode entrar, senão o modelo estaria descrevendo o
+# que já aconteceu em vez de prever.
+#
+# Aceitam vazio de propósito: cerca de um quarto das linhas não alcança nenhuma
+# estação com medição naquele mês, e forçar um valor ali inventaria dado.
+NUMERICAS_CLIMA = [
+    Coluna("chuva_mes_anterior_mm", "Chuva acumulada no mês anterior",
+           "numerico", unidade="mm", minimo=0, maximo=3000,
+           permite_nulo=True, fonte="INMET"),
+    Coluna("chuva_max_dia_mes_anterior_mm",
+           "Maior chuva em um único dia do mês anterior", "numerico",
+           unidade="mm", minimo=0, maximo=800, permite_nulo=True, fonte="INMET"),
+    Coluna("dias_com_chuva_mes_anterior",
+           "Dias com chuva no mês anterior", "numerico", unidade="dias",
+           minimo=0, maximo=31, permite_nulo=True, fonte="INMET"),
+    Coluna("chuva_3_meses_anteriores_mm",
+           "Chuva acumulada nos três meses anteriores (solo saturado)",
+           "numerico", unidade="mm", minimo=0, maximo=9000,
+           permite_nulo=True, fonte="INMET"),
+    Coluna("anomalia_chuva_pct",
+           "Quanto a chuva do mês anterior fugiu do normal daquele lugar",
+           "numerico", unidade="%", minimo=-100, maximo=500,
+           permite_nulo=True, fonte="INMET (normal de 2000–2009)"),
+    Coluna("temperatura_mes_anterior_c", "Temperatura média do mês anterior",
+           "numerico", unidade="°C", minimo=-10, maximo=50,
+           permite_nulo=True, fonte="INMET"),
+    Coluna("umidade_mes_anterior_pct", "Umidade relativa média do mês anterior",
+           "numerico", unidade="%", minimo=0, maximo=100,
+           permite_nulo=True, fonte="INMET"),
+    Coluna("rajada_mes_anterior_kmh", "Maior rajada de vento do mês anterior",
+           "numerico", unidade="km/h", minimo=0, maximo=250,
+           permite_nulo=True, fonte="INMET"),
+    Coluna("meses_de_clima_disponiveis",
+           "Quantos dos três meses anteriores têm medição (0 a 3)",
+           "numerico", minimo=0, maximo=3, fonte="INMET"),
+]
+
+NUMERICAS = (NUMERICAS_TEMPO + NUMERICAS_HISTORICO + NUMERICAS_CONTEXTO
+             + NUMERICAS_CLIMA)
 
 
 # Colunas calculadas pelo pipeline a partir das anteriores.
@@ -228,6 +268,8 @@ DERIVADAS = [
 # --------------------------------------------------------------------------
 
 COLUNAS_NUMERICAS = [c.nome for c in NUMERICAS]
+# Preenchidas por src/clima.py, não pelo ETL do Atlas.
+COLUNAS_CLIMA = [c.nome for c in NUMERICAS_CLIMA]
 COLUNAS_CATEGORICAS = [c.nome for c in CATEGORICAS]
 COLUNAS_DERIVADAS = [c.nome for c in DERIVADAS]
 COLUNAS_IDENTIFICACAO = [c.nome for c in IDENTIFICACAO]
@@ -295,6 +337,7 @@ def descrever() -> str:
         ("Tempo", NUMERICAS_TEMPO),
         ("Histórico do município", NUMERICAS_HISTORICO),
         ("Contexto regional", NUMERICAS_CONTEXTO),
+        ("Clima do INMET (sempre de meses anteriores)", NUMERICAS_CLIMA),
         ("Derivadas (calculadas, não precisam estar no CSV)", DERIVADAS),
     ]:
         linhas.append("")

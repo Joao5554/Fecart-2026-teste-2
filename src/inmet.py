@@ -112,41 +112,75 @@ def _ler_texto(caminho: Path) -> str:
     )
 
 
+# Ordem fixa das 8 linhas de cabeçalho, estável em todos os anos publicados.
+# Serve de rede quando o rótulo vem ilegível — nos arquivos de 2019 o próprio
+# INMET gravou "ESTAC?O" e "REGI?O", com a acentuação corrompida na origem.
+ORDEM_METADADOS = ("regiao", "uf", "estacao", "codigo",
+                   "latitude", "longitude", "altitude", "fundacao")
+
+# Prefixos curtos de propósito: "esta" casa tanto "estacao" quanto "estac?o".
+PREFIXOS_METADADOS = {
+    "regi": "regiao",
+    "uf": "uf",
+    "esta": "estacao",
+    "lat": "latitude",
+    "long": "longitude",
+    "alt": "altitude",
+}
+
+NUMERICOS_METADADOS = ("latitude", "longitude", "altitude")
+
+
 def ler_metadados(texto: str) -> dict:
     """
     Extrai as 8 linhas de cabeçalho (região, UF, nome, código, coordenadas).
 
-    Os rótulos variam ("CODIGO (WMO)" já apareceu como "CODIGO ESTACAO"), então
-    a identificação também é por palavra-chave.
+    A identificação é feita pelo rótulo, com prefixos curtos para tolerar a
+    acentuação corrompida que aparece em alguns anos. Se ainda assim um campo
+    obrigatório não for achado, usa-se a posição da linha, que nunca mudou.
     """
+    linhas = texto.splitlines()[:LINHAS_METADADOS]
     metadados = {}
+    por_posicao = {}
 
-    for linha in texto.splitlines()[:LINHAS_METADADOS]:
+    for indice, linha in enumerate(linhas):
         if SEPARADOR not in linha:
             continue
         rotulo, _, valor = linha.partition(SEPARADOR)
         rotulo = _normalizar(rotulo).rstrip(": ")
         valor = valor.strip().strip(SEPARADOR).strip()
 
-        if rotulo.startswith("regiao"):
-            metadados["regiao"] = valor
-        elif rotulo.startswith("uf"):
-            metadados["uf"] = valor.upper()
-        elif rotulo.startswith("estacao"):
-            metadados["estacao"] = valor
-        elif "codigo" in rotulo:
-            metadados["codigo"] = valor
-        elif rotulo.startswith("latitude"):
-            metadados["latitude"] = _para_numero(valor)
-        elif rotulo.startswith("longitude"):
-            metadados["longitude"] = _para_numero(valor)
-        elif rotulo.startswith("altitude"):
-            metadados["altitude"] = _para_numero(valor)
+        if indice < len(ORDEM_METADADOS):
+            por_posicao[ORDEM_METADADOS[indice]] = valor
 
-    faltando = {"uf", "estacao"} - set(metadados)
+        campo = None
+        if "codigo" in rotulo:
+            campo = "codigo"
+        else:
+            for prefixo, nome in PREFIXOS_METADADOS.items():
+                if rotulo.startswith(prefixo):
+                    campo = nome
+                    break
+
+        if campo and campo not in metadados:
+            metadados[campo] = valor
+
+    # Completa pela posição o que o rótulo não entregou.
+    for campo in ("regiao", "uf", "estacao", "codigo", *NUMERICOS_METADADOS):
+        if campo not in metadados and campo in por_posicao:
+            metadados[campo] = por_posicao[campo]
+
+    for campo in NUMERICOS_METADADOS:
+        if campo in metadados:
+            metadados[campo] = _para_numero(metadados[campo])
+
+    if metadados.get("uf"):
+        metadados["uf"] = str(metadados["uf"]).upper()
+
+    faltando = [c for c in ("uf", "estacao") if not metadados.get(c)]
     if faltando:
         raise ErroInmet(
-            f"Cabeçalho sem {', '.join(sorted(faltando))}. "
+            f"Cabeçalho sem {', '.join(faltando)}. "
             "O arquivo não parece ser de uma estação do INMET."
         )
 
@@ -189,22 +223,48 @@ def _achar_colunas(colunas: list[str]) -> dict:
 def ler_estacao(caminho: Path) -> tuple[dict, pd.DataFrame]:
     """Lê um CSV de estação e devolve (metadados, medições horárias)."""
     caminho = Path(caminho)
-    texto = _ler_texto(caminho)
+    return interpretar_estacao(_ler_texto(caminho))
+
+
+def _decodificar(bytes_do_arquivo: bytes) -> str:
+    """Mesma lógica de _ler_texto, para conteúdo que já está na memória."""
+    for codificacao in CODIFICACOES:
+        try:
+            return bytes_do_arquivo.decode(codificacao)
+        except UnicodeDecodeError:
+            continue
+    raise ErroInmet(f"Não consegui decodificar o conteúdo. "
+                    f"Tentei: {', '.join(CODIFICACOES)}.")
+
+
+def interpretar_estacao(texto: str) -> tuple[dict, pd.DataFrame]:
+    """
+    Interpreta o conteúdo de um CSV de estação já lido para a memória.
+
+    Separado de `ler_estacao` para que os arquivos possam vir de dentro de um
+    ZIP sem passar pelo disco.
+    """
     metadados = ler_metadados(texto)
 
     from io import StringIO
 
-    corpo = "\n".join(texto.splitlines()[LINHAS_METADADOS:])
+    linhas = texto.splitlines()
+    corpo = "\n".join(linhas[LINHAS_METADADOS:])
+    if not corpo.strip():
+        raise ErroInmet("Arquivo sem linhas de dados após o cabeçalho.")
+
+    # Ler só as colunas necessárias: cada arquivo do INMET tem 19 colunas e
+    # ~8.700 linhas, e são milhares de arquivos. Descartar 13 colunas na
+    # leitura corta boa parte do tempo de processamento.
+    cabecalho = [c.strip() for c in linhas[LINHAS_METADADOS].split(SEPARADOR)]
+    colunas = _achar_colunas([c for c in cabecalho if c])
+
     dados = pd.read_csv(
         StringIO(corpo), sep=SEPARADOR, decimal=DECIMAL,
+        usecols=list(colunas.values()),
         na_values=[str(FALTANTE), FALTANTE, "", " "], low_memory=False,
     )
 
-    # Arquivos do INMET costumam terminar cada linha com ';', o que cria uma
-    # última coluna vazia sem nome.
-    dados = dados.loc[:, ~dados.columns.str.startswith("Unnamed")]
-
-    colunas = _achar_colunas(list(dados.columns))
     renomeadas = pd.DataFrame({
         grandeza: dados[coluna] for grandeza, coluna in colunas.items()
     })
@@ -296,34 +356,66 @@ def carregar_pasta(pasta: Path = PASTA_INMET, minimo_valido: float = MINIMO_HORA
     Arquivos ilegíveis não interrompem o processo: são contados e reportados,
     porque um ZIP do INMET costuma ter alguma estação com arquivo corrompido.
     """
-    pasta = Path(pasta)
-    arquivos = sorted(pasta.rglob("*.CSV")) + sorted(pasta.rglob("*.csv"))
-    arquivos = sorted(set(arquivos))
+    import zipfile
 
-    if not arquivos:
+    pasta = Path(pasta)
+    soltos = sorted({*pasta.rglob("*.CSV"), *pasta.rglob("*.csv")})
+    zips = sorted({*pasta.rglob("*.ZIP"), *pasta.rglob("*.zip")})
+
+    if not soltos and not zips:
         raise ErroInmet(
-            f"Nenhum CSV encontrado em {pasta}.\n\n"
+            f"Nenhum CSV nem ZIP encontrado em {pasta}.\n\n"
             f"Baixe os anos desejados em {URL_INMET}\n"
-            f"e descompacte os ZIPs dentro de {pasta}."
+            f"e coloque os arquivos em {pasta}.\n"
+            "Os ZIPs podem ficar como estão: não é preciso descompactar."
         )
 
     partes, falhas = [], []
-    for arquivo in arquivos:
+
+    def processar(texto: str, nome: str) -> None:
         try:
-            metadados, medicoes = ler_estacao(arquivo)
-            if medicoes.empty:
-                continue
-            partes.append(agregar_mensal(medicoes, metadados))
-        except (ErroInmet, ValueError, KeyError) as erro:
-            falhas.append((arquivo.name, str(erro)[:90]))
+            metadados, medicoes = interpretar_estacao(texto)
+            if not medicoes.empty:
+                partes.append(agregar_mensal(medicoes, metadados))
+        except (ErroInmet, ValueError, KeyError, IndexError) as erro:
+            falhas.append((nome, str(erro)[:90]))
 
         if ao_ler:
-            ao_ler(arquivo, len(partes), len(falhas))
+            ao_ler(nome, len(partes), len(falhas))
+
+    for arquivo in soltos:
+        try:
+            processar(_ler_texto(arquivo), arquivo.name)
+        except ErroInmet as erro:
+            falhas.append((arquivo.name, str(erro)[:90]))
+
+    # Os ZIPs anuais do INMET têm ~565 estações cada e passariam de 10 GB se
+    # fossem descompactados. Lê-los direto evita ocupar o disco (e evita que
+    # o OneDrive tente sincronizar tudo isso, quando o projeto mora nele).
+    for caminho_zip in zips:
+        try:
+            with zipfile.ZipFile(caminho_zip) as pacote:
+                membros = [
+                    m for m in pacote.namelist() if m.lower().endswith(".csv")
+                ]
+                for membro in membros:
+                    try:
+                        conteudo = pacote.read(membro)
+                    except (zipfile.BadZipFile, OSError) as erro:
+                        falhas.append((membro, str(erro)[:90]))
+                        continue
+                    try:
+                        processar(_decodificar(conteudo), Path(membro).name)
+                    except ErroInmet as erro:
+                        falhas.append((Path(membro).name, str(erro)[:90]))
+        except (zipfile.BadZipFile, OSError) as erro:
+            falhas.append((caminho_zip.name, f"ZIP ilegível: {str(erro)[:70]}"))
 
     if not partes:
+        total = len(soltos) + len(zips)
         raise ErroInmet(
-            f"Nenhum dos {len(arquivos)} arquivos pôde ser lido. "
-            "Confira se são mesmo CSVs de estação do INMET."
+            f"Nenhum dos {total} arquivo(s) pôde ser lido. "
+            "Confira se são mesmo dados de estação do INMET."
         )
 
     mensal = pd.concat(partes, ignore_index=True)

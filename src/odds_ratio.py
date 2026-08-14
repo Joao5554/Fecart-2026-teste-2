@@ -238,6 +238,30 @@ def calcular(dados: pd.DataFrame, analise: str = "gravidade",
         )
 
     X, desvios = montar_matriz(dados)
+
+    # Coluna inteiramente vazia não carrega informação nenhuma e faria a
+    # padronização produzir NaN. Acontece quando alguém treina sem ter baixado
+    # os dados do INMET: todas as variáveis de clima ficam em branco.
+    vazias = [coluna for coluna in X.columns if X[coluna].isna().all()]
+    if vazias:
+        X = X.drop(columns=vazias)
+
+    # Análise de casos completos: linhas com qualquer variável faltando saem
+    # da regressão. É o procedimento padrão em inferência — imputar valor
+    # faltante aqui inventaria informação e puxaria os odds ratios para 1,
+    # fazendo efeitos reais parecerem inexistentes.
+    completas = X.notna().all(axis=1)
+    n_descartadas = int((~completas).sum())
+
+    X = X[completas]
+    y = y[completas.to_numpy()]
+
+    if len(X) == 0 or len(np.unique(y)) < 2:
+        raise ValueError(
+            f"após remover linhas incompletas não sobraram dados suficientes "
+            f"para a análise '{analise}'."
+        )
+
     mantidas, removidas = selecionar_sem_colinearidade(X, limite_vif)
     X = X[mantidas]
 
@@ -288,7 +312,9 @@ def calcular(dados: pd.DataFrame, analise: str = "gravidade",
         "analise": analise,
         "descricao": configuracao["descricao"],
         "nome_evento": configuracao["nome_evento"],
-        "n_amostras": int(len(dados)),
+        "n_amostras": int(len(X)),
+        "n_descartadas_por_falta_de_dado": n_descartadas,
+        "variaveis_vazias_removidas": vazias,
         "n_eventos": int(y.sum()),
         "taxa_evento": float(y.mean()),
         "auc": auc,
@@ -334,6 +360,17 @@ def formatar_relatorio(resultado: dict, quantidade: int = 12) -> str:
         f"({resultado['taxa_evento']:.1%})",
         f"AUC da regressão logística: {resultado['auc']:.3f}",
     ]
+
+    if resultado.get("n_descartadas_por_falta_de_dado"):
+        linhas.append(
+            f"{resultado['n_descartadas_por_falta_de_dado']:,} linha(s) fora da "
+            f"análise por terem alguma variável sem medição"
+        )
+    if resultado.get("variaveis_vazias_removidas"):
+        linhas.append(
+            "Variáveis sem nenhum dado, removidas: "
+            + ", ".join(resultado["variaveis_vazias_removidas"])
+        )
 
     if resultado["removidas_por_colinearidade"]:
         removidas = ", ".join(

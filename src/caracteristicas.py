@@ -69,8 +69,13 @@ def construir_preprocessador() -> ColumnTransformer:
     Random Forest não precisa de padronização de escala, então não há
     StandardScaler aqui de propósito.
     """
+    # keep_empty_features mantém a coluna mesmo quando ela está inteiramente
+    # vazia — é o caso de quem treina sem ter baixado os dados do INMET. Sem
+    # isso, a coluna seria descartada e o número de features mudaria conforme
+    # a máquina, quebrando a correspondência com os nomes na hora de reportar
+    # a importância das variáveis.
     numerico = Pipeline([
-        ("imputacao", SimpleImputer(strategy="median")),
+        ("imputacao", SimpleImputer(strategy="median", keep_empty_features=True)),
     ])
 
     categorico = Pipeline([
@@ -98,12 +103,18 @@ def separar_x_y(dados: pd.DataFrame) -> tuple[pd.DataFrame, pd.Series]:
 
 
 def preparar_para_previsao(dados: pd.DataFrame) -> pd.DataFrame:
-    """Prepara linhas novas (sem alvo) para passar pelo modelo."""
+    """
+    Prepara linhas novas (sem alvo) para passar pelo modelo.
+
+    Colunas que o chamador não informou entram vazias em vez de causar erro.
+    É o que permite consultar a API sem os dados de clima: o pipeline imputa
+    o que falta, e a resposta sai com a informação disponível.
+    """
     dados = adicionar_derivadas(dados)
     colunas_entrada = (
         esquema.COLUNAS_MODELO_NUMERICAS + esquema.COLUNAS_MODELO_CATEGORICAS
     )
-    return dados[colunas_entrada]
+    return dados.reindex(columns=colunas_entrada)
 
 
 def importancia_por_coluna_original(

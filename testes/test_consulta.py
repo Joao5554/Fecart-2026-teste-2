@@ -35,7 +35,26 @@ def test_features_de_consulta_cobrem_o_esquema(ocorrencias):
         ocorrencias, 3303906, "DESLIZAMENTO", ano=2026, mes=2
     )
     assert set(features) == set(esquema.COLUNAS_NUMERICAS)
-    assert all(np.isfinite(list(features.values())))
+
+    # As variáveis vindas do Atlas são sempre calculáveis.
+    do_atlas = [v for k, v in features.items() if k not in esquema.COLUNAS_CLIMA]
+    assert all(np.isfinite(do_atlas))
+
+
+def test_clima_fica_vazio_quando_nao_ha_medicao(ocorrencias):
+    """
+    O clima não vem do Atlas. Sem os dados do INMET, essas colunas ficam
+    vazias — e vazio é honesto, diferente de preencher com zero, que o modelo
+    leria como "não choveu".
+    """
+    features = atlas.features_para_consulta(
+        ocorrencias, 3303906, "DESLIZAMENTO", ano=2026, mes=2
+    )
+    for coluna in esquema.COLUNAS_CLIMA:
+        if coluna == "meses_de_clima_disponiveis":
+            assert features[coluna] == 0
+        else:
+            assert np.isnan(features[coluna])
 
 
 def test_consulta_usa_o_mesmo_calculo_do_treino(ocorrencias):
@@ -56,7 +75,10 @@ def test_consulta_usa_o_mesmo_calculo_do_treino(ocorrencias):
         ano=int(linha["ano"]), mes=int(linha["mes"]),
     )
 
+    # O clima entra depois, por outra fonte; aqui compara-se o que vem do Atlas.
     for coluna in esquema.COLUNAS_NUMERICAS:
+        if coluna in esquema.COLUNAS_CLIMA:
+            continue
         assert features[coluna] == pytest.approx(float(linha[coluna])), coluna
 
 

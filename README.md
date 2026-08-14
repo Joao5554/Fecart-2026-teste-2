@@ -256,6 +256,66 @@ análise de odds ratio faz na regressão logística.
 
 ---
 
+## A chuva do INMET: um resultado negativo que ensina
+
+O projeto incorporou os dados das estações automáticas do INMET — 10.691
+arquivos de estação, 2000 a 2025, sem nenhuma falha de leitura. O resultado
+foi o oposto do esperado, e é o achado mais interessante do trabalho.
+
+### A chuva explica o desastre, e com folga
+
+Nos municípios que têm estação própria, comparando meses com e sem ocorrência:
+
+| Tipo de desastre | Risco baixo | Risco alto | |
+| --- | --- | --- | --- |
+| Hidrológicos — chuva máxima em um dia | 30,8 mm | **73,4 mm** | p ≈ 10⁻²³⁵ |
+| Hidrológicos — chuva total do mês | 91,7 mm | **297,1 mm** | |
+| Estiagem e seca — chuva do mês | 73,8 mm | **32,0 mm** | p ≈ 10⁻³² |
+
+A associação é enorme e na direção certa, inclusive invertendo-se para a seca.
+Não há dúvida de que a chuva causa o desastre.
+
+### E mesmo assim não melhorou a previsão
+
+| Modelo | Acurácia balanceada | Risco alto detectado |
+| --- | --- | --- |
+| Sem clima | 55,2% | 56,0% |
+| Com chuva do mês anterior | 55,0% | 56,1% |
+| Com chuva do próprio mês *(só diagnóstico)* | 54,6% | 53,8% |
+
+Nem a chuva do **próprio mês** ajuda — e essa é a linha que derruba a
+explicação mais óbvia. Também não é problema de distância da estação: nas
+linhas em que a medição vem do próprio município, o ganho é de +0,3 ponto,
+dentro do ruído.
+
+### Por que isso acontece
+
+**A informação já estava lá, por outro caminho.** O modelo sabe o mês, sabe
+quantas vezes aquele tipo de desastre já ocorreu naquele mês do calendário
+naquele município, e sabe quanta coisa aconteceu na UF nos últimos 12 meses.
+Isso já é, indiretamente, "está chovendo na região agora". A chuva medida
+confirma o que o modelo deduzia, mas não acrescenta.
+
+**E o que faltava, o dado mensal não tem.** Um deslizamento acontece por causa
+de 100 mm em seis horas, não de 300 mm ao longo de trinta dias. Ao agregar
+por mês, o extremo que causa o desastre se dissolve na média.
+
+### O que isso significa
+
+Explicar e prever são coisas diferentes. Saber que chuva forte causa enchente
+não permite prever a enchente do mês que vem — para isso seria preciso prever
+a **chuva** do mês que vem, o que é meteorologia, não histórico.
+
+O caminho para a chuva de fato ajudar é mudar a resolução: prever por semana
+ou por dia, usando a data exata que o Atlas registra e a chuva acumulada em
+24, 48 e 72 horas. Aí o extremo aparece.
+
+As variáveis climáticas ficaram no modelo — ele as usa (21% da importância
+total) e a estabilidade entre os anos melhorou um pouco (desvio de 5,7% para
+4,9%). Mas o ganho de acurácia foi nulo, e o projeto declara isso.
+
+---
+
 ## Odds ratio: quanto cada variável multiplica o risco
 
 A importância que o Random Forest devolve diz **quanto** uma variável ajudou a
