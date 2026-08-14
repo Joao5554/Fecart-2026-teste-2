@@ -1,5 +1,5 @@
 {
-  "treinado_em": "2026-08-14T00:00:20+00:00",
+  "treinado_em": "2026-08-14T00:28:10+00:00",
   "versao_esquema": "2.0.0",
   "assinatura_esquema": "bf84b75999e96937",
   "arquivo_dados": "C:\\Users\\jpcos\\OneDrive\\Documentos\\Fecart 2026\\dados\\dados.csv",
@@ -8,8 +8,62 @@
   "aviso_dados": null,
   "linhas_totais": 187088,
   "divisao_treino_teste": {
-    "tipo": "temporal",
-    "ano_corte": 2022
+    "tipo": "temporal_tres_partes",
+    "ano_validacao": 2020,
+    "ano_corte": 2022,
+    "modelo_final_com_toda_a_base": true
+  },
+  "escolha_hiperparametros": {
+    "metrica": "f1_macro",
+    "tolerancia_parcimonia": 0.01,
+    "escolhido": {
+      "profundidade": 16,
+      "folha": 5
+    },
+    "f1_escolhido": 0.5078,
+    "f1_melhor_candidato": 0.5167,
+    "candidatos": [
+      {
+        "parametros": {
+          "profundidade": 12,
+          "folha": 10
+        },
+        "balanceada": 0.4902,
+        "f1_macro": 0.5003
+      },
+      {
+        "parametros": {
+          "profundidade": 16,
+          "folha": 5
+        },
+        "balanceada": 0.4915,
+        "f1_macro": 0.5078
+      },
+      {
+        "parametros": {
+          "profundidade": 20,
+          "folha": 5
+        },
+        "balanceada": 0.496,
+        "f1_macro": 0.5136
+      },
+      {
+        "parametros": {
+          "profundidade": 28,
+          "folha": 3
+        },
+        "balanceada": 0.4964,
+        "f1_macro": 0.5167
+      },
+      {
+        "parametros": {
+          "profundidade": null,
+          "folha": 5
+        },
+        "balanceada": 0.4951,
+        "f1_macro": 0.5127
+      }
+    ]
   },
   "classes": [
     "baixo",
@@ -69,7 +123,7 @@
   },
   "hiperparametros": {
     "n_estimators": 100,
-    "max_depth": 20,
+    "max_depth": 16,
     "class_weight": {
       "baixo": 1.0,
       "medio": 3.0,
@@ -79,85 +133,171 @@
     "random_state": 42
   },
   "metricas": {
-    "acuracia": 0.7178083248182923,
-    "acuracia_balanceada": 0.5534272644229822,
-    "f1_macro": 0.5649366128576007,
+    "acuracia": 0.71314272494168,
+    "acuracia_balanceada": 0.552622936681305,
+    "f1_macro": 0.5609751773804018,
     "matriz_confusao": [
       [
-        29995,
-        1244,
-        3736
+        29656,
+        1167,
+        4152
       ],
       [
-        4282,
-        1692,
-        1049
+        4300,
+        1630,
+        1093
       ],
       [
-        3895,
-        431,
-        5545
+        3774,
+        393,
+        5704
       ]
     ],
     "relatorio_por_classe": {
       "baixo": {
-        "precision": 0.785785392434245,
-        "recall": 0.8576125804145819,
-        "f1-score": 0.8201293286122465,
+        "precision": 0.7860058309037901,
+        "recall": 0.8479199428162973,
+        "f1-score": 0.8157898356371639,
         "support": 34975.0
       },
       "medio": {
-        "precision": 0.5025245025245025,
-        "recall": 0.2409226826142674,
-        "f1-score": 0.3256977863330125,
+        "precision": 0.5109717868338558,
+        "recall": 0.23209454649010394,
+        "f1-score": 0.3192010183099971,
         "support": 7023.0
       },
       "alto": {
-        "precision": 0.5367860600193611,
-        "recall": 0.5617465302400972,
-        "f1-score": 0.5489827236275432,
+        "precision": 0.5209608183395744,
+        "recall": 0.577854320737514,
+        "f1-score": 0.5479346781940442,
         "support": 9871.0
       },
-      "accuracy": 0.7178083248182923,
+      "accuracy": 0.71314272494168,
       "macro avg": {
-        "precision": 0.6083653183260362,
-        "recall": 0.5534272644229822,
-        "f1-score": 0.5649366128576007,
+        "precision": 0.6059794786924068,
+        "recall": 0.552622936681305,
+        "f1-score": 0.5609751773804017,
         "support": 51869.0
       },
       "weighted avg": {
-        "precision": 0.7000460560270761,
-        "recall": 0.7178083248182923,
-        "f1-score": 0.7015829741571563,
+        "precision": 0.698326804693057,
+        "recall": 0.71314272494168,
+        "f1-score": 0.6975777721077006,
         "support": 51869.0
       }
     }
   },
-  "validacao_cruzada": null,
+  "validacao_temporal": {
+    "janelas": [
+      {
+        "balanceada": 0.5940151118092708,
+        "f1_macro": 0.5676711214705409,
+        "recall_alto": 0.7476155539251651,
+        "ano_teste": 2018,
+        "treino_ate": 2017,
+        "linhas_treino": 88859,
+        "linhas_teste": 11117
+      },
+      {
+        "balanceada": 0.6452220781402447,
+        "f1_macro": 0.6242957387668341,
+        "recall_alto": 0.8048229088168802,
+        "ano_teste": 2019,
+        "treino_ate": 2018,
+        "linhas_treino": 99976,
+        "linhas_teste": 11122
+      },
+      {
+        "balanceada": 0.4634826885117336,
+        "f1_macro": 0.4809700287911114,
+        "recall_alto": 0.34714548802946593,
+        "ano_teste": 2020,
+        "treino_ate": 2019,
+        "linhas_treino": 111098,
+        "linhas_teste": 12254
+      },
+      {
+        "balanceada": 0.5486697385586328,
+        "f1_macro": 0.5453534776579362,
+        "recall_alto": 0.5979786636720943,
+        "ano_teste": 2021,
+        "treino_ate": 2020,
+        "linhas_treino": 123352,
+        "linhas_teste": 11867
+      },
+      {
+        "balanceada": 0.5898255068661254,
+        "f1_macro": 0.597402653530808,
+        "recall_alto": 0.6452119309262166,
+        "ano_teste": 2022,
+        "treino_ate": 2021,
+        "linhas_treino": 135219,
+        "linhas_teste": 13252
+      },
+      {
+        "balanceada": 0.5584019017704465,
+        "f1_macro": 0.5717967777086982,
+        "recall_alto": 0.567270145544906,
+        "ano_teste": 2023,
+        "treino_ate": 2022,
+        "linhas_treino": 148471,
+        "linhas_teste": 13262
+      },
+      {
+        "balanceada": 0.5058408307332289,
+        "f1_macro": 0.5080067574195276,
+        "recall_alto": 0.499779638607316,
+        "ano_teste": 2024,
+        "treino_ate": 2023,
+        "linhas_treino": 161733,
+        "linhas_teste": 12792
+      },
+      {
+        "balanceada": 0.5931148609214348,
+        "f1_macro": 0.5771481826142049,
+        "recall_alto": 0.7308895842646401,
+        "ano_teste": 2025,
+        "treino_ate": 2024,
+        "linhas_treino": 174525,
+        "linhas_teste": 12563
+      }
+    ],
+    "n_janelas": 8,
+    "periodo_testado": "2018–2025",
+    "balanceada_media": 0.5623215896638898,
+    "balanceada_desvio": 0.0569995023210572,
+    "balanceada_pior": 0.4634826885117336,
+    "f1_macro_media": 0.5590805922449577,
+    "f1_macro_desvio": 0.0465706260973265,
+    "f1_macro_pior": 0.4809700287911114,
+    "recall_alto_media": 0.6175892392233355,
+    "recall_alto_desvio": 0.14904399218590375,
+    "recall_alto_pior": 0.34714548802946593
+  },
   "importancia_variaveis": {
-    "ocorrencias_uf_grupo_12m": 0.16997213250994553,
-    "grupo_desastre": 0.0928192253904225,
-    "anos_de_historico": 0.07296413046551069,
-    "uf": 0.07259360923326999,
-    "ocorrencias_total_historico": 0.0636898947464418,
-    "meses_desde_ultima_ocorrencia": 0.05990676890296259,
-    "mes": 0.04886923365062854,
-    "regiao": 0.04332125393672691,
-    "ocorrencias_por_ano": 0.037846342997445846,
-    "mes_seno": 0.03772177060873701,
-    "mes_cosseno": 0.037525981555028086,
-    "prejuizo_historico_log": 0.034877237084176026,
-    "reconhecimentos_historico": 0.03153749102456621,
-    "ocorrencias_60m": 0.030584735569800153,
-    "afetados_historico": 0.028582520172397756,
-    "ocorrencias_mesmo_mes_historico": 0.027264831359140217,
-    "ocorrencias_municipio_12m": 0.026665044244337025,
-    "proporcao_reconhecidas": 0.023109134236343323,
-    "gravidade_media_historica": 0.021519285509019746,
-    "ocorrencias_24m": 0.020922011428699854,
-    "ocorrencias_12m": 0.01213865332780552,
-    "ja_ocorreu": 0.003983432738692064,
-    "mortos_historico": 0.0015852793079025617
+    "ocorrencias_uf_grupo_12m": 0.1730168034150565,
+    "grupo_desastre": 0.09287717019206375,
+    "anos_de_historico": 0.0750798492251303,
+    "ocorrencias_total_historico": 0.06924744256774756,
+    "uf": 0.06752712633420786,
+    "meses_desde_ultima_ocorrencia": 0.062340719372782745,
+    "mes": 0.04650251028621509,
+    "regiao": 0.04512202933824373,
+    "ocorrencias_por_ano": 0.03567460484635375,
+    "mes_seno": 0.03478695347581637,
+    "prejuizo_historico_log": 0.034635475670861275,
+    "mes_cosseno": 0.034229988194014106,
+    "reconhecimentos_historico": 0.033942733019397264,
+    "ocorrencias_60m": 0.03325216835365457,
+    "ocorrencias_mesmo_mes_historico": 0.030270873471984372,
+    "afetados_historico": 0.02735415715552259,
+    "ocorrencias_municipio_12m": 0.024764413603491388,
+    "ocorrencias_24m": 0.021141474230940798,
+    "proporcao_reconhecidas": 0.020433285476715458,
+    "gravidade_media_historica": 0.019500426730322033,
+    "ocorrencias_12m": 0.013276243799955902,
+    "ja_ocorreu": 0.003378602094422475,
+    "mortos_historico": 0.0016449491451000931
   },
   "odds_ratio": {
     "ocorrencia": {

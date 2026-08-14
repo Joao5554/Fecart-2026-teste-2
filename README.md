@@ -98,6 +98,7 @@ arquivo novo; se foi só um teste, desfaça com `git checkout modelo/`.
 | `src/caracteristicas.py`           | Features derivadas e pré-processamento (imputação + one-hot)    |
 | `src/procedencia.py`               | Registra se o dataset veio da base real ou de dados sintéticos  |
 | `src/odds_ratio.py`                | Razão de chances de cada variável (regressão logística)         |
+| `src/validacao_temporal.py`        | Janela expansiva, divisão em três partes e escolha de parâmetros |
 | `analise/avaliacao_modelo.py`      | Avaliação passo a passo, comentada — para estudar e apresentar  |
 | `dados/preparar_dados.py`          | Gera `dados.csv` a partir da base bruta                         |
 | `dados/README.md`                  | **Metodologia dos dados** e limitações — leitura obrigatória    |
@@ -133,15 +134,64 @@ temporal — está em [`dados/README.md`](dados/README.md).
 
 ## Resultados
 
-Medidos em **divisão temporal**: o modelo treina com 2010–2021 e é avaliado em
-2022–2025, que ele nunca viu. É assim que o sistema seria usado de verdade.
+### Como o modelo é avaliado
+
+A base é dividida **em três partes, por ano** — nunca por sorteio:
+
+| Conjunto | Anos | Linhas | Para quê |
+| --- | --- | --- | --- |
+| Treino | 2010–2019 | 111.098 | ajustar o modelo |
+| **Validação** | 2020–2021 | 24.121 | escolher os hiperparâmetros |
+| Teste | 2022–2025 | 51.869 | medir, **uma vez só** |
+
+O conjunto de validação existe para uma razão específica: escolher a
+profundidade das árvores olhando o teste transformaria o resultado em "o
+melhor que consegui naquele teste", que é sempre melhor do que o modelo faria
+em dados novos. Escolhidos os hiperparâmetros, a validação volta para o treino
+(2010–2021) e só então o teste é usado.
+
+### Desempenho no conjunto de teste (2022–2025)
 
 | Métrica | Valor |
 | --- | --- |
-| Acurácia | 71,8% |
+| Acurácia | 71,3% |
 | Acurácia balanceada | 55,3% |
-| F1 macro | 0,565 |
-| Casos de risco **alto** identificados | **56,2%** |
+| F1 macro | 0,561 |
+| Casos de risco **alto** identificados | **57,8%** |
+
+### Validação walk-forward: o desempenho é estável?
+
+Uma única divisão pode dar sorte. A validação por **janela expansiva** treina
+até um ano e testa no seguinte, repetidamente — como o sistema seria usado:
+
+| Treina até | Testa | Acurácia balanceada | Risco alto detectado |
+| --- | --- | --- | --- |
+| 2017 | 2018 | 59,4% | 74,8% |
+| 2018 | 2019 | 64,5% | 80,5% |
+| 2019 | **2020** | **46,3%** | **34,7%** |
+| 2020 | 2021 | 54,9% | 59,8% |
+| 2021 | 2022 | 59,0% | 64,5% |
+| 2022 | 2023 | 55,8% | 56,7% |
+| 2023 | 2024 | 50,6% | 50,0% |
+| 2024 | 2025 | 59,3% | 73,1% |
+| | **média** | **56,2% ± 5,7** | **61,8% ± 14,9** |
+
+**2020 é o pior ano de todos**, e por uma margem grande. O modelo treinado até
+2019 não anteciparia o que aconteceu ali: a taxa de ocorrências registradas
+salta de 20% (2019) para 29% (2020) e continua subindo. Parte é aumento real
+de eventos, parte é melhora da notificação — e nenhum modelo baseado em
+histórico prevê uma mudança na forma de registrar.
+
+Esse é o resultado mais honesto do trabalho: o desempenho **varia com o ano**,
+e apresentar só a média esconderia isso.
+
+### Escolha dos hiperparâmetros pela parcimônia
+
+Entre os candidatos testados na validação, o de maior F1 foi profundidade 28
+(0,517), mas o escolhido foi profundidade 16 (0,508). É intencional: a
+diferença de 0,009 cabe dentro da tolerância de 0,01 e é ruído de amostra.
+**Entre modelos empatados, vence o mais simples** — generaliza melhor para
+dados que ainda não existem, e gera um arquivo menor (19 MB em vez de 31 MB).
 
 **Como ler isso com honestidade.** A acurácia de 68% não é o número importante:
 como 75% das linhas são "baixo", chutar sempre "baixo" já daria mais que isso.
@@ -286,8 +336,14 @@ e o modelo melhorou junto: a detecção de casos graves subiu de 48,9% para
 
 - **Sem vazamento temporal.** As features de um mês nunca usam aquele mês nem o
   futuro, e um teste confere isso linha a linha.
-- **Divisão temporal.** Treina no passado, testa no futuro. A validação cruzada
-  aleatória também é calculada, e o próprio treino avisa que ela é otimista.
+- **Divisão temporal em três partes.** Treino, validação e teste cortados por
+  ano. Um teste "espião" registra quais anos cada etapa enxergou e falha se a
+  escolha de hiperparâmetros tocar no conjunto de teste.
+- **Validação walk-forward.** Oito janelas independentes, com desvio-padrão e
+  o pior ano reportados — não só a média.
+- **Modelo final com a base inteira.** Medido o método, o `.pkl` que vai para
+  o disco é retreinado com 2010–2025. Os metadados registram isso, para
+  ninguém ler as métricas como se fossem daquele objeto.
 - **Procedência dos dados.** O dataset carrega um registro com hash SHA-256 da
   origem; a API informa se o modelo foi treinado com base real ou sintética.
 - **Assinatura do esquema.** Cada modelo guarda a impressão digital do contrato

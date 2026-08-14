@@ -43,7 +43,13 @@ from sklearn.pipeline import Pipeline
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from src import caracteristicas, esquema, odds_ratio, procedencia  # noqa: E402
+from src import (  # noqa: E402
+    caracteristicas,
+    esquema,
+    odds_ratio,
+    procedencia,
+    validacao_temporal,
+)
 from src.carregar import ErroDeDados, carregar_dados, resumir  # noqa: E402
 
 
@@ -71,13 +77,31 @@ PESOS_CLASSE = {"baixo": 1.0, "medio": 3.0, "alto": 6.0}
 MIN_AMOSTRAS_FOLHA = 5
 
 
-def construir_modelo(arvores: int, profundidade: int | None, semente: int) -> Pipeline:
+# Configurações testadas na etapa de validação. A busca é pequena e
+# proposital: cada candidato precisa de um treino completo, e o objetivo é
+# escolher entre alternativas razoáveis, não varrer o espaço todo.
+# Diferenças de F1 abaixo deste valor são tratadas como empate: numa amostra
+# de validação com ~24 mil linhas, meio ponto percentual não distingue dois
+# modelos. Entre empatados, escolhe-se o mais simples.
+TOLERANCIA_PARCIMONIA = 0.01
+
+CANDIDATOS = [
+    {"profundidade": 12, "folha": 10},
+    {"profundidade": 16, "folha": 5},
+    {"profundidade": 20, "folha": 5},
+    {"profundidade": 28, "folha": 3},
+    {"profundidade": None, "folha": 5},
+]
+
+
+def construir_modelo(arvores: int, profundidade: int | None, semente: int,
+                     folha: int = MIN_AMOSTRAS_FOLHA) -> Pipeline:
     """Monta o pipeline completo: pré-processamento + classificador."""
     floresta = RandomForestClassifier(
         n_estimators=arvores,
         max_depth=profundidade,
         class_weight=PESOS_CLASSE,
-        min_samples_leaf=MIN_AMOSTRAS_FOLHA,
+        min_samples_leaf=folha,
         n_jobs=-1,
         random_state=semente,
     )
@@ -147,42 +171,33 @@ def avaliar(modelo: Pipeline, X_teste: pd.DataFrame, y_teste: pd.Series) -> dict
     }
 
 
-def validar_cruzado(modelo: Pipeline, X: pd.DataFrame, y: pd.Series,
-                    particoes: int, semente: int) -> dict:
-    """Repete o treino em várias divisões dos dados.
-
-    Uma acurácia boa em uma única divisão pode ser sorte. Se o desvio-padrão
-    entre as partições for alto, o resultado não é confiável.
+def validar_walk_forward(dados: pd.DataFrame, X: pd.DataFrame, y: pd.Series,
+                         arvores: int, profundidade: int | None, folha: int,
+                         semente: int) -> dict:
     """
-    titulo(f"VALIDAÇÃO CRUZADA ({particoes} partições)")
-    print("Treinando em várias divisões dos dados... (pode demorar)")
+    Validação temporal com janela expansiva (walk-forward).
 
-    divisor = StratifiedKFold(n_splits=particoes, shuffle=True, random_state=semente)
-    notas = cross_val_score(
-        modelo, X, y, cv=divisor, scoring="balanced_accuracy", n_jobs=-1
-    )
+    Substitui a validação cruzada comum, que sorteia as linhas e por isso
+    treina com o futuro. Aqui o modelo é treinado com tudo até um ano e
+    avaliado no ano seguinte, repetidamente — exatamente como o sistema seria
+    usado. Cada ano vira um teste independente, e o desvio entre eles diz se
+    o desempenho é estável ou se depende do período escolhido.
+    """
+    titulo("VALIDAÇÃO TEMPORAL — JANELA EXPANSIVA (WALK-FORWARD)")
+    print("Treina até um ano, testa no ano seguinte, e avança. Pode demorar.\n")
 
-    print(f"\nAcurácia balanceada por partição: "
-          f"{', '.join(f'{n:.1%}' for n in notas)}")
-    print(f"Média: {notas.mean():.2%}  (desvio-padrão: {notas.std():.2%})")
+    try:
+        janelas = validacao_temporal.gerar_janelas(dados["ano"])
+        resumo = validacao_temporal.validar_walk_forward(
+            lambda: construir_modelo(arvores, profundidade, semente, folha),
+            X, y, dados["ano"], janelas,
+        )
+    except ValueError as erro:
+        print(f"[aviso] não foi possível validar ({erro}).")
+        return None
 
-    if notas.std() > 0.05:
-        print("\n[aviso] Variação alta entre as partições. O desempenho depende "
-              "muito de quais linhas caem no treino — sinal de que faltam dados.")
-    else:
-        print("\nVariação baixa entre as partições: o resultado é estável.")
-
-    print("\nAtenção ao comparar com o teste temporal: aqui as partições são")
-    print("SORTEADAS, então o modelo treina com meses de 2024 e é avaliado em")
-    print("meses de 2015. Isso infla o resultado. O número que vale para a")
-    print("apresentação é o do conjunto de teste temporal, sempre menor.")
-
-    return {
-        "particoes": particoes,
-        "notas": [float(n) for n in notas],
-        "media": float(notas.mean()),
-        "desvio_padrao": float(notas.std()),
-    }
+    print(validacao_temporal.formatar_walk_forward(resumo))
+    return resumo
 
 
 def mostrar_importancias(modelo: Pipeline, quantidade: int = 15) -> dict:
@@ -237,7 +252,7 @@ def calcular_odds_ratios(dados: pd.DataFrame) -> dict:
 
 def salvar(modelo: Pipeline, dados: pd.DataFrame, metricas: dict,
            cruzada: dict | None, importancias: dict, argumentos,
-           odds: dict | None = None) -> None:
+           odds: dict | None = None, escolha: dict | None = None) -> None:
     """Salva o modelo e um arquivo de metadados ao lado dele."""
     PASTA_MODELO.mkdir(parents=True, exist_ok=True)
     # Sem compressão uma floresta de 300 árvores passa de 100 MB. compress=3
@@ -262,8 +277,18 @@ def salvar(modelo: Pipeline, dados: pd.DataFrame, metricas: dict,
         "divisao_treino_teste": (
             {"tipo": "aleatoria", "proporcao_teste": argumentos.proporcao_teste}
             if argumentos.split_aleatorio
-            else {"tipo": "temporal", "ano_corte": argumentos.ano_corte}
+            else {
+                "tipo": "temporal_tres_partes",
+                "ano_validacao": argumentos.ano_validacao,
+                "ano_corte": argumentos.ano_corte,
+                # Se o modelo salvo foi retreinado com a base inteira, as
+                # métricas medem o MÉTODO, não este objeto. Registrar isso
+                # evita que alguém no futuro leia os números como se fossem
+                # deste .pkl.
+                "modelo_final_com_toda_a_base": not argumentos.sem_modelo_final,
+            }
         ),
+        "escolha_hiperparametros": escolha,
         "classes": esquema.CLASSES_RISCO,
         "distribuicao_classes": {
             str(k): int(v)
@@ -281,13 +306,15 @@ def salvar(modelo: Pipeline, dados: pd.DataFrame, metricas: dict,
         },
         "hiperparametros": {
             "n_estimators": argumentos.arvores,
-            "max_depth": argumentos.profundidade,
+            "max_depth": (escolha["escolhido"]["profundidade"] if escolha
+                          else argumentos.profundidade),
             "class_weight": PESOS_CLASSE,
-            "min_samples_leaf": MIN_AMOSTRAS_FOLHA,
+            "min_samples_leaf": (escolha["escolhido"]["folha"] if escolha
+                                 else MIN_AMOSTRAS_FOLHA),
             "random_state": argumentos.semente,
         },
         "metricas": metricas,
-        "validacao_cruzada": cruzada,
+        "validacao_temporal": cruzada,
         "importancia_variaveis": importancias,
         # Importância diz QUANTO a variável ajuda a prever; odds ratio diz
         # em que DIREÇÃO ela empurra o risco e quanto multiplica a chance.
@@ -337,13 +364,19 @@ def main() -> int:
                         help="fração para teste, só com --split-aleatorio (padrão: 0.2)")
     parser.add_argument("--ano-corte", type=int, default=2022,
                         help="anos a partir deste vão para o teste (padrão: 2022)")
+    parser.add_argument("--ano-validacao", type=int, default=2020,
+                        help="início do conjunto de validação, usado para "
+                             "escolher os hiperparâmetros (padrão: 2020)")
+    parser.add_argument("--sem-modelo-final", action="store_true",
+                        help="salva o modelo treinado só até o corte, em vez "
+                             "de retreinar com a base inteira")
     parser.add_argument("--split-aleatorio", action="store_true",
                         help="usa divisão aleatória em vez de temporal "
                              "(otimista: só para comparação)")
     parser.add_argument("--particoes", type=int, default=5,
                         help="partições da validação cruzada (padrão: 5)")
     parser.add_argument("--sem-validacao-cruzada", action="store_true",
-                        help="pula a validação cruzada (treino bem mais rápido)")
+                        help="pula a validação walk-forward (bem mais rápido)")
     parser.add_argument("--sem-odds-ratio", action="store_true",
                         help="pula a análise de odds ratio das variáveis")
     parser.add_argument("--semente", type=int, default=42,
@@ -367,6 +400,8 @@ def main() -> int:
     print(f"  {len(esquema.COLUNAS_MODELO_CATEGORICAS)} categóricas "
           f"(viram colunas separadas no one-hot)")
 
+    escolha = None
+
     if argumentos.split_aleatorio:
         # stratify mantém a mesma proporção de baixo/medio/alto nos dois lados.
         X_treino, X_teste, y_treino, y_teste = train_test_split(
@@ -380,32 +415,100 @@ def main() -> int:
               f"\n          é testado em meses de 2015. Isso superestima o"
               f"\n          desempenho, porque na vida real só existe o passado."
               f"\n          Use a divisão temporal (padrão) para o número honesto.")
+        profundidade = argumentos.profundidade
+        folha = MIN_AMOSTRAS_FOLHA
     else:
-        # Divisão temporal: treina no passado, testa no futuro. É assim que o
-        # sistema seria usado de verdade, então é assim que ele deve ser medido.
-        eh_treino = dados["ano"] < argumentos.ano_corte
-        X_treino, X_teste = X[eh_treino], X[~eh_treino]
-        y_treino, y_teste = y[eh_treino], y[~eh_treino]
-        descricao_split = f"temporal (treino < {argumentos.ano_corte} <= teste)"
+        # Divisão TEMPORAL EM TRÊS PARTES.
+        #
+        # O passado treina, um período intermediário escolhe os
+        # hiperparâmetros, e o futuro só é tocado no fim. Sem o conjunto do
+        # meio, escolher a profundidade olhando o teste transformaria o
+        # resultado em "o melhor que consegui naquele teste" — que é sempre
+        # melhor do que o modelo faria em dados novos.
+        treino, validacao, teste = validacao_temporal.dividir_em_tres(
+            dados, argumentos.ano_validacao, argumentos.ano_corte
+        )
+        X_treino, y_treino = X[treino], y[treino]
+        X_teste, y_teste = X[teste], y[teste]
+        descricao_split = (
+            f"temporal em três partes (validação a partir de "
+            f"{argumentos.ano_validacao}, teste a partir de {argumentos.ano_corte})"
+        )
 
-        if len(X_teste) == 0:
-            print(f"\nNenhuma linha a partir de {argumentos.ano_corte}. "
-                  f"Ajuste --ano-corte.", file=sys.stderr)
-            raise SystemExit(1)
+        print("\nDivisão TEMPORAL EM TRÊS PARTES:")
+        for nome, mascara in (("treino   ", treino), ("validação", validacao),
+                              ("teste    ", teste)):
+            anos_parte = dados.loc[mascara, "ano"]
+            print(f"  {nome}: {anos_parte.min()}–{anos_parte.max()}  "
+                  f"({int(mascara.sum()):,} linhas)")
 
-        anos_treino = dados.loc[eh_treino, "ano"]
-        anos_teste = dados.loc[~eh_treino, "ano"]
-        print(f"\nDivisão TEMPORAL — treina no passado, testa no futuro:")
-        print(f"  treino: {anos_treino.min()}–{anos_treino.max()}")
-        print(f"  teste:  {anos_teste.min()}–{anos_teste.max()}")
+        titulo("ESCOLHA DOS HIPERPARÂMETROS (no conjunto de validação)")
+        print("O conjunto de teste NÃO é usado aqui.\n")
+        print(f"{'profundidade':>13}{'folha':>7}{'balanceada':>13}{'F1 macro':>11}")
+        print("-" * 44)
 
-    print(f"Treino: {len(X_treino):,} linhas | Teste: {len(X_teste):,} linhas")
+        def mostrar(medida):
+            p = medida["parametros"]
+            print(f"{str(p['profundidade'] or 'sem limite'):>13}{p['folha']:>7}"
+                  f"{medida['balanceada']:>12.1%}{medida['f1_macro']:>11.3f}")
+
+        melhores, historico = validacao_temporal.escolher_hiperparametros(
+            lambda profundidade, folha: construir_modelo(
+                argumentos.arvores, profundidade, argumentos.semente, folha
+            ),
+            CANDIDATOS, X, y, treino, validacao,
+            tolerancia=TOLERANCIA_PARCIMONIA,
+            # Árvore mais rasa e folha maior = modelo mais simples.
+            complexidade=lambda p: (p["profundidade"] or 999, -p["folha"]),
+            ao_testar=mostrar,
+        )
+
+        profundidade, folha = melhores["profundidade"], melhores["folha"]
+        melhor_nota = max(h["f1_macro"] for h in historico)
+        nota_escolhida = next(
+            h["f1_macro"] for h in historico if h["parametros"] == melhores
+        )
+
+        print(f"\nEscolhido: profundidade={profundidade or 'sem limite'}, "
+              f"folha={folha}")
+        if nota_escolhida < melhor_nota:
+            print(f"Não é o maior F1 ({nota_escolhida:.3f} contra "
+                  f"{melhor_nota:.3f}), e isso é proposital: a diferença cabe "
+                  f"dentro da tolerância de {TOLERANCIA_PARCIMONIA:.3f}, que é")
+            print("ruído de amostra. Entre empatados, vence o modelo mais")
+            print("simples — generaliza melhor e gera um arquivo menor.")
+
+        escolha = {
+            "metrica": "f1_macro",
+            "tolerancia_parcimonia": TOLERANCIA_PARCIMONIA,
+            "escolhido": melhores,
+            "f1_escolhido": round(nota_escolhida, 4),
+            "f1_melhor_candidato": round(melhor_nota, 4),
+            "candidatos": [
+                {"parametros": h["parametros"],
+                 "balanceada": round(h["balanceada"], 4),
+                 "f1_macro": round(h["f1_macro"], 4)}
+                for h in historico
+            ],
+        }
+
+        # Escolhidos os hiperparâmetros, a validação já cumpriu seu papel e
+        # volta para o treino. Descartá-la seria jogar fora dois anos de dados
+        # sem motivo — o que precisava ficar de fora é só o teste.
+        X_treino = X[treino | validacao]
+        y_treino = y[treino | validacao]
+        anos_treino = dados.loc[treino | validacao, "ano"]
+        print(f"\nTreino final: {anos_treino.min()}–{anos_treino.max()} "
+              f"(treino + validação, {len(X_treino):,} linhas)")
+
+    print(f"\nTreino: {len(X_treino):,} linhas | Teste: {len(X_teste):,} linhas")
 
     titulo("TREINANDO O RANDOM FOREST")
     print(f"Árvores: {argumentos.arvores} | "
-          f"Profundidade máxima: {argumentos.profundidade or 'sem limite'}")
+          f"Profundidade máxima: {profundidade or 'sem limite'} | "
+          f"Folha mínima: {folha}")
     modelo = construir_modelo(
-        argumentos.arvores, argumentos.profundidade, argumentos.semente
+        argumentos.arvores, profundidade, argumentos.semente, folha
     )
     modelo.fit(X_treino, y_treino)
     print("Treinamento concluído.")
@@ -414,18 +517,34 @@ def main() -> int:
 
     cruzada = None
     if not argumentos.sem_validacao_cruzada:
-        cruzada = validar_cruzado(
-            construir_modelo(
-                argumentos.arvores, argumentos.profundidade, argumentos.semente
-            ),
-            X, y, argumentos.particoes, argumentos.semente,
+        cruzada = validar_walk_forward(
+            dados, X, y, argumentos.arvores, profundidade, folha,
+            argumentos.semente,
         )
 
     importancias = mostrar_importancias(modelo)
 
     odds = {} if argumentos.sem_odds_ratio else calcular_odds_ratios(dados)
 
-    salvar(modelo, dados, metricas, cruzada, importancias, argumentos, odds)
+    # --- Modelo final -------------------------------------------------------
+    # Avaliado o método, o modelo que vai para o disco é retreinado com TUDO,
+    # inclusive os anos de teste. Guardar o modelo que só viu até 2021 seria
+    # jogar fora quatro anos de história por nada: as métricas acima já foram
+    # medidas de forma honesta, e é para elas que a apresentação aponta.
+    if not argumentos.split_aleatorio and not argumentos.sem_modelo_final:
+        titulo("MODELO FINAL")
+        print("Retreinando com a base inteira, para uso em produção.")
+        print(f"  {len(X):,} linhas ({dados['ano'].min()}–{dados['ano'].max()})")
+        print("  As métricas relatadas continuam sendo as do teste temporal:")
+        print("  elas medem o método, não este objeto específico.")
+        modelo = construir_modelo(
+            argumentos.arvores, profundidade, argumentos.semente, folha
+        )
+        modelo.fit(X, y)
+        print("Concluído.")
+
+    salvar(modelo, dados, metricas, cruzada, importancias, argumentos, odds,
+           escolha)
     return 0
 
 

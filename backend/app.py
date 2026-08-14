@@ -311,7 +311,10 @@ def info_modelo():
         "desempenho_por_classe": (
             metadados.get("metricas", {}).get("relatorio_por_classe")
         ),
-        "validacao_cruzada": metadados.get("validacao_cruzada"),
+        # Validação por janela expansiva: o modelo é testado ano a ano, sempre
+        # treinando só com o que veio antes. Traz média, desvio e o pior ano.
+        "validacao_temporal": metadados.get("validacao_temporal"),
+        "escolha_hiperparametros": metadados.get("escolha_hiperparametros"),
         "variaveis_mais_importantes": dict(
             list(metadados.get("importancia_variaveis", {}).items())[:10]
         ),
