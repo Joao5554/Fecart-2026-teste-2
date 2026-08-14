@@ -64,6 +64,7 @@ async function iniciar() {
   // vazio e sem explicação — foi exatamente o que acontecia antes.
   preencherMeses();
   preencherTipos(TIPOS_DESASTRE);
+  prepararMapa();
 
   try {
     const estado = await pedir("/");
@@ -287,6 +288,141 @@ async function mostrarAno(codigoIbge, tipo, ano, mesEscolhido) {
   });
 
   $("secao-ano").classList.remove("oculto");
+}
+
+// ---------------------------------------------------------------------------
+// Mapa do Brasil
+// ---------------------------------------------------------------------------
+
+// A malha tem ~3 MB: é buscada uma vez e reaproveitada em todos os desenhos.
+let malhaCache = null;
+
+function prepararMapa() {
+  const tipo = $("mapa-tipo");
+  TIPOS_DESASTRE.forEach((t) => tipo.add(new Option(formatarTipo(t), t)));
+  tipo.value = "INUNDACAO";
+
+  const mes = $("mapa-mes");
+  MESES.forEach((nome, i) => mes.add(new Option(nome, i + 1, false, i === 1)));
+
+  $("form-mapa").addEventListener("submit", (evento) => {
+    evento.preventDefault();
+    desenharMapa(tipo.value, Number(mes.value));
+  });
+}
+
+async function desenharMapa(tipo, mes) {
+  const botao = $("mapa-botao");
+  botao.disabled = true;
+  botao.textContent = "Desenhando...";
+  $("mapa-estado").textContent = malhaCache
+    ? "Calculando o risco de cada município..."
+    : "Baixando as fronteiras dos municípios (3 MB, só na primeira vez)...";
+
+  try {
+    if (!malhaCache) malhaCache = await pedir("/mapa/malha");
+    const dados = await pedir(
+      `/mapa/brasil?grupo_desastre=${tipo}&mes=${mes}&ano=${new Date().getFullYear()}`
+    );
+
+    const porMunicipio = new Map(
+      dados.municipios.map((m) => [m.codigo_ibge, m])
+    );
+    renderizarSvg(malhaCache, porMunicipio);
+
+    $("mapa-estado").textContent =
+      `${formatarTipo(tipo)} em ${MESES[mes - 1]} · `
+      + `${dados.total.toLocaleString("pt-BR")} municípios com histórico · `
+      + `${dados.resumo.alto} em risco alto, ${dados.resumo.medio} em médio.`;
+
+    montarLegenda(dados.resumo);
+  } catch (erro) {
+    $("mapa-estado").textContent = `Não foi possível montar o mapa: ${erro.message}`;
+  } finally {
+    botao.disabled = false;
+    botao.textContent = "Desenhar mapa";
+  }
+}
+
+function renderizarSvg(malha, porMunicipio) {
+  const svg = $("mapa-svg");
+  const LARGURA = 600, ALTURA = 620;
+
+  // Projeção equirretangular: longitude vira x, latitude vira y. Para um país
+  // só, a distorção é pequena e não exige biblioteca de projeção.
+  let minLon = 180, maxLon = -180, minLat = 90, maxLat = -90;
+  const visitar = (coords, aplicar) => {
+    if (typeof coords[0] === "number") aplicar(coords);
+    else coords.forEach((c) => visitar(c, aplicar));
+  };
+  malha.features.forEach((f) => visitar(f.geometry.coordinates, ([lon, lat]) => {
+    if (lon < minLon) minLon = lon;
+    if (lon > maxLon) maxLon = lon;
+    if (lat < minLat) minLat = lat;
+    if (lat > maxLat) maxLat = lat;
+  }));
+
+  const escala = Math.min(LARGURA / (maxLon - minLon), ALTURA / (maxLat - minLat));
+  const deslocaX = (LARGURA - (maxLon - minLon) * escala) / 2;
+  const deslocaY = (ALTURA - (maxLat - minLat) * escala) / 2;
+  const px = (lon) => (lon - minLon) * escala + deslocaX;
+  // O y do SVG cresce para baixo; a latitude cresce para cima.
+  const py = (lat) => (maxLat - lat) * escala + deslocaY;
+
+  const anelParaPath = (anel) =>
+    "M" + anel.map(([lon, lat]) => `${px(lon).toFixed(1)},${py(lat).toFixed(1)}`)
+                .join("L") + "Z";
+
+  const partes = [];
+  malha.features.forEach((f) => {
+    const codigo = f.properties.codigo_ibge;
+    const info = porMunicipio.get(codigo);
+    const geometria = f.geometry;
+    const poligonos = geometria.type === "Polygon"
+      ? [geometria.coordinates] : geometria.coordinates;
+
+    const d = poligonos.map((p) => p.map(anelParaPath).join("")).join("");
+    if (!d) return;
+
+    if (info) {
+      partes.push(
+        `<path d="${d}" fill="${info.cor}" data-ibge="${codigo}"></path>`
+      );
+    } else {
+      partes.push(`<path d="${d}" class="sem-dado"></path>`);
+    }
+  });
+
+  svg.innerHTML = partes.join("");
+
+  // Um único listener no SVG, em vez de 5.570 — a diferença de desempenho
+  // é grande o bastante para travar a página se feito do outro jeito.
+  svg.onmousemove = (evento) => {
+    const alvo = evento.target.closest("path[data-ibge]");
+    const dica = $("mapa-dica");
+    if (!alvo) { dica.classList.add("oculto"); return; }
+
+    const info = porMunicipio.get(Number(alvo.dataset.ibge));
+    dica.innerHTML = `<strong>${info.municipio}</strong> — ${info.uf}<br>`
+                   + `risco ${info.nivel_risco}<br>`
+                   + `chance de ser grave: ${porcento(info.probabilidade_alto)}`;
+    const area = $("mapa-svg").getBoundingClientRect();
+    dica.style.left = `${evento.clientX - area.left + 14}px`;
+    dica.style.top = `${evento.clientY - area.top + 14}px`;
+    dica.classList.remove("oculto");
+  };
+  svg.onmouseleave = () => $("mapa-dica").classList.add("oculto");
+}
+
+function montarLegenda(resumo) {
+  const legenda = $("mapa-legenda");
+  legenda.innerHTML =
+    ["baixo", "medio", "alto"].map((nivel) =>
+      `<span><i style="background:${CORES[nivel]}"></i>${nivel}
+        (${resumo[nivel].toLocaleString("pt-BR")})</span>`
+    ).join("")
+    + '<span><i style="background:#dfe4ea"></i>sem histórico deste tipo</span>';
+  legenda.classList.remove("oculto");
 }
 
 async function mostrarOddsRatio() {

@@ -430,7 +430,9 @@ e o modelo melhorou junto: a detecção de casos graves subiu de 48,9% para
 | `POST` | `/prever/municipio` | **Previsão a partir de município, tipo e mês** |
 | `POST` | `/prever` | Previsão informando todas as features manualmente |
 | `POST` | `/prever/lote` | Várias previsões de uma vez |
-| `POST` | `/mapa/risco` | GeoJSON pronto para um mapa interativo |
+| `GET` | `/mapa/malha` | Fronteiras dos 5.570 municípios (GeoJSON do IBGE) |
+| `GET` | `/mapa/brasil` | Risco de todos os municípios de uma vez — é o que pinta o mapa |
+| `POST` | `/mapa/risco` | GeoJSON de pontos, para quem já tem coordenadas |
 
 O endpoint que a interface usa é o `/prever/municipio`: quem consulta informa
 apenas **onde, o quê e quando**, e o backend calcula as quinze variáveis
@@ -526,7 +528,8 @@ a API e a interface. **Rode antes de todo commit.**
 ## Próximos passos
 
 - [ ] Incorporar chuva e temperatura do INMET/CEMADEN
-- [ ] Adicionar coordenadas do IBGE para ativar o mapa (`/mapa/risco` já existe)
+- [x] ~~Adicionar coordenadas do IBGE para ativar o mapa~~ — feito: mapa do país
+      inteiro, desenhado em SVG puro, sem biblioteca externa
 - [ ] Testar divisão temporal mais longa (treinar até 2019, testar 2020–2025)
 - [ ] Melhorar a detecção da classe `medio`
 

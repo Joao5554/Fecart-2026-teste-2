@@ -23,6 +23,7 @@ import unicodedata
 from pathlib import Path
 
 import joblib
+import numpy as np
 import pandas as pd
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -530,6 +531,123 @@ def prever_municipio(consulta: ConsultaMunicipio):
         },
         "modelo_treinado_em": _treinado_em(),
     }
+
+
+ARQUIVO_MALHA = RAIZ / "dados" / "malha_municipios.json"
+
+# O mapa do país inteiro custa milhares de previsões. Como o resultado só muda
+# quando muda (tipo, mês, ano), guardá-lo em memória evita refazer a conta a
+# cada clique na interface.
+_cache_mapa: dict[tuple, dict] = {}
+
+
+@app.get("/mapa/malha", tags=["mapa"])
+def malha_municipios():
+    """
+    Fronteiras dos municípios brasileiros, em GeoJSON.
+
+    Vem do IBGE em qualidade reduzida (~3 MB para os 5.570 municípios), o
+    suficiente para desenhar o país inteiro sem depender de nenhum serviço
+    de mapas externo.
+    """
+    if not ARQUIVO_MALHA.exists():
+        raise HTTPException(
+            status_code=404,
+            detail=("Malha municipal não encontrada.\n"
+                    "Rode: python dados/baixar_malha.py"),
+        )
+
+    from fastapi.responses import FileResponse
+
+    return FileResponse(ARQUIVO_MALHA, media_type="application/geo+json")
+
+
+@app.get("/mapa/brasil", tags=["mapa"])
+def mapa_brasil(grupo_desastre: str, mes: int, ano: int = 2026):
+    """
+    Nível de risco de todos os municípios do país, de uma vez.
+
+    É o que pinta o mapa. Só entram municípios com histórico daquele tipo de
+    desastre no Atlas — sobre os demais o modelo não tem o que dizer, e um
+    mapa que os pintasse de verde estaria afirmando algo que não sabe.
+    """
+    registros = _exigir_ocorrencias()
+    modelo_ativo = exigir_modelo()
+
+    if not 1 <= mes <= 12:
+        raise HTTPException(status_code=422, detail="mês precisa estar entre 1 e 12")
+
+    chave = (grupo_desastre, mes, ano)
+    if chave in _cache_mapa:
+        return _cache_mapa[chave]
+
+    do_tipo = registros[registros["grupo_desastre"] == grupo_desastre]
+    if do_tipo.empty:
+        raise HTTPException(
+            status_code=404,
+            detail=(f"Nenhum município tem histórico de '{grupo_desastre}'. "
+                    f"Tipos disponíveis: {', '.join(esquema.GRUPOS_COBRADE)}"),
+        )
+
+    municipios = do_tipo.drop_duplicates("codigo_ibge")[
+        ["codigo_ibge", "municipio", "uf", "regiao"]
+    ]
+
+    # Uma única chamada calcula as features de todos os municípios: a versão
+    # por município seria milhares de chamadas e levaria minutos.
+    historico = atlas.agregar_por_mes(registros)
+    alvos = pd.DataFrame({
+        "codigo_ibge": municipios["codigo_ibge"].to_numpy(),
+        "grupo_desastre": grupo_desastre,
+        "indice_mes": atlas._indice_mes(ano, mes),
+    })
+
+    entrada = atlas.calcular_features(historico, alvos)
+    entrada["prejuizo_historico_log"] = np.log1p(entrada["prejuizo_historico"])
+    entrada["mes"] = mes
+    entrada = entrada.merge(municipios, on="codigo_ibge", how="left")
+
+    X = caracteristicas.preparar_para_previsao(entrada)
+    probabilidades = modelo_ativo.predict_proba(X)
+    classes = list(modelo_ativo.classes_)
+    indice_alto = classes.index("alto") if "alto" in classes else None
+
+    resultado = []
+    for posicao, linha in enumerate(entrada.itertuples()):
+        por_classe = {
+            c: round(float(probabilidades[posicao][i]), 4)
+            for i, c in enumerate(classes)
+        }
+        nivel = max(por_classe, key=por_classe.get)
+        resultado.append({
+            "codigo_ibge": int(linha.codigo_ibge),
+            "municipio": linha.municipio,
+            "uf": linha.uf,
+            "nivel_risco": nivel,
+            "probabilidade_alto": (
+                round(float(probabilidades[posicao][indice_alto]), 4)
+                if indice_alto is not None else 0.0
+            ),
+            "cor": esquema.CORES_RISCO[nivel],
+        })
+
+    resumo = {classe: 0 for classe in esquema.CLASSES_RISCO}
+    for item in resultado:
+        resumo[item["nivel_risco"]] += 1
+
+    resposta = {
+        "grupo_desastre": grupo_desastre,
+        "mes": mes,
+        "ano": ano,
+        "total": len(resultado),
+        "resumo": resumo,
+        "legenda": esquema.CORES_RISCO,
+        "municipios": resultado,
+        "modelo_treinado_em": _treinado_em(),
+    }
+
+    _cache_mapa[chave] = resposta
+    return resposta
 
 
 @app.post("/mapa/risco", tags=["mapa"])

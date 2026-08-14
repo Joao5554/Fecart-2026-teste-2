@@ -92,6 +92,37 @@
     <table id="tabela-historico" class="tabela"></table>
   </section>
 
+  <section id="secao-mapa" class="cartao">
+    <h2>Mapa do Brasil</h2>
+    <p class="ajuda">
+      Risco previsto para cada município, no tipo de desastre e no mês
+      escolhidos. Só aparecem municípios com histórico daquele tipo no Atlas —
+      sobre os demais o modelo não tem o que dizer.
+    </p>
+
+    <form id="form-mapa" class="formulario">
+      <div class="campo">
+        <label for="mapa-tipo">Tipo de desastre</label>
+        <select id="mapa-tipo"></select>
+      </div>
+      <div class="campo">
+        <label for="mapa-mes">Mês</label>
+        <select id="mapa-mes"></select>
+      </div>
+      <button type="submit" id="mapa-botao">Desenhar mapa</button>
+    </form>
+
+    <p id="mapa-estado" class="ajuda"></p>
+
+    <div class="mapa-area">
+      <svg id="mapa-svg" viewBox="0 0 600 620" role="img"
+           aria-label="Mapa de risco por município"></svg>
+      <div id="mapa-dica" class="mapa-dica oculto"></div>
+    </div>
+
+    <div id="mapa-legenda" class="mapa-legenda oculto"></div>
+  </section>
+
   <section id="secao-odds" class="cartao oculto">
     <h2>O que mais pesa no risco</h2>
     <p class="ajuda">
