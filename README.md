@@ -97,6 +97,8 @@ arquivo novo; se foi só um teste, desfaça com `git checkout modelo/`.
 | `src/carregar.py`                  | Lê o CSV e valida contra o contrato antes de treinar            |
 | `src/caracteristicas.py`           | Features derivadas e pré-processamento (imputação + one-hot)    |
 | `src/procedencia.py`               | Registra se o dataset veio da base real ou de dados sintéticos  |
+| `src/odds_ratio.py`                | Razão de chances de cada variável (regressão logística)         |
+| `analise/avaliacao_modelo.py`      | Avaliação passo a passo, comentada — para estudar e apresentar  |
 | `dados/preparar_dados.py`          | Gera `dados.csv` a partir da base bruta                         |
 | `dados/README.md`                  | **Metodologia dos dados** e limitações — leitura obrigatória    |
 | `treinamento/treinar_modelo.py`    | Treina, avalia e salva o modelo                                 |
@@ -154,6 +156,53 @@ justamente a faixa ambígua entre "nada aconteceu" e "aconteceu algo grave".
 O modelo aprendeu padrões coerentes com a realidade — a variável mais
 importante é a atividade recente do mesmo tipo de desastre na UF, seguida do
 tempo desde a última ocorrência no município e da sazonalidade do mês.
+
+---
+
+## Por que a divisão é temporal, e não aleatória
+
+Existe um script que percorre a avaliação passo a passo, com os blocos
+comentados — serve para estudar e para apresentar:
+
+```bash
+python analise/avaliacao_modelo.py
+```
+
+Ele responde com números duas perguntas que sempre aparecem.
+
+**"Qual proporção usar: 50/50, 70/30 ou 80/20?"** Nesta base, quase não muda:
+
+| Treino / teste | Linhas de treino | Acurácia balanceada |
+| --- | --- | --- |
+| 50 / 50 | 93.544 | 65,9% |
+| 70 / 30 | 130.961 | 66,4% |
+| 80 / 20 | 149.670 | 66,6% |
+
+Menos de 1 ponto entre a pior e a melhor. Com 187 mil linhas, metade da base
+já são exemplos de sobra. A regra dos 80/20 vale mesmo é para bases pequenas.
+
+**"E a divisão aleatória, serve?"** Aqui não — e a diferença é grande:
+
+| Divisão | Acurácia balanceada | F1 macro |
+| --- | --- | --- |
+| Aleatória (`train_test_split`) | 66,4% | 0,645 |
+| **Temporal** (treina ≤2021, testa ≥2022) | **55,3%** | **0,565** |
+
+Os 11 pontos a mais da divisão aleatória são ilusão. Ela sorteia as linhas,
+então o modelo treina com meses de 2024 e é avaliado em 2015 — usando o futuro
+para prever o passado. Pior: o mesmo município aparece dos dois lados em meses
+vizinhos, quase copiando a resposta.
+
+**O projeto usa a divisão temporal**, e é dela que sai o número apresentado.
+É menor, e é o único que descreve como o sistema funcionaria de verdade.
+
+### E a padronização das variáveis?
+
+Não é aplicada, e isso é decisão, não esquecimento. Árvores de decisão dividem
+por limiares ("ocorrências > 3?"), então multiplicar uma coluna por mil não
+muda divisão nenhuma — o Random Forest é indiferente à escala. Padronizar é
+indispensável em modelos que somam coeficientes, e é exatamente o que a
+análise de odds ratio faz na regressão logística.
 
 ---
 
