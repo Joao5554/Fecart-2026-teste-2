@@ -44,6 +44,9 @@ const ROTULOS = {
   prejuizo_historico_log: "Prejuízo acumulado (escala log)",
   ocorrencias_municipio_12m: "Ocorrências de qualquer tipo (12 meses)",
   ocorrencias_uf_grupo_12m: "Ocorrências deste tipo na UF (12 meses)",
+  // Faixas disjuntas, usadas só na análise de odds ratio.
+  ocorrencias_13_a_24m: "Ocorrências entre 13 e 24 meses atrás",
+  ocorrencias_25_a_60m: "Ocorrências entre 25 e 60 meses atrás",
 };
 
 let municipioEscolhido = null;
@@ -82,6 +85,8 @@ async function iniciar() {
       + `origem dos dados: ${info.origem_dados} · `
       + `${(info.linhas_de_treino || 0).toLocaleString("pt-BR")} linhas`;
     if (info.aviso) mostrarAviso(info.aviso, false);
+
+    mostrarOddsRatio();
   } catch (erro) {
     const abertoComoArquivo = location.protocol === "file:";
     bloquearFormulario(
@@ -282,6 +287,70 @@ async function mostrarAno(codigoIbge, tipo, ano, mesEscolhido) {
   });
 
   $("secao-ano").classList.remove("oculto");
+}
+
+async function mostrarOddsRatio() {
+  let dados;
+  try {
+    dados = await pedir("/modelo/odds-ratio?analise=gravidade");
+  } catch (erro) {
+    return; // modelo treinado sem a análise; a seção simplesmente não aparece
+  }
+
+  // Só entram os efeitos confiáveis e estatisticamente distinguíveis de 1.
+  const variaveis = dados.variaveis
+    .filter((v) => v.significativo && v.confiavel !== false)
+    .slice(0, 10);
+  if (!variaveis.length) return;
+
+  // Escala centrada em 1 e simétrica em log: um OR de 4 e um de 0,25 têm o
+  // mesmo tamanho de barra, em lados opostos. É a leitura correta, porque
+  // dobrar e cortar pela metade são efeitos equivalentes.
+  const maiorLog = Math.max(...variaveis.map((v) => Math.abs(Math.log(v.odds_ratio))));
+
+  const caixa = $("odds");
+  caixa.innerHTML = "";
+
+  variaveis.forEach((v) => {
+    const proporcao = Math.abs(Math.log(v.odds_ratio)) / maiorLog;
+    const largura = proporcao * 50; // metade do trilho é 100% da escala
+    const aumenta = v.odds_ratio >= 1;
+    const posicao = aumenta ? `left:50%; width:${largura}%`
+                            : `right:50%; width:${largura}%`;
+
+    const linha = document.createElement("div");
+    linha.className = "odds-linha";
+    linha.innerHTML =
+      `<span class="odds-nome">${nomeVariavel(v.variavel)}</span>
+       <div class="odds-trilho">
+         <div class="odds-centro"></div>
+         <div class="odds-barra ${aumenta ? "aumenta" : "reduz"}" style="${posicao}"></div>
+       </div>
+       <span class="odds-valor">${v.odds_ratio.toFixed(2).replace(".", ",")}x
+         <span class="odds-ic">${v.ic95_inferior.toFixed(2)}–${v.ic95_superior.toFixed(2)}</span>
+       </span>`;
+    linha.title = `${nomeVariavel(v.variavel)}: multiplica a chance por `
+                + `${v.odds_ratio.toFixed(2)} (IC 95%: ${v.ic95_inferior.toFixed(2)} a `
+                + `${v.ic95_superior.toFixed(2)})`;
+    caixa.appendChild(linha);
+  });
+
+  $("odds-rodape").textContent =
+    `Regressão logística sobre ${dados.n_amostras.toLocaleString("pt-BR")} `
+    + `observações (AUC ${dados.auc.toFixed(3).replace(".", ",")}). `
+    + `Variáveis numéricas medidas por desvio-padrão.`;
+
+  $("secao-odds").classList.remove("oculto");
+}
+
+function nomeVariavel(chave) {
+  if (chave.startsWith("grupo_desastre_")) {
+    return "Ser " + formatarTipo(chave.replace("grupo_desastre_", "")).toLowerCase();
+  }
+  if (chave.startsWith("regiao_")) {
+    return "Região " + chave.replace("regiao_", "");
+  }
+  return ROTULOS[chave] || formatarTipo(chave);
 }
 
 async function carregarHistorico(codigoIbge) {

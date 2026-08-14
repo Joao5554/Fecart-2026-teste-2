@@ -136,16 +136,10 @@ Medidos em **divisão temporal**: o modelo treina com 2010–2021 e é avaliado 
 
 | Métrica | Valor |
 | --- | --- |
-| Acurácia | 68,1% |
-| Acurácia balanceada | 49,9% |
-| F1 macro | 0,507 |
-| Casos de risco **alto** identificados | **48,7%** |
-
-| Classe | Precisão | Recall | F1 |
-| --- | --- | --- | --- |
-| baixo | 0,748 | 0,841 | 0,792 |
-| medio | 0,495 | 0,168 | 0,251 |
-| alto  | 0,472 | 0,487 | 0,479 |
+| Acurácia | 71,8% |
+| Acurácia balanceada | 55,3% |
+| F1 macro | 0,565 |
+| Casos de risco **alto** identificados | **56,2%** |
 
 **Como ler isso com honestidade.** A acurácia de 68% não é o número importante:
 como 75% das linhas são "baixo", chutar sempre "baixo" já daria mais que isso.
@@ -160,6 +154,82 @@ justamente a faixa ambígua entre "nada aconteceu" e "aconteceu algo grave".
 O modelo aprendeu padrões coerentes com a realidade — a variável mais
 importante é a atividade recente do mesmo tipo de desastre na UF, seguida do
 tempo desde a última ocorrência no município e da sazonalidade do mês.
+
+---
+
+## Odds ratio: quanto cada variável multiplica o risco
+
+A importância que o Random Forest devolve diz **quanto** uma variável ajudou a
+separar os casos — mas não diz a **direção** nem o **tamanho** do efeito. Para
+isso o projeto ajusta também uma **regressão logística** sobre os mesmos dados
+e reporta a razão de chances:
+
+    OR = 2,0  ->  a chance dobra
+    OR = 1,0  ->  a variável não altera a chance
+    OR = 0,5  ->  a chance cai pela metade
+
+São dois modelos com papéis diferentes, de propósito: a floresta **prevê** (é o
+que a API usa), a regressão **explica** (é o que se apresenta e se discute).
+
+### Resultado — chance de o desastre ser grave
+
+| Variável | OR | IC 95% |
+| --- | --- | --- |
+| Ser estiagem/seca | 4,45 | 3,95 – 5,00 |
+| Ser chuva intensa | 3,61 | 3,21 – 4,05 |
+| Ser inundação | 2,79 | 2,47 – 3,16 |
+| Ser enxurrada | 2,55 | 2,26 – 2,88 |
+| Ocorrências do tipo na UF (12 meses) | 1,40 | 1,38 – 1,41 |
+| Ocorrências no mesmo mês do calendário | 1,38 | 1,37 – 1,40 |
+| Região Nordeste | 1,36 | 1,26 – 1,46 |
+| Ocorrências nos últimos 12 meses | 0,86 | 0,84 – 0,88 |
+
+AUC da regressão: 0,785. Valores numéricos por desvio-padrão.
+
+Rode `python treinamento/treinar_modelo.py` para ver a tabela completa, ou
+consulte `GET /modelo/odds-ratio`.
+
+### Cuidados estatísticos aplicados
+
+Um odds ratio errado é perigoso porque *parece* certo — sai com intervalo de
+confiança e p-valor, e ninguém desconfia. Quatro cuidados no código:
+
+- **Multicolinearidade.** `ocorrencias_12m`, `_24m`, `_60m` e o total chegam a
+  0,88 de correlação. O VIF mede a redundância e remove as variáveis acima do
+  limite, uma por vez.
+- **Janelas aninhadas.** A janela de 60 meses *contém* a de 24, que contém a de
+  12. Na mesma regressão isso inverte o sinal dos coeficientes. Elas são
+  substituídas por faixas disjuntas (0–12, 13–24, 25–60 meses).
+- **Escala.** Meses, pessoas e reais não são comparáveis; tudo é padronizado, e
+  o OR lê-se como "por 1 desvio-padrão a mais".
+- **Separação.** Categoria rara que prevê o desfecho perfeitamente produz OR
+  infinito. Esses casos saem marcados como *instáveis* e nunca como
+  significativos.
+
+### Um achado que vale discutir na apresentação
+
+`ocorrencias_12m` tem OR **0,86** para gravidade: entre os meses em que houve
+desastre, os municípios com mais ocorrências recentes tendem a ter eventos
+**menos** graves. Não é erro — nos dados, a taxa de risco alto cai de 60% (sem
+ocorrência nos 12 meses anteriores) para 5% (seis ou mais).
+
+A leitura provável: lugares com eventos crônicos e frequentes registram muitos
+episódios pequenos, enquanto lugares onde o desastre é raro registram
+principalmente as catástrofes.
+
+### Como esta análise consertou o projeto
+
+O odds ratio foi sugerido pelo professor de estatística, e a primeira rodada
+apontou algo implausível: ocorrências recentes apareciam **reduzindo** o risco
+de haver desastre. A investigação mostrou que a culpa era do ETL, não da
+estatística: os exemplos negativos eram sorteados com cota por município
+(3 para cada positivo daquele município), o que travava a taxa de risco em
+exatamente 25% para todo mundo — apagando a diferença entre lugares perigosos
+e tranquilos.
+
+Com o sorteio global, a taxa voltou a variar de 4% a 100% conforme o município,
+e o modelo melhorou junto: a detecção de casos graves subiu de 48,9% para
+**56,2%**. Nenhuma métrica de acurácia tinha denunciado esse defeito.
 
 ---
 
@@ -188,6 +258,7 @@ tempo desde a última ocorrência no município e da sazonalidade do mês.
 | `GET` | `/` | Estado da API e do modelo |
 | `GET` | `/esquema` | Contrato de dados (quais campos enviar) |
 | `GET` | `/modelo/info` | Métricas e procedência do modelo carregado |
+| `GET` | `/modelo/odds-ratio` | Quanto cada variável multiplica a chance de risco |
 | `POST` | `/modelo/recarregar` | Recarrega o `.pkl` sem reiniciar o servidor |
 | `GET` | `/municipios` | Busca municípios por nome (ignora acento) ou UF |
 | `GET` | `/municipios/{ibge}/historico` | Ocorrências já registradas no município |

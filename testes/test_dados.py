@@ -100,6 +100,43 @@ def test_meses_desde_ultima_e_sempre_positivo_ou_menos_um(dados_exemplo):
     )
 
 
+def test_taxa_de_positivos_varia_entre_municipios(ocorrencias):
+    """
+    Município que sofre muito precisa ter proporção de meses de risco MAIOR
+    que um município tranquilo.
+
+    Na primeira versão do ETL os negativos eram sorteados com cota por par
+    (3 para cada positivo daquele par), o que travava a taxa de positivos em
+    exatamente 25% para todo mundo. O modelo ficava incapaz de aprender que
+    uns lugares são mais perigosos que outros, e nenhuma métrica de acurácia
+    denunciava isso — só a análise de odds ratio revelou.
+    """
+    dados = atlas.construir_dataset(ocorrencias, 2015, 2025, 3, semente=7)
+    dados["positivo"] = (dados[esquema.COLUNA_ALVO] != "baixo").astype(int)
+
+    taxa = dados.groupby(["codigo_ibge", "grupo_desastre"])["positivo"].mean()
+
+    assert taxa.std() > 0.05, (
+        "a taxa de positivos é praticamente igual em todos os pares "
+        f"(desvio {taxa.std():.4f}). Os negativos voltaram a ser sorteados "
+        "com cota por par?"
+    )
+
+
+def test_par_mais_ativo_tem_taxa_maior_que_o_menos_ativo(ocorrencias):
+    """A ordem tem de bater com a realidade, não só variar."""
+    dados = atlas.construir_dataset(ocorrencias, 2015, 2025, 3, semente=7)
+    dados["positivo"] = (dados[esquema.COLUNA_ALVO] != "baixo").astype(int)
+
+    resumo = dados.groupby(["codigo_ibge", "grupo_desastre"]).agg(
+        taxa=("positivo", "mean"), eventos=("positivo", "sum")
+    )
+    mais_ativo = resumo["eventos"].idxmax()
+    menos_ativo = resumo["eventos"].idxmin()
+
+    assert resumo.loc[mais_ativo, "taxa"] > resumo.loc[menos_ativo, "taxa"]
+
+
 def test_sem_historico_marca_ja_ocorreu_como_zero(dados_exemplo):
     nunca = dados_exemplo[dados_exemplo["ocorrencias_total_historico"] == 0]
     if len(nunca):

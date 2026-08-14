@@ -319,6 +319,54 @@ def info_modelo():
     }
 
 
+@app.get("/modelo/odds-ratio", tags=["modelo"])
+def odds_ratio_modelo(analise: str | None = None):
+    """
+    Razão de chances (odds ratio) de cada variável.
+
+    Enquanto a importância do Random Forest diz *quanto* uma variável ajuda a
+    prever, o odds ratio diz em que **direção** ela empurra o risco e quanto
+    multiplica a chance: OR 2,0 dobra, 1,0 não altera, 0,5 corta pela metade.
+
+    Vem de uma regressão logística ajustada sobre os mesmos dados, e cada
+    valor traz intervalo de confiança de 95% e p-valor.
+    """
+    exigir_modelo()
+
+    resultados = metadados.get("odds_ratio") or {}
+    if not resultados:
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                "Este modelo foi treinado sem a análise de odds ratio.\n"
+                "Rode de novo: python treinamento/treinar_modelo.py"
+            ),
+        )
+
+    if analise:
+        if analise not in resultados:
+            raise HTTPException(
+                status_code=404,
+                detail=(
+                    f"Análise '{analise}' não encontrada. "
+                    f"Disponíveis: {', '.join(resultados)}"
+                ),
+            )
+        return resultados[analise]
+
+    return {
+        "analises": list(resultados),
+        "como_ler": {
+            "maior_que_1": "aumenta a chance",
+            "igual_a_1": "não altera a chance",
+            "menor_que_1": "reduz a chance",
+            "unidade": "variação por 1 desvio-padrão da variável",
+            "significativo": "falso quando o intervalo de confiança inclui 1,0",
+        },
+        "resultados": resultados,
+    }
+
+
 @app.post("/modelo/recarregar", tags=["modelo"])
 def recarregar():
     """Recarrega o .pkl do disco, útil depois de treinar de novo.

@@ -1,12 +1,12 @@
 {
-  "treinado_em": "2026-08-12T23:34:05+00:00",
+  "treinado_em": "2026-08-14T00:00:20+00:00",
   "versao_esquema": "2.0.0",
   "assinatura_esquema": "bf84b75999e96937",
   "arquivo_dados": "C:\\Users\\jpcos\\OneDrive\\Documentos\\Fecart 2026\\dados\\dados.csv",
   "origem_dados": "real",
-  "hash_dados_sha256": "c1aa965d0f07098d2e67dd61c9cb983c0c34e4d16c1570c257a5a92b52ef707c",
+  "hash_dados_sha256": "3ceae727e4dd554f4adbad38a853c6200cc83649e59d481847b4d1398ac4fd4f",
   "aviso_dados": null,
-  "linhas_totais": 187008,
+  "linhas_totais": 187088,
   "divisao_treino_teste": {
     "tipo": "temporal",
     "ano_corte": 2022
@@ -17,7 +17,7 @@
     "alto"
   ],
   "distribuicao_classes": {
-    "baixo": 140236,
+    "baixo": 140316,
     "alto": 28419,
     "medio": 18353
   },
@@ -79,85 +79,589 @@
     "random_state": 42
   },
   "metricas": {
-    "acuracia": 0.6807750553333592,
-    "acuracia_balanceada": 0.49863859342578193,
-    "f1_macro": 0.5065954126681561,
+    "acuracia": 0.7178083248182923,
+    "acuracia_balanceada": 0.5534272644229822,
+    "f1_macro": 0.5649366128576007,
     "matriz_confusao": [
       [
-        29061,
-        1043,
-        4508
+        29995,
+        1244,
+        3736
       ],
       [
-        4981,
-        1172,
-        870
+        4282,
+        1692,
+        1049
       ],
       [
-        4802,
-        238,
-        4831
+        3895,
+        431,
+        5545
       ]
     ],
     "relatorio_por_classe": {
       "baixo": {
-        "precision": 0.7481464318813716,
-        "recall": 0.8396220963827574,
-        "f1-score": 0.7912491831844914,
-        "support": 34612.0
+        "precision": 0.785785392434245,
+        "recall": 0.8576125804145819,
+        "f1-score": 0.8201293286122465,
+        "support": 34975.0
       },
       "medio": {
-        "precision": 0.47778230737871996,
-        "recall": 0.1668802506051545,
-        "f1-score": 0.24736175601519628,
+        "precision": 0.5025245025245025,
+        "recall": 0.2409226826142674,
+        "f1-score": 0.3256977863330125,
         "support": 7023.0
       },
       "alto": {
-        "precision": 0.4732099128220198,
-        "recall": 0.4894134332894337,
-        "f1-score": 0.4811752988047809,
+        "precision": 0.5367860600193611,
+        "recall": 0.5617465302400972,
+        "f1-score": 0.5489827236275432,
         "support": 9871.0
       },
-      "accuracy": 0.6807750553333592,
+      "accuracy": 0.7178083248182923,
       "macro avg": {
-        "precision": 0.5663795506940371,
-        "recall": 0.49863859342578193,
-        "f1-score": 0.5065954126681561,
-        "support": 51506.0
+        "precision": 0.6083653183260362,
+        "recall": 0.5534272644229822,
+        "f1-score": 0.5649366128576007,
+        "support": 51869.0
       },
       "weighted avg": {
-        "precision": 0.6585905427419124,
-        "recall": 0.6807750553333592,
-        "f1-score": 0.65766356764995,
-        "support": 51506.0
+        "precision": 0.7000460560270761,
+        "recall": 0.7178083248182923,
+        "f1-score": 0.7015829741571563,
+        "support": 51869.0
       }
     }
   },
   "validacao_cruzada": null,
   "importancia_variaveis": {
-    "ocorrencias_uf_grupo_12m": 0.15387799689135442,
-    "meses_desde_ultima_ocorrencia": 0.11212354099146842,
-    "uf": 0.0914133596892622,
-    "grupo_desastre": 0.07656258423251022,
-    "mes": 0.06357664823330055,
-    "anos_de_historico": 0.06010283554128275,
-    "mes_seno": 0.048279831724303016,
-    "mes_cosseno": 0.04516234623202034,
-    "regiao": 0.04237055149102462,
-    "ocorrencias_por_ano": 0.03248581260576423,
-    "ocorrencias_municipio_12m": 0.0323005704924546,
-    "prejuizo_historico_log": 0.028248938207726306,
-    "ocorrencias_mesmo_mes_historico": 0.027987061110452228,
-    "afetados_historico": 0.02561078786928284,
-    "gravidade_media_historica": 0.02477986380975286,
-    "ocorrencias_total_historico": 0.02393445085469067,
-    "proporcao_reconhecidas": 0.023903608301136196,
-    "ocorrencias_24m": 0.022869344689983907,
-    "reconhecimentos_historico": 0.021862144142356182,
-    "ocorrencias_60m": 0.021306700301718773,
-    "ocorrencias_12m": 0.017370087142621313,
-    "ja_ocorreu": 0.002117066546700631,
-    "mortos_historico": 0.0017538688988327053
+    "ocorrencias_uf_grupo_12m": 0.16997213250994553,
+    "grupo_desastre": 0.0928192253904225,
+    "anos_de_historico": 0.07296413046551069,
+    "uf": 0.07259360923326999,
+    "ocorrencias_total_historico": 0.0636898947464418,
+    "meses_desde_ultima_ocorrencia": 0.05990676890296259,
+    "mes": 0.04886923365062854,
+    "regiao": 0.04332125393672691,
+    "ocorrencias_por_ano": 0.037846342997445846,
+    "mes_seno": 0.03772177060873701,
+    "mes_cosseno": 0.037525981555028086,
+    "prejuizo_historico_log": 0.034877237084176026,
+    "reconhecimentos_historico": 0.03153749102456621,
+    "ocorrencias_60m": 0.030584735569800153,
+    "afetados_historico": 0.028582520172397756,
+    "ocorrencias_mesmo_mes_historico": 0.027264831359140217,
+    "ocorrencias_municipio_12m": 0.026665044244337025,
+    "proporcao_reconhecidas": 0.023109134236343323,
+    "gravidade_media_historica": 0.021519285509019746,
+    "ocorrencias_24m": 0.020922011428699854,
+    "ocorrencias_12m": 0.01213865332780552,
+    "ja_ocorreu": 0.003983432738692064,
+    "mortos_historico": 0.0015852793079025617
+  },
+  "odds_ratio": {
+    "ocorrencia": {
+      "analise": "ocorrencia",
+      "descricao": "Chance de haver algum desastre no mês (médio ou alto)",
+      "n_amostras": 187088,
+      "n_eventos": 46772,
+      "taxa_evento": 0.25,
+      "auc": 0.7317,
+      "limite_vif": 10.0,
+      "removidas_por_colinearidade": [
+        {
+          "variavel": "ocorrencias_total_historico",
+          "vif": 13.2
+        }
+      ],
+      "variaveis": [
+        {
+          "variavel": "grupo_desastre_ESTIAGEM_SECA",
+          "odds_ratio": 1.4924,
+          "ic95_inferior": 1.4014,
+          "ic95_superior": 1.5892,
+          "p_valor": 0.0,
+          "significativo": true,
+          "confiavel": true
+        },
+        {
+          "variavel": "ocorrencias_mesmo_mes_historico",
+          "odds_ratio": 1.4204,
+          "ic95_inferior": 1.4022,
+          "ic95_superior": 1.4387,
+          "p_valor": 0.0,
+          "significativo": true,
+          "confiavel": true
+        },
+        {
+          "variavel": "ocorrencias_uf_grupo_12m",
+          "odds_ratio": 1.3236,
+          "ic95_inferior": 1.3071,
+          "ic95_superior": 1.3402,
+          "p_valor": 0.0,
+          "significativo": true,
+          "confiavel": true
+        },
+        {
+          "variavel": "grupo_desastre_CHUVAS_INTENSAS",
+          "odds_ratio": 1.2352,
+          "ic95_inferior": 1.1632,
+          "ic95_superior": 1.3117,
+          "p_valor": 5.48e-12,
+          "significativo": true,
+          "confiavel": true
+        },
+        {
+          "variavel": "ocorrencias_13_a_24m",
+          "odds_ratio": 1.2226,
+          "ic95_inferior": 1.2067,
+          "ic95_superior": 1.2387,
+          "p_valor": 0.0,
+          "significativo": true,
+          "confiavel": true
+        },
+        {
+          "variavel": "grupo_desastre_INCENDIO_FLORESTAL",
+          "odds_ratio": 1.2154,
+          "ic95_inferior": 1.1317,
+          "ic95_superior": 1.3054,
+          "p_valor": 8.5e-08,
+          "significativo": true,
+          "confiavel": true
+        },
+        {
+          "variavel": "regiao_Sudeste",
+          "odds_ratio": 0.826,
+          "ic95_inferior": 0.7857,
+          "ic95_superior": 0.8683,
+          "p_valor": 6.37e-14,
+          "significativo": true,
+          "confiavel": true
+        },
+        {
+          "variavel": "ocorrencias_municipio_12m",
+          "odds_ratio": 1.1915,
+          "ic95_inferior": 1.1758,
+          "ic95_superior": 1.2075,
+          "p_valor": 0.0,
+          "significativo": true,
+          "confiavel": true
+        },
+        {
+          "variavel": "ocorrencias_25_a_60m",
+          "odds_ratio": 1.1891,
+          "ic95_inferior": 1.1707,
+          "ic95_superior": 1.2079,
+          "p_valor": 0.0,
+          "significativo": true,
+          "confiavel": true
+        },
+        {
+          "variavel": "grupo_desastre_VENDAVAL_CICLONE",
+          "odds_ratio": 1.1551,
+          "ic95_inferior": 1.0808,
+          "ic95_superior": 1.2346,
+          "p_valor": 2.13e-05,
+          "significativo": true,
+          "confiavel": true
+        },
+        {
+          "variavel": "grupo_desastre_EROSAO",
+          "odds_ratio": 1.1475,
+          "ic95_inferior": 1.0326,
+          "ic95_superior": 1.2752,
+          "p_valor": 0.0106,
+          "significativo": true,
+          "confiavel": true
+        },
+        {
+          "variavel": "regiao_Sul",
+          "odds_ratio": 0.8784,
+          "ic95_inferior": 0.8356,
+          "ic95_superior": 0.9235,
+          "p_valor": 3.83e-07,
+          "significativo": true,
+          "confiavel": true
+        },
+        {
+          "variavel": "grupo_desastre_INUNDACAO",
+          "odds_ratio": 1.0955,
+          "ic95_inferior": 1.023,
+          "ic95_superior": 1.1733,
+          "p_valor": 0.00906,
+          "significativo": true,
+          "confiavel": true
+        },
+        {
+          "variavel": "grupo_desastre_DESLIZAMENTO",
+          "odds_ratio": 1.0729,
+          "ic95_inferior": 0.9871,
+          "ic95_superior": 1.1663,
+          "p_valor": 0.0981,
+          "significativo": false,
+          "confiavel": true
+        },
+        {
+          "variavel": "grupo_desastre_ENXURRADA",
+          "odds_ratio": 1.0586,
+          "ic95_inferior": 0.992,
+          "ic95_superior": 1.1296,
+          "p_valor": 0.086,
+          "significativo": false,
+          "confiavel": true
+        },
+        {
+          "variavel": "regiao_Norte",
+          "odds_ratio": 0.9527,
+          "ic95_inferior": 0.9006,
+          "ic95_superior": 1.0077,
+          "p_valor": 0.0906,
+          "significativo": false,
+          "confiavel": true
+        },
+        {
+          "variavel": "reconhecimentos_historico",
+          "odds_ratio": 0.954,
+          "ic95_inferior": 0.9361,
+          "ic95_superior": 0.9722,
+          "p_valor": 1.08e-06,
+          "significativo": true,
+          "confiavel": true
+        },
+        {
+          "variavel": "ocorrencias_12m",
+          "odds_ratio": 1.0427,
+          "ic95_inferior": 1.0263,
+          "ic95_superior": 1.0594,
+          "p_valor": 2.4e-07,
+          "significativo": true,
+          "confiavel": true
+        },
+        {
+          "variavel": "grupo_desastre_GRANIZO",
+          "odds_ratio": 0.9604,
+          "ic95_inferior": 0.887,
+          "ic95_superior": 1.0398,
+          "p_valor": 0.319,
+          "significativo": false,
+          "confiavel": true
+        },
+        {
+          "variavel": "ja_ocorreu",
+          "odds_ratio": 0.9645,
+          "ic95_inferior": 0.9428,
+          "ic95_superior": 0.9867,
+          "p_valor": 0.00187,
+          "significativo": true,
+          "confiavel": true
+        },
+        {
+          "variavel": "regiao_Nordeste",
+          "odds_ratio": 1.0337,
+          "ic95_inferior": 0.9826,
+          "ic95_superior": 1.0876,
+          "p_valor": 0.2,
+          "significativo": false,
+          "confiavel": true
+        },
+        {
+          "variavel": "anos_de_historico",
+          "odds_ratio": 1.0214,
+          "ic95_inferior": 0.9991,
+          "ic95_superior": 1.0441,
+          "p_valor": 0.0601,
+          "significativo": false,
+          "confiavel": true
+        },
+        {
+          "variavel": "afetados_historico",
+          "odds_ratio": 0.9824,
+          "ic95_inferior": 0.971,
+          "ic95_superior": 0.9939,
+          "p_valor": 0.00284,
+          "significativo": true,
+          "confiavel": true
+        },
+        {
+          "variavel": "prejuizo_historico_log",
+          "odds_ratio": 1.0156,
+          "ic95_inferior": 0.9955,
+          "ic95_superior": 1.0361,
+          "p_valor": 0.13,
+          "significativo": false,
+          "confiavel": true
+        },
+        {
+          "variavel": "meses_desde_ultima_ocorrencia",
+          "odds_ratio": 0.9913,
+          "ic95_inferior": 0.9732,
+          "ic95_superior": 1.0097,
+          "p_valor": 0.351,
+          "significativo": false,
+          "confiavel": true
+        },
+        {
+          "variavel": "mortos_historico",
+          "odds_ratio": 0.9995,
+          "ic95_inferior": 0.9876,
+          "ic95_superior": 1.0116,
+          "p_valor": 0.939,
+          "significativo": false,
+          "confiavel": true
+        }
+      ]
+    },
+    "gravidade": {
+      "analise": "gravidade",
+      "descricao": "Chance de o desastre ser grave (risco alto)",
+      "n_amostras": 187088,
+      "n_eventos": 28419,
+      "taxa_evento": 0.1519,
+      "auc": 0.785,
+      "limite_vif": 10.0,
+      "removidas_por_colinearidade": [
+        {
+          "variavel": "ocorrencias_total_historico",
+          "vif": 13.2
+        }
+      ],
+      "variaveis": [
+        {
+          "variavel": "grupo_desastre_ESTIAGEM_SECA",
+          "odds_ratio": 4.4454,
+          "ic95_inferior": 3.953,
+          "ic95_superior": 4.9991,
+          "p_valor": 0.0,
+          "significativo": true,
+          "confiavel": true
+        },
+        {
+          "variavel": "grupo_desastre_CHUVAS_INTENSAS",
+          "odds_ratio": 3.6096,
+          "ic95_inferior": 3.2149,
+          "ic95_superior": 4.0528,
+          "p_valor": 0.0,
+          "significativo": true,
+          "confiavel": true
+        },
+        {
+          "variavel": "grupo_desastre_INUNDACAO",
+          "odds_ratio": 2.7941,
+          "ic95_inferior": 2.4679,
+          "ic95_superior": 3.1634,
+          "p_valor": 0.0,
+          "significativo": true,
+          "confiavel": true
+        },
+        {
+          "variavel": "grupo_desastre_ENXURRADA",
+          "odds_ratio": 2.5508,
+          "ic95_inferior": 2.2612,
+          "ic95_superior": 2.8775,
+          "p_valor": 0.0,
+          "significativo": true,
+          "confiavel": true
+        },
+        {
+          "variavel": "grupo_desastre_GRANIZO",
+          "odds_ratio": 2.1648,
+          "ic95_inferior": 1.8848,
+          "ic95_superior": 2.4865,
+          "p_valor": 0.0,
+          "significativo": true,
+          "confiavel": true
+        },
+        {
+          "variavel": "grupo_desastre_INCENDIO_FLORESTAL",
+          "odds_ratio": 1.7584,
+          "ic95_inferior": 1.5316,
+          "ic95_superior": 2.0189,
+          "p_valor": 1.11e-15,
+          "significativo": true,
+          "confiavel": true
+        },
+        {
+          "variavel": "grupo_desastre_VENDAVAL_CICLONE",
+          "odds_ratio": 1.6248,
+          "ic95_inferior": 1.4275,
+          "ic95_superior": 1.8493,
+          "p_valor": 1.99e-13,
+          "significativo": true,
+          "confiavel": true
+        },
+        {
+          "variavel": "grupo_desastre_EROSAO",
+          "odds_ratio": 1.4541,
+          "ic95_inferior": 1.1905,
+          "ic95_superior": 1.7761,
+          "p_valor": 0.000244,
+          "significativo": true,
+          "confiavel": true
+        },
+        {
+          "variavel": "ocorrencias_uf_grupo_12m",
+          "odds_ratio": 1.3956,
+          "ic95_inferior": 1.3766,
+          "ic95_superior": 1.4149,
+          "p_valor": 0.0,
+          "significativo": true,
+          "confiavel": true
+        },
+        {
+          "variavel": "ocorrencias_mesmo_mes_historico",
+          "odds_ratio": 1.3832,
+          "ic95_inferior": 1.3651,
+          "ic95_superior": 1.4016,
+          "p_valor": 0.0,
+          "significativo": true,
+          "confiavel": true
+        },
+        {
+          "variavel": "regiao_Nordeste",
+          "odds_ratio": 1.3555,
+          "ic95_inferior": 1.2604,
+          "ic95_superior": 1.4578,
+          "p_valor": 2.22e-16,
+          "significativo": true,
+          "confiavel": true
+        },
+        {
+          "variavel": "regiao_Norte",
+          "odds_ratio": 1.2354,
+          "ic95_inferior": 1.1386,
+          "ic95_superior": 1.3405,
+          "p_valor": 3.84e-07,
+          "significativo": true,
+          "confiavel": true
+        },
+        {
+          "variavel": "reconhecimentos_historico",
+          "odds_ratio": 1.1692,
+          "ic95_inferior": 1.1459,
+          "ic95_superior": 1.1929,
+          "p_valor": 0.0,
+          "significativo": true,
+          "confiavel": true
+        },
+        {
+          "variavel": "ocorrencias_12m",
+          "odds_ratio": 0.8571,
+          "ic95_inferior": 0.8395,
+          "ic95_superior": 0.8751,
+          "p_valor": 0.0,
+          "significativo": true,
+          "confiavel": true
+        },
+        {
+          "variavel": "ocorrencias_municipio_12m",
+          "odds_ratio": 0.9042,
+          "ic95_inferior": 0.885,
+          "ic95_superior": 0.9237,
+          "p_valor": 0.0,
+          "significativo": true,
+          "confiavel": true
+        },
+        {
+          "variavel": "regiao_Sudeste",
+          "odds_ratio": 0.9057,
+          "ic95_inferior": 0.8412,
+          "ic95_superior": 0.9751,
+          "p_valor": 0.00858,
+          "significativo": true,
+          "confiavel": true
+        },
+        {
+          "variavel": "prejuizo_historico_log",
+          "odds_ratio": 1.091,
+          "ic95_inferior": 1.0617,
+          "ic95_superior": 1.1211,
+          "p_valor": 3.44e-10,
+          "significativo": true,
+          "confiavel": true
+        },
+        {
+          "variavel": "ocorrencias_13_a_24m",
+          "odds_ratio": 1.0902,
+          "ic95_inferior": 1.0746,
+          "ic95_superior": 1.1061,
+          "p_valor": 0.0,
+          "significativo": true,
+          "confiavel": true
+        },
+        {
+          "variavel": "regiao_Sul",
+          "odds_ratio": 1.0872,
+          "ic95_inferior": 1.0109,
+          "ic95_superior": 1.1693,
+          "p_valor": 0.0244,
+          "significativo": true,
+          "confiavel": true
+        },
+        {
+          "variavel": "meses_desde_ultima_ocorrencia",
+          "odds_ratio": 0.9372,
+          "ic95_inferior": 0.9155,
+          "ic95_superior": 0.9595,
+          "p_valor": 6.28e-08,
+          "significativo": true,
+          "confiavel": true
+        },
+        {
+          "variavel": "ocorrencias_25_a_60m",
+          "odds_ratio": 1.0585,
+          "ic95_inferior": 1.0409,
+          "ic95_superior": 1.0763,
+          "p_valor": 2.7e-11,
+          "significativo": true,
+          "confiavel": true
+        },
+        {
+          "variavel": "ja_ocorreu",
+          "odds_ratio": 1.0363,
+          "ic95_inferior": 1.0043,
+          "ic95_superior": 1.0692,
+          "p_valor": 0.0258,
+          "significativo": true,
+          "confiavel": true
+        },
+        {
+          "variavel": "anos_de_historico",
+          "odds_ratio": 1.023,
+          "ic95_inferior": 0.9959,
+          "ic95_superior": 1.0508,
+          "p_valor": 0.0974,
+          "significativo": false,
+          "confiavel": true
+        },
+        {
+          "variavel": "grupo_desastre_DESLIZAMENTO",
+          "odds_ratio": 0.9794,
+          "ic95_inferior": 0.8182,
+          "ic95_superior": 1.1724,
+          "p_valor": 0.82,
+          "significativo": false,
+          "confiavel": true
+        },
+        {
+          "variavel": "afetados_historico",
+          "odds_ratio": 0.9825,
+          "ic95_inferior": 0.971,
+          "ic95_superior": 0.9942,
+          "p_valor": 0.00357,
+          "significativo": true,
+          "confiavel": true
+        },
+        {
+          "variavel": "mortos_historico",
+          "odds_ratio": 1.0082,
+          "ic95_inferior": 0.9954,
+          "ic95_superior": 1.0211,
+          "p_valor": 0.211,
+          "significativo": false,
+          "confiavel": true
+        }
+      ]
+    }
   },
   "versoes": {
     "python": "3.14.7",

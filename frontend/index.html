@@ -92,6 +92,18 @@
     <table id="tabela-historico" class="tabela"></table>
   </section>
 
+  <section id="secao-odds" class="cartao oculto">
+    <h2>O que mais pesa no risco</h2>
+    <p class="ajuda">
+      Cada barra mostra a <strong>razão de chances</strong> (odds ratio): quanto
+      aquela característica multiplica a chance de o desastre ser grave.
+      Acima de 1 aumenta o risco, abaixo de 1 reduz. Os valores vêm de uma
+      regressão logística sobre os mesmos dados, com intervalo de confiança de 95%.
+    </p>
+    <div id="odds" class="odds"></div>
+    <p id="odds-rodape" class="ajuda"></p>
+  </section>
+
   <section class="cartao cartao-nota">
     <h2>Como ler estes números</h2>
     <p>

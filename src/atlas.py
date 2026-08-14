@@ -343,6 +343,11 @@ def construir_dataset(
     `negativos_por_positivo` controla o tamanho do dataset. A proporção real
     de meses sem desastre é muito maior; a amostragem mantém o arquivo
     treinável, e o `class_weight` do modelo corrige o desequilíbrio restante.
+
+    Os negativos são sorteados do conjunto inteiro de meses livres, e não com
+    cota por município — ver o comentário no corpo da função, porque essa
+    escolha decide se o modelo consegue ou não distinguir município perigoso
+    de município tranquilo.
     """
     rng = np.random.default_rng(semente)
 
@@ -368,32 +373,55 @@ def construir_dataset(
     linhas_positivas = mensal[["codigo_ibge", "grupo_desastre", "indice_mes"]].copy()
     linhas_positivas["houve_ocorrencia"] = True
 
-    negativas = []
+    # Candidatos a exemplo negativo: todo mês do período em que aquele par
+    # (município, tipo) NÃO teve ocorrência.
+    #
+    # Todo o período entra, INCLUSIVE os meses anteriores à primeira ocorrência
+    # conhecida. Restringir aos meses posteriores parece razoável ("antes não
+    # há histórico"), mas cria um viés grave: as únicas linhas com histórico
+    # zero passariam a ser justamente as primeiras ocorrências, todas
+    # positivas. O modelo aprenderia "nunca aconteceu => vai acontecer".
+    todos_meses = np.arange(inicio, fim + 1)
+    candidatos_ibge, candidatos_grupo, candidatos_mes = [], [], []
+
     for (ibge, grupo), bloco in mensal.groupby(["codigo_ibge", "grupo_desastre"]):
-        meses_com_evento = np.sort(bloco["indice_mes"].unique())
-        # Todo o período entra como candidato a exemplo negativo, INCLUSIVE os
-        # meses anteriores à primeira ocorrência conhecida.
-        #
-        # Restringir aos meses posteriores parece razoável ("antes não há
-        # histórico"), mas cria um viés grave: as únicas linhas com histórico
-        # zero passariam a ser justamente as primeiras ocorrências, todas
-        # positivas. O modelo aprenderia "nunca aconteceu => vai acontecer" e
-        # devolveria risco médio para qualquer município sem histórico.
-        candidatos = np.arange(inicio, fim + 1)
-        candidatos = np.setdiff1d(candidatos, meses_com_evento, assume_unique=False)
-        if len(candidatos) == 0:
+        livres = np.setdiff1d(todos_meses, bloco["indice_mes"].unique())
+        if len(livres) == 0:
             continue
+        candidatos_ibge.append(np.full(len(livres), ibge))
+        candidatos_grupo.append(np.full(len(livres), grupo, dtype=object))
+        candidatos_mes.append(livres)
 
-        quantidade = min(len(candidatos), negativos_por_positivo * len(meses_com_evento))
-        sorteados = rng.choice(candidatos, size=quantidade, replace=False)
-        negativas.append(pd.DataFrame({
-            "codigo_ibge": ibge,
-            "grupo_desastre": grupo,
-            "indice_mes": sorteados,
-            "houve_ocorrencia": False,
-        }))
+    # O sorteio dos negativos é GLOBAL, não par a par.
+    #
+    # Sortear uma cota fixa por par (3 negativos para cada positivo daquele
+    # par) parece natural, mas fixa a taxa de positivos em 25% para TODOS os
+    # pares — tanto para um município que sofre desastre todo ano quanto para
+    # outro que sofreu uma única vez em quinze anos. Isso apaga do dataset a
+    # diferença entre municípios perigosos e tranquilos, que é exatamente o
+    # que um modelo de risco precisa aprender. O problema apareceu na análise
+    # de odds ratio: a variável de ocorrências recentes saía como se
+    # *reduzisse* o risco.
+    #
+    # Sorteando do conjunto inteiro, cada par recebe um número parecido de
+    # negativos (todos têm quase os mesmos meses livres), enquanto o número de
+    # positivos continua sendo o real. A taxa de positivos volta a variar de
+    # par para par, refletindo a atividade de cada município.
+    ibge_livre = np.concatenate(candidatos_ibge)
+    grupo_livre = np.concatenate(candidatos_grupo)
+    mes_livre = np.concatenate(candidatos_mes)
 
-    alvo = pd.concat([linhas_positivas] + negativas, ignore_index=True)
+    quantidade = min(len(mes_livre), negativos_por_positivo * len(linhas_positivas))
+    sorteio = rng.choice(len(mes_livre), size=quantidade, replace=False)
+
+    negativas = pd.DataFrame({
+        "codigo_ibge": ibge_livre[sorteio],
+        "grupo_desastre": grupo_livre[sorteio],
+        "indice_mes": mes_livre[sorteio],
+        "houve_ocorrencia": False,
+    })
+
+    alvo = pd.concat([linhas_positivas, negativas], ignore_index=True)
     alvo = alvo[(alvo["indice_mes"] >= inicio) & (alvo["indice_mes"] <= fim)]
 
     # --- 2. Features históricas ---------------------------------------------

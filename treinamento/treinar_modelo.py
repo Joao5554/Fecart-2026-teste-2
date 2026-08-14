@@ -43,7 +43,7 @@ from sklearn.pipeline import Pipeline
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from src import caracteristicas, esquema, procedencia  # noqa: E402
+from src import caracteristicas, esquema, odds_ratio, procedencia  # noqa: E402
 from src.carregar import ErroDeDados, carregar_dados, resumir  # noqa: E402
 
 
@@ -209,8 +209,35 @@ def mostrar_importancias(modelo: Pipeline, quantidade: int = 15) -> dict:
     return agregadas
 
 
+def calcular_odds_ratios(dados: pd.DataFrame) -> dict:
+    """
+    Razão de chances de cada variável, por regressão logística.
+
+    Responde o que a importância do Random Forest não responde: em que
+    DIREÇÃO cada variável empurra o risco, e quanto ela multiplica a chance.
+    São dois modelos com papéis distintos — a floresta prevê, a regressão
+    explica. Detalhes e cuidados estatísticos em src/odds_ratio.py.
+    """
+    titulo("ODDS RATIO — QUANTO CADA VARIÁVEL MULTIPLICA A CHANCE")
+    resultados = {}
+
+    for analise in odds_ratio.ANALISES:
+        try:
+            resultado = odds_ratio.calcular(dados, analise)
+        except ValueError as erro:
+            print(f"[aviso] análise '{analise}' não pôde ser calculada ({erro}).")
+            continue
+
+        print(odds_ratio.formatar_relatorio(resultado, quantidade=12))
+        print()
+        resultados[analise] = odds_ratio.para_json(resultado)
+
+    return resultados
+
+
 def salvar(modelo: Pipeline, dados: pd.DataFrame, metricas: dict,
-           cruzada: dict | None, importancias: dict, argumentos) -> None:
+           cruzada: dict | None, importancias: dict, argumentos,
+           odds: dict | None = None) -> None:
     """Salva o modelo e um arquivo de metadados ao lado dele."""
     PASTA_MODELO.mkdir(parents=True, exist_ok=True)
     # Sem compressão uma floresta de 300 árvores passa de 100 MB. compress=3
@@ -262,6 +289,9 @@ def salvar(modelo: Pipeline, dados: pd.DataFrame, metricas: dict,
         "metricas": metricas,
         "validacao_cruzada": cruzada,
         "importancia_variaveis": importancias,
+        # Importância diz QUANTO a variável ajuda a prever; odds ratio diz
+        # em que DIREÇÃO ela empurra o risco e quanto multiplica a chance.
+        "odds_ratio": odds or {},
         "versoes": {
             "python": platform.python_version(),
             "scikit-learn": sklearn.__version__,
@@ -314,6 +344,8 @@ def main() -> int:
                         help="partições da validação cruzada (padrão: 5)")
     parser.add_argument("--sem-validacao-cruzada", action="store_true",
                         help="pula a validação cruzada (treino bem mais rápido)")
+    parser.add_argument("--sem-odds-ratio", action="store_true",
+                        help="pula a análise de odds ratio das variáveis")
     parser.add_argument("--semente", type=int, default=42,
                         help="semente aleatória, para o treino ser reproduzível")
     argumentos = parser.parse_args()
@@ -391,7 +423,9 @@ def main() -> int:
 
     importancias = mostrar_importancias(modelo)
 
-    salvar(modelo, dados, metricas, cruzada, importancias, argumentos)
+    odds = {} if argumentos.sem_odds_ratio else calcular_odds_ratios(dados)
+
+    salvar(modelo, dados, metricas, cruzada, importancias, argumentos, odds)
     return 0
 
 

@@ -179,6 +179,28 @@ button:disabled { background: #9aa7b8; cursor: not-allowed; }
 .coluna-mes { font-size: .7rem; color: var(--tinta-fraca); }
 .coluna.destaque .coluna-barra { outline: 2px solid var(--destaque); outline-offset: 1px; }
 
+/* ---------- odds ratio ---------- */
+/* Escala centrada em 1: a linha do meio é "não altera a chance". Barras para
+   a direita aumentam o risco, para a esquerda reduzem. */
+
+.odds { display: flex; flex-direction: column; gap: 7px; margin-top: 6px; }
+
+.odds-linha { display: grid; grid-template-columns: 190px 1fr 96px; align-items: center; gap: 10px; }
+.odds-nome { font-size: .82rem; color: var(--tinta); text-align: right; }
+.odds-trilho { position: relative; height: 22px; background: #eef1f5; border-radius: 4px; }
+.odds-centro { position: absolute; left: 50%; top: -3px; bottom: -3px; width: 2px; background: var(--tinta-fraca); opacity: .5; }
+.odds-barra { position: absolute; top: 4px; bottom: 4px; border-radius: 3px; }
+.odds-barra.aumenta { background: var(--vermelho); }
+.odds-barra.reduz { background: var(--verde); }
+.odds-valor { font-size: .82rem; font-variant-numeric: tabular-nums; }
+.odds-ic { display: block; font-size: .7rem; color: var(--tinta-fraca); }
+.odds-linha.fraca { opacity: .45; }
+
+@media (max-width: 620px) {
+  .odds-linha { grid-template-columns: 120px 1fr 72px; }
+  .odds-nome { font-size: .74rem; }
+}
+
 /* ---------- tabelas ---------- */
 
 .tabela { width: 100%; border-collapse: collapse; font-size: .87rem; }
