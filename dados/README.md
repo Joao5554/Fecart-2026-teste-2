@@ -140,6 +140,88 @@ Vale ter estas respostas prontas para a banca:
 - **O rótulo é uma construção nossa**, derivada dos danos declarados, e não
   uma medida oficial de risco.
 
+## Dados climáticos do INMET (em construção)
+
+O Atlas diz *o que aconteceu*, mas não traz o gatilho: a chuva. A leitura dos
+dados do INMET já está pronta e testada — falta baixar os arquivos e juntar ao
+dataset de treino.
+
+### Como baixar
+
+**1. Dados das estações** — <https://portal.inmet.gov.br/dadoshistoricos>
+
+Um ZIP por ano, de 2000 a 2026. Baixe os anos desejados e descompacte
+**todos** dentro de `dados/bruto/inmet/`. Podem ficar em subpastas por ano; a
+busca é recursiva.
+
+> Cada ZIP tem de 40 a 120 MB. Para só testar o encanamento, comece com dois
+> ou três anos recentes. Para o projeto completo, o ideal é 2000–2025: os anos
+> 2000–2009 servem de **normal climatológica** e os demais alimentam o modelo.
+
+**2. Lista de municípios do IBGE** — baixada automaticamente pelo script, ou:
+
+```bash
+curl -o dados/bruto/municipios_ibge.json \
+  https://servicodados.ibge.gov.br/api/v1/localidades/municipios
+```
+
+### Como processar
+
+```bash
+python dados/preparar_clima.py
+```
+
+Gera `dados/clima_mensal.csv` (chuva por município e mês) e
+`dados/clima_normais.csv` (a chuva típica de cada estação em cada mês).
+
+### Como a chuva chega a cada município
+
+O INMET tem ~600 estações automáticas; o Brasil tem 5.571 municípios. Cada
+município recebe a medição do nível mais próximo disponível:
+
+| Nível | O que significa |
+| --- | --- |
+| `municipio` | há uma estação no próprio município |
+| `regiao_imediata` | estação na mesma região imediata do IBGE (~510 no país) |
+| `regiao_intermediaria` | estação na mesma região intermediária (~133) |
+| `uf` | média das estações do estado |
+
+O nível usado fica gravado na coluna `fonte_clima` de cada linha. Isso importa
+na hora de analisar: chuva medida no próprio município e chuva estimada pela
+média do estado têm qualidade muito diferente.
+
+As estações são casadas aos municípios por **nome normalizado + UF**. A UF
+entra na chave porque há dezenas de nomes repetidos no Brasil — existem duas
+"Santa Maria" em estados diferentes, e casar só pelo nome jogaria a chuva de um
+estado no outro.
+
+### Detalhes do formato
+
+O leitor trata sozinho as armadilhas do arquivo:
+
+| Característica | Valor |
+| --- | --- |
+| Cabeçalho | 8 linhas de metadados antes dos dados |
+| Separador | ponto e vírgula (`;`) |
+| Decimal | vírgula (`,`) |
+| Codificação | latin-1 (com UTF-8 tentado antes, porque latin-1 nunca falha) |
+| Faltante | `-9999` |
+| Frequência | horária |
+
+**Os nomes das colunas mudam entre os anos.** O INMET alterou grafias,
+acentuação e o formato da data ao longo do tempo, então as colunas são
+procuradas por palavra-chave, nunca pelo nome exato. Mês com menos de 50% das
+horas registradas é descartado: estação meio fora do ar produziria uma "chuva
+mensal" falsamente baixa.
+
+### O que ainda falta
+
+Juntar o clima ao dataset de treino, respeitando a regra de não usar o futuro:
+as variáveis de um mês precisam vir dos meses **anteriores** (chuva do mês
+passado, acumulado de três meses, anomalia em relação à normal). Isso mede o
+mecanismo real — solo encharcado do mês anterior aumenta o risco de
+deslizamento — sem exigir saber a chuva do mês que se quer prever.
+
 ## Outras fontes, para os próximos passos
 
 - **INMET (BDMEP)**: <https://bdmep.inmet.gov.br> — chuva, temperatura, umidade
