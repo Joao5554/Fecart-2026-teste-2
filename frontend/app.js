@@ -81,6 +81,10 @@ async function iniciar() {
     }
 
     const info = await pedir("/modelo/info");
+    if (info.linhas_de_treino) {
+      $("numero-modelo").textContent =
+        (info.linhas_de_treino / 1000).toFixed(0) + " mil";
+    }
     $("rodape-modelo").textContent =
       `Modelo treinado em ${formatarData(info.treinado_em)} · `
       + `origem dos dados: ${info.origem_dados} · `
@@ -216,6 +220,7 @@ $("formulario").addEventListener("submit", async (evento) => {
     });
     mostrarResultado(previsao);
     await mostrarAno(municipioEscolhido.codigo_ibge, tipo, ano, mes);
+    await mostrarMapaDaCidade(municipioEscolhido.codigo_ibge, tipo, mes);
   } catch (erro) {
     mostrarAviso(`Não foi possível prever: ${erro.message}`, true);
   } finally {
@@ -297,6 +302,19 @@ async function mostrarAno(codigoIbge, tipo, ano, mesEscolhido) {
 // A malha tem ~3 MB: é buscada uma vez e reaproveitada em todos os desenhos.
 let malhaCache = null;
 
+const UFS = ["AC","AL","AM","AP","BA","CE","DF","ES","GO","MA","MG","MS","MT",
+             "PA","PB","PE","PI","PR","RJ","RN","RO","RR","RS","SC","SE","SP","TO"];
+
+// Os dois primeiros dígitos do código IBGE identificam a UF. Guardar esse
+// mapa evita uma consulta extra só para filtrar o mapa por estado.
+const PREFIXO_UF = {
+  11:"RO",12:"AC",13:"AM",14:"RR",15:"PA",16:"AP",17:"TO",21:"MA",22:"PI",
+  23:"CE",24:"RN",25:"PB",26:"PE",27:"AL",28:"SE",29:"BA",31:"MG",32:"ES",
+  33:"RJ",35:"SP",41:"PR",42:"SC",43:"RS",50:"MS",51:"MT",52:"GO",53:"DF",
+};
+
+const ufDoCodigo = (codigo) => PREFIXO_UF[Math.floor(codigo / 100000)];
+
 function prepararMapa() {
   const tipo = $("mapa-tipo");
   TIPOS_DESASTRE.forEach((t) => tipo.add(new Option(formatarTipo(t), t)));
@@ -305,13 +323,17 @@ function prepararMapa() {
   const mes = $("mapa-mes");
   MESES.forEach((nome, i) => mes.add(new Option(nome, i + 1, false, i === 1)));
 
+  const uf = $("mapa-uf");
+  uf.add(new Option("Brasil inteiro", ""));
+  UFS.forEach((sigla) => uf.add(new Option(sigla, sigla)));
+
   $("form-mapa").addEventListener("submit", (evento) => {
     evento.preventDefault();
-    desenharMapa(tipo.value, Number(mes.value));
+    desenharMapa(tipo.value, Number(mes.value), uf.value);
   });
 }
 
-async function desenharMapa(tipo, mes) {
+async function desenharMapa(tipo, mes, ufEscolhida = "") {
   const botao = $("mapa-botao");
   botao.disabled = true;
   botao.textContent = "Desenhando...";
@@ -325,68 +347,134 @@ async function desenharMapa(tipo, mes) {
       `/mapa/brasil?grupo_desastre=${tipo}&mes=${mes}&ano=${new Date().getFullYear()}`
     );
 
-    const porMunicipio = new Map(
-      dados.municipios.map((m) => [m.codigo_ibge, m])
+    // Filtrar por UF muda o enquadramento: os limites do desenho passam a ser
+    // os do estado, e ele preenche a tela em vez de virar um ponto no país.
+    const soDoEstado = (codigo) => !ufEscolhida || ufDoCodigo(codigo) === ufEscolhida;
+
+    const feicoes = malhaCache.features.filter(
+      (f) => soDoEstado(f.properties.codigo_ibge)
     );
-    renderizarSvg(malhaCache, porMunicipio);
+    const doMapa = dados.municipios.filter((m) => soDoEstado(m.codigo_ibge));
+    const porMunicipio = new Map(doMapa.map((m) => [m.codigo_ibge, m]));
 
+    renderizarSvg("mapa-svg", "mapa-dica", feicoes, porMunicipio);
+
+    const resumo = { baixo: 0, medio: 0, alto: 0 };
+    doMapa.forEach((m) => { resumo[m.nivel_risco] += 1; });
+
+    const onde = ufEscolhida ? `em ${ufEscolhida}` : "no Brasil";
     $("mapa-estado").textContent =
-      `${formatarTipo(tipo)} em ${MESES[mes - 1]} · `
-      + `${dados.total.toLocaleString("pt-BR")} municípios com histórico · `
-      + `${dados.resumo.alto} em risco alto, ${dados.resumo.medio} em médio.`;
+      `${formatarTipo(tipo)} em ${MESES[mes - 1]}, ${onde} · `
+      + `${doMapa.length.toLocaleString("pt-BR")} municípios com histórico · `
+      + `${resumo.alto} em risco alto, ${resumo.medio} em médio.`;
 
-    montarLegenda(dados.resumo);
+    montarLegenda("mapa-legenda", resumo);
   } catch (erro) {
     $("mapa-estado").textContent = `Não foi possível montar o mapa: ${erro.message}`;
   } finally {
     botao.disabled = false;
-    botao.textContent = "Desenhar mapa";
+    botao.textContent = "Desenhar";
   }
 }
 
-function renderizarSvg(malha, porMunicipio) {
-  const svg = $("mapa-svg");
-  const LARGURA = 600, ALTURA = 620;
+// ---------------------------------------------------------------------------
+// Mapa da cidade e da região
+// ---------------------------------------------------------------------------
 
-  // Projeção equirretangular: longitude vira x, latitude vira y. Para um país
-  // só, a distorção é pequena e não exige biblioteca de projeção.
+async function mostrarMapaDaCidade(codigoIbge, tipo, mes) {
+  try {
+    if (!malhaCache) malhaCache = await pedir("/mapa/malha");
+    const dados = await pedir(
+      `/mapa/municipio/${codigoIbge}?grupo_desastre=${tipo}&mes=${mes}`
+      + `&ano=${new Date().getFullYear()}`
+    );
+
+    const daRegiao = new Set(dados.codigos_da_vizinhanca);
+    const feicoes = malhaCache.features.filter(
+      (f) => daRegiao.has(f.properties.codigo_ibge)
+    );
+    if (!feicoes.length) return;
+
+    const porMunicipio = new Map(dados.municipios.map((m) => [m.codigo_ibge, m]));
+    renderizarSvg("cidade-svg", "cidade-dica", feicoes, porMunicipio, codigoIbge);
+
+    const resumo = { baixo: 0, medio: 0, alto: 0 };
+    dados.municipios.forEach((m) => { resumo[m.nivel_risco] += 1; });
+    montarLegenda("cidade-legenda", resumo);
+
+    $("cidade-setores").innerHTML = textoDosSetores(dados);
+    $("secao-cidade").classList.remove("oculto");
+  } catch (erro) {
+    $("secao-cidade").classList.add("oculto");
+  }
+}
+
+function textoDosSetores(dados) {
+  const s = dados.setores_afetados || {};
+  if (!s.disponivel) {
+    return "O Atlas não registrou quais partes da cidade foram atingidas "
+         + "nas ocorrências deste tipo.";
+  }
+  return `<strong>${s.setores_distintos} setores censitários</strong> desta `
+       + `cidade já foram atingidos por ${formatarTipo(dados.grupo_desastre)}, `
+       + `em ${s.ocorrencias_com_setor} das ${s.ocorrencias_do_tipo} ocorrências `
+       + `registradas. O IBGE não publica o desenho desses setores, então o `
+       + `número aparece sem o mapa de bairros.`;
+}
+
+/**
+ * Desenha um conjunto de municípios num SVG, colorindo pelo nível de risco.
+ *
+ * Serve tanto ao mapa do país quanto ao da cidade: muda só quais feições
+ * entram. O enquadramento é recalculado a cada chamada, então um estado ou
+ * uma região preenchem a tela em vez de virar um ponto no meio do Brasil.
+ */
+function renderizarSvg(idSvg, idDica, feicoes, porMunicipio, codigoEmFoco = null) {
+  const svg = $(idSvg);
+  const [, , LARGURA, ALTURA] = svg.getAttribute("viewBox").split(" ").map(Number);
+  const MARGEM = 12;
+
   let minLon = 180, maxLon = -180, minLat = 90, maxLat = -90;
   const visitar = (coords, aplicar) => {
     if (typeof coords[0] === "number") aplicar(coords);
     else coords.forEach((c) => visitar(c, aplicar));
   };
-  malha.features.forEach((f) => visitar(f.geometry.coordinates, ([lon, lat]) => {
+  feicoes.forEach((f) => visitar(f.geometry.coordinates, ([lon, lat]) => {
     if (lon < minLon) minLon = lon;
     if (lon > maxLon) maxLon = lon;
     if (lat < minLat) minLat = lat;
     if (lat > maxLat) maxLat = lat;
   }));
 
-  const escala = Math.min(LARGURA / (maxLon - minLon), ALTURA / (maxLat - minLat));
-  const deslocaX = (LARGURA - (maxLon - minLon) * escala) / 2;
-  const deslocaY = (ALTURA - (maxLat - minLat) * escala) / 2;
+  const larguraGeo = Math.max(maxLon - minLon, 1e-6);
+  const alturaGeo = Math.max(maxLat - minLat, 1e-6);
+  const escala = Math.min((LARGURA - MARGEM * 2) / larguraGeo,
+                          (ALTURA - MARGEM * 2) / alturaGeo);
+  const deslocaX = (LARGURA - larguraGeo * escala) / 2;
+  const deslocaY = (ALTURA - alturaGeo * escala) / 2;
+
   const px = (lon) => (lon - minLon) * escala + deslocaX;
   // O y do SVG cresce para baixo; a latitude cresce para cima.
   const py = (lat) => (maxLat - lat) * escala + deslocaY;
 
   const anelParaPath = (anel) =>
     "M" + anel.map(([lon, lat]) => `${px(lon).toFixed(1)},${py(lat).toFixed(1)}`)
-                .join("L") + "Z";
+              .join("L") + "Z";
 
   const partes = [];
-  malha.features.forEach((f) => {
+  feicoes.forEach((f) => {
     const codigo = f.properties.codigo_ibge;
     const info = porMunicipio.get(codigo);
-    const geometria = f.geometry;
-    const poligonos = geometria.type === "Polygon"
-      ? [geometria.coordinates] : geometria.coordinates;
+    const g = f.geometry;
+    const poligonos = g.type === "Polygon" ? [g.coordinates] : g.coordinates;
 
     const d = poligonos.map((p) => p.map(anelParaPath).join("")).join("");
     if (!d) return;
 
     if (info) {
+      const foco = codigo === codigoEmFoco ? " foco" : "";
       partes.push(
-        `<path d="${d}" fill="${info.cor}" data-ibge="${codigo}"></path>`
+        `<path d="${d}" fill="${info.cor}" class="${foco.trim()}" data-ibge="${codigo}"></path>`
       );
     } else {
       partes.push(`<path d="${d}" class="sem-dado"></path>`);
@@ -395,33 +483,33 @@ function renderizarSvg(malha, porMunicipio) {
 
   svg.innerHTML = partes.join("");
 
-  // Um único listener no SVG, em vez de 5.570 — a diferença de desempenho
-  // é grande o bastante para travar a página se feito do outro jeito.
+  // Um único listener no SVG, em vez de um por município — com 5.570
+  // elementos, a diferença de desempenho trava a página.
   svg.onmousemove = (evento) => {
     const alvo = evento.target.closest("path[data-ibge]");
-    const dica = $("mapa-dica");
+    const dica = $(idDica);
     if (!alvo) { dica.classList.add("oculto"); return; }
 
     const info = porMunicipio.get(Number(alvo.dataset.ibge));
     dica.innerHTML = `<strong>${info.municipio}</strong> — ${info.uf}<br>`
                    + `risco ${info.nivel_risco}<br>`
                    + `chance de ser grave: ${porcento(info.probabilidade_alto)}`;
-    const area = $("mapa-svg").getBoundingClientRect();
-    dica.style.left = `${evento.clientX - area.left + 14}px`;
+    const area = svg.getBoundingClientRect();
+    dica.style.left = `${Math.min(evento.clientX - area.left + 14, area.width - 250)}px`;
     dica.style.top = `${evento.clientY - area.top + 14}px`;
     dica.classList.remove("oculto");
   };
-  svg.onmouseleave = () => $("mapa-dica").classList.add("oculto");
+  svg.onmouseleave = () => $(idDica).classList.add("oculto");
 }
 
-function montarLegenda(resumo) {
-  const legenda = $("mapa-legenda");
+function montarLegenda(idLegenda, resumo) {
+  const legenda = $(idLegenda);
   legenda.innerHTML =
     ["baixo", "medio", "alto"].map((nivel) =>
-      `<span><i style="background:${CORES[nivel]}"></i>${nivel}
-        (${resumo[nivel].toLocaleString("pt-BR")})</span>`
+      `<span><i style="background:${CORES[nivel]}"></i>${nivel}`
+      + ` (${resumo[nivel].toLocaleString("pt-BR")})</span>`
     ).join("")
-    + '<span><i style="background:#dfe4ea"></i>sem histórico deste tipo</span>';
+    + '<span><i style="background:#d6dbe3"></i>sem histórico deste tipo</span>';
   legenda.classList.remove("oculto");
 }
 

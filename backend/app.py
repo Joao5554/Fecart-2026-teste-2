@@ -650,6 +650,109 @@ def mapa_brasil(grupo_desastre: str, mes: int, ano: int = 2026):
     return resposta
 
 
+@app.get("/mapa/municipio/{codigo_ibge}", tags=["mapa"])
+def mapa_do_municipio(codigo_ibge: int, grupo_desastre: str, mes: int,
+                      ano: int = 2026):
+    """
+    O município e sua vizinhança, para o mapa ampliado da cidade.
+
+    Devolve o município consultado e os que ficam na mesma região imediata do
+    IBGE, cada um com seu nível de risco. É a leitura útil na escala local:
+    um desastre raramente respeita divisa municipal, e ver o entorno mostra se
+    a cidade é um ponto isolado ou parte de uma área inteira sob pressão.
+
+    **Não há divisão de bairros aqui.** O Atlas registra quais setores
+    censitários foram atingidos, mas o IBGE não publica a geometria desses
+    setores por API — desenhá-los exigiria inventar os limites. Em vez disso,
+    a resposta traz quantos setores distintos já foram afetados, que é um dado
+    real.
+    """
+    registros = _exigir_ocorrencias()
+
+    do_municipio = registros[registros["codigo_ibge"] == codigo_ibge]
+    if do_municipio.empty:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Município {codigo_ibge} não tem histórico no Atlas.",
+        )
+
+    vizinhos = _vizinhos_do_municipio(codigo_ibge)
+    mapa_pais = mapa_brasil(grupo_desastre=grupo_desastre, mes=mes, ano=ano)
+    por_codigo = {m["codigo_ibge"]: m for m in mapa_pais["municipios"]}
+
+    selecionados = [
+        {**por_codigo[c], "e_o_consultado": c == codigo_ibge}
+        for c in vizinhos if c in por_codigo
+    ]
+
+    return {
+        "codigo_ibge": codigo_ibge,
+        "municipio": do_municipio["municipio"].iloc[-1],
+        "uf": do_municipio["uf"].iloc[-1],
+        "grupo_desastre": grupo_desastre,
+        "mes": mes,
+        "codigos_da_vizinhanca": vizinhos,
+        "municipios": selecionados,
+        "setores_afetados": _setores_do_municipio(do_municipio, grupo_desastre),
+        "legenda": esquema.CORES_RISCO,
+    }
+
+
+def _vizinhos_do_municipio(codigo_ibge: int) -> list[int]:
+    """
+    Códigos do município e dos que compartilham sua região imediata.
+
+    Sem a lista do IBGE disponível, cai para os municípios da mesma UF que
+    têm histórico — menos preciso, mas ainda desenha um mapa útil.
+    """
+    try:
+        from src import regioes
+
+        municipios = regioes.carregar_municipios()
+        linha = municipios[municipios["codigo_ibge"] == codigo_ibge]
+        if not linha.empty and pd.notna(linha["regiao_imediata"].iloc[0]):
+            regiao = linha["regiao_imediata"].iloc[0]
+            vizinhos = municipios[municipios["regiao_imediata"] == regiao]
+            return sorted(int(c) for c in vizinhos["codigo_ibge"])
+    except Exception:
+        pass
+
+    registros = _exigir_ocorrencias()
+    uf = registros[registros["codigo_ibge"] == codigo_ibge]["uf"].iloc[-1]
+    return sorted(
+        int(c) for c in registros[registros["uf"] == uf]["codigo_ibge"].unique()
+    )
+
+
+def _setores_do_municipio(do_municipio: pd.DataFrame, grupo: str) -> dict:
+    """Quantas partes distintas da cidade já foram atingidas, segundo o Atlas."""
+    if "setores" not in do_municipio.columns:
+        return {"disponivel": False}
+
+    do_tipo = do_municipio[do_municipio["grupo_desastre"] == grupo]
+    listas = do_tipo["setores"].fillna("").astype(str)
+
+    distintos = set()
+    com_registro = 0
+    for lista in listas:
+        partes = {p.strip() for p in lista.split(",") if p.strip()}
+        if partes:
+            com_registro += 1
+            distintos |= partes
+
+    return {
+        "disponivel": bool(distintos),
+        "setores_distintos": len(distintos),
+        "ocorrencias_com_setor": com_registro,
+        "ocorrencias_do_tipo": int(len(do_tipo)),
+        "observacao": (
+            "O Atlas registra quais setores censitários foram atingidos, mas o "
+            "IBGE não publica a geometria deles por API — por isso o número "
+            "aparece sem o desenho."
+        ),
+    }
+
+
 @app.post("/mapa/risco", tags=["mapa"])
 def mapa_risco(entrada: EntradaLote):
     """Devolve as previsões como GeoJSON, pronto para o mapa interativo.

@@ -88,6 +88,10 @@ def adicionar_features(alvos: pd.DataFrame, clima: pd.DataFrame,
     if normais is None:
         normais = calcular_normais_municipais(clima)
 
+    # O ETL do Atlas já cria as colunas de clima vazias, para o dataset ficar
+    # completo mesmo sem os dados do INMET. Elas saem antes do merge: mantê-las
+    # faria o pandas duplicar cada coluna com sufixos _x e _y.
+    alvos = alvos.drop(columns=[c for c in COLUNAS_CLIMA if c in alvos.columns])
     alvos = alvos.copy()
     alvos["_indice"] = _indice_mes(alvos["ano"], alvos["mes"])
 

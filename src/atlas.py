@@ -43,6 +43,10 @@ COLUNAS_ATLAS = [
     "Nome_Municipio", "Sigla_UF", "regiao", "Data_Evento",
     "descricao_tipologia", "Cod_IBGE_Mun", "Status",
     "DH_MORTOS", "DH_total_danos_humanos_diretos", "PE_PLePR",
+    # Lista de setores censitários atingidos, separados por vírgula. Só 39%
+    # dos registros trazem, mas é a única informação do Atlas abaixo do nível
+    # do município — permite dizer quantas partes da cidade já foram afetadas.
+    "Setores Censitários",
 ]
 
 # As tipologias do Atlas agrupadas nas classes que o modelo usa.
@@ -112,6 +116,7 @@ def carregar_atlas(caminho: Path) -> pd.DataFrame:
         "DH_MORTOS": "mortos",
         "DH_total_danos_humanos_diretos": "afetados",
         "PE_PLePR": "prejuizo",
+        "Setores Censitários": "setores",
     })
 
     data = pd.to_datetime(dados["Data_Evento"], format=FORMATO_DATA, errors="coerce")
@@ -134,11 +139,46 @@ def carregar_atlas(caminho: Path) -> pd.DataFrame:
     dados = dados[dados["codigo_ibge"].notna()]
     dados["codigo_ibge"] = dados["codigo_ibge"].astype(int)
 
+    dados["setores"] = dados["setores"].fillna("").astype(str).str.strip()
+
     colunas = [
         "codigo_ibge", "municipio", "uf", "regiao", "ano", "mes",
         "grupo_desastre", "reconhecido", "mortos", "afetados", "prejuizo",
+        "setores",
     ]
     return dados[colunas].reset_index(drop=True)
+
+
+def setores_afetados(ocorrencias: pd.DataFrame) -> pd.DataFrame:
+    """
+    Conta quantas partes distintas de cada município já foram atingidas.
+
+    O Atlas registra, em parte dos casos, os setores censitários alcançados
+    por cada ocorrência. Não temos a geometria desses setores — o IBGE não a
+    publica por API — então não dá para desenhá-los no mapa. Mas o número
+    ainda diz muito: "34 setores já atingidos" separa a cidade que sofre
+    sempre no mesmo ponto daquela em que o problema é espalhado.
+    """
+    com_setor = ocorrencias[ocorrencias["setores"].str.len() > 0]
+    if com_setor.empty:
+        return pd.DataFrame(columns=["codigo_ibge", "grupo_desastre",
+                                     "setores_distintos", "registros_com_setor"])
+
+    linhas = []
+    for chave, bloco in com_setor.groupby(["codigo_ibge", "grupo_desastre"]):
+        distintos = set()
+        for lista in bloco["setores"]:
+            distintos.update(
+                parte.strip() for parte in lista.split(",") if parte.strip()
+            )
+        linhas.append({
+            "codigo_ibge": chave[0],
+            "grupo_desastre": chave[1],
+            "setores_distintos": len(distintos),
+            "registros_com_setor": len(bloco),
+        })
+
+    return pd.DataFrame(linhas)
 
 
 def agregar_por_mes(ocorrencias: pd.DataFrame) -> pd.DataFrame:

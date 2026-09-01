@@ -10,24 +10,33 @@
 
 <header class="cabecalho">
   <div class="conteudo">
-    <h1>Previsão de Risco de Desastres Naturais</h1>
+    <p class="marca">Fecart 2026</p>
+    <h1>Previsão de risco de desastres naturais</h1>
     <p class="subtitulo">
-      Modelo treinado com o Atlas Digital de Desastres (S2iD / Defesa Civil),
-      1991–2025 · Fecart 2026
+      Um modelo treinado com o Atlas Digital de Desastres, da Defesa Civil,
+      estima o risco de enchente, deslizamento, seca e outros eventos em
+      qualquer município brasileiro, mês a mês.
     </p>
+
+    <div class="numeros-topo">
+      <div class="numero"><strong>76 mil</strong><span>ocorrências reais</span></div>
+      <div class="numero"><strong>5.245</strong><span>municípios</span></div>
+      <div class="numero"><strong>1991–2025</strong><span>período coberto</span></div>
+      <div class="numero"><strong id="numero-modelo">—</strong><span>linhas de treino</span></div>
+    </div>
   </div>
 </header>
 
 <main class="conteudo">
 
-  <!-- Aviso de estado do modelo (aparece só quando há problema) -->
   <div id="aviso-modelo" class="aviso oculto"></div>
 
+  <!-- ------------------------------------------------------------------ -->
   <section class="cartao">
-    <h2>Consultar risco</h2>
+    <h2>Consultar um município</h2>
     <p class="ajuda">
-      Escolha o município, o tipo de desastre e o mês. O histórico do município
-      é buscado automaticamente no Atlas — você não precisa preencher nada além disso.
+      Escolha a cidade, o tipo de desastre e o mês. O histórico é buscado
+      automaticamente no Atlas — não é preciso preencher mais nada.
     </p>
 
     <form id="formulario" class="formulario">
@@ -53,6 +62,7 @@
     </form>
   </section>
 
+  <!-- ------------------------------------------------------------------ -->
   <section id="resultado" class="cartao oculto">
     <h2>Resultado</h2>
 
@@ -70,13 +80,34 @@
     <details class="detalhes">
       <summary>Como o modelo chegou a isso</summary>
       <p class="ajuda">
-        Estas são as variáveis calculadas a partir do histórico do município,
-        contando apenas o que aconteceu <strong>antes</strong> do mês consultado.
+        Variáveis calculadas a partir do histórico do município, contando
+        apenas o que aconteceu <strong>antes</strong> do mês consultado.
       </p>
       <table id="tabela-features" class="tabela"></table>
     </details>
   </section>
 
+  <!-- ------------------------------------------------------------------ -->
+  <section id="secao-cidade" class="cartao oculto">
+    <h2>A cidade e a região</h2>
+    <p class="ajuda">
+      O município consultado, em destaque, e os vizinhos da mesma região
+      imediata do IBGE. Desastre raramente respeita divisa municipal: ver o
+      entorno mostra se a cidade é um ponto isolado ou parte de uma área
+      inteira sob pressão.
+    </p>
+
+    <div class="mapa-area">
+      <svg id="cidade-svg" viewBox="0 0 640 460" role="img"
+           aria-label="Mapa da cidade e da região"></svg>
+      <div id="cidade-dica" class="mapa-dica oculto"></div>
+    </div>
+
+    <div id="cidade-legenda" class="mapa-legenda oculto"></div>
+    <p id="cidade-setores" class="ajuda" style="margin-top:16px"></p>
+  </section>
+
+  <!-- ------------------------------------------------------------------ -->
   <section id="secao-ano" class="cartao oculto">
     <h2>O ano inteiro</h2>
     <p class="ajuda">
@@ -86,21 +117,23 @@
     <div id="grafico" class="grafico"></div>
   </section>
 
+  <!-- ------------------------------------------------------------------ -->
   <section id="secao-historico" class="cartao oculto">
     <h2>Histórico registrado</h2>
     <p id="historico-resumo" class="ajuda"></p>
     <table id="tabela-historico" class="tabela"></table>
   </section>
 
+  <!-- ------------------------------------------------------------------ -->
   <section id="secao-mapa" class="cartao">
     <h2>Mapa do Brasil</h2>
     <p class="ajuda">
-      Risco previsto para cada município, no tipo de desastre e no mês
-      escolhidos. Só aparecem municípios com histórico daquele tipo no Atlas —
-      sobre os demais o modelo não tem o que dizer.
+      Risco previsto para cada município. Escolha um estado para ampliar.
+      Só aparecem municípios com histórico daquele tipo no Atlas — sobre os
+      demais o modelo não tem o que dizer.
     </p>
 
-    <form id="form-mapa" class="formulario">
+    <form id="form-mapa" class="mapa-filtros">
       <div class="campo">
         <label for="mapa-tipo">Tipo de desastre</label>
         <select id="mapa-tipo"></select>
@@ -109,13 +142,17 @@
         <label for="mapa-mes">Mês</label>
         <select id="mapa-mes"></select>
       </div>
-      <button type="submit" id="mapa-botao">Desenhar mapa</button>
+      <div class="campo">
+        <label for="mapa-uf">Estado</label>
+        <select id="mapa-uf"></select>
+      </div>
+      <button type="submit" id="mapa-botao">Desenhar</button>
     </form>
 
     <p id="mapa-estado" class="ajuda"></p>
 
     <div class="mapa-area">
-      <svg id="mapa-svg" viewBox="0 0 600 620" role="img"
+      <svg id="mapa-svg" viewBox="0 0 640 640" role="img"
            aria-label="Mapa de risco por município"></svg>
       <div id="mapa-dica" class="mapa-dica oculto"></div>
     </div>
@@ -123,36 +160,43 @@
     <div id="mapa-legenda" class="mapa-legenda oculto"></div>
   </section>
 
+  <!-- ------------------------------------------------------------------ -->
   <section id="secao-odds" class="cartao oculto">
     <h2>O que mais pesa no risco</h2>
     <p class="ajuda">
-      Cada barra mostra a <strong>razão de chances</strong> (odds ratio): quanto
-      aquela característica multiplica a chance de o desastre ser grave.
-      Acima de 1 aumenta o risco, abaixo de 1 reduz. Os valores vêm de uma
-      regressão logística sobre os mesmos dados, com intervalo de confiança de 95%.
+      Cada barra mostra a <strong>razão de chances</strong>: quanto aquela
+      característica multiplica a chance de o desastre ser grave. Acima de 1
+      aumenta o risco, abaixo de 1 reduz. Os valores vêm de uma regressão
+      logística sobre os mesmos dados, com intervalo de confiança de 95%.
     </p>
     <div id="odds" class="odds"></div>
     <p id="odds-rodape" class="ajuda"></p>
   </section>
 
+  <!-- ------------------------------------------------------------------ -->
   <section class="cartao cartao-nota">
     <h2>Como ler estes números</h2>
     <p>
       O modelo estima o risco <strong>relativo</strong> de um município em
       relação aos outros, a partir do que já aconteceu ali. Ele não é uma
-      previsão meteorológica: o Atlas registra ocorrências, mas não traz chuva,
-      temperatura nem umidade. Quando essas séries do INMET forem incorporadas,
-      a previsão passa a considerar também o gatilho climático do evento.
+      previsão meteorológica: o Atlas registra ocorrências, e os dados de chuva
+      que incorporamos mostraram que saber a chuva do mês passado não melhora a
+      previsão do mês seguinte.
     </p>
     <p>
-      As probabilidades não devem ser lidas como "chance absoluta de acontecer",
-      porque os meses sem desastre foram amostrados para o treino caber na
-      memória. Use como ferramenta de comparação e priorização.
+      As probabilidades não devem ser lidas como "chance absoluta de
+      acontecer", porque os meses sem desastre foram amostrados para o treino
+      caber na memória. Use como ferramenta de comparação e priorização.
     </p>
-    <p id="rodape-modelo" class="ajuda"></p>
+    <p id="rodape-modelo" class="ajuda" style="margin:0"></p>
   </section>
 
 </main>
+
+<footer class="rodape conteudo">
+  Fecart 2026 · dados do Atlas Digital de Desastres (S2iD / Defesa Civil),
+  INMET e IBGE · roda inteiramente no seu computador
+</footer>
 
 <script src="app.js"></script>
 </body>
