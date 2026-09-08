@@ -5,6 +5,22 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Previsão de Risco de Desastres Naturais — Fecart 2026</title>
   <link rel="stylesheet" href="estilo.css">
+  <script>
+    /* Aplica o tema salvo ANTES de a página pintar. Se isto fosse para o
+       app.js, quem escolheu o modo escuro veria um lampejo branco a cada
+       carregamento, enquanto o resto do script baixa. */
+    (function () {
+      try {
+        var salvo = localStorage.getItem("fecart-tema");
+        var escuro = salvo
+          ? salvo === "escuro"
+          : matchMedia("(prefers-color-scheme: dark)").matches;
+        document.documentElement.dataset.tema = escuro ? "escuro" : "claro";
+      } catch (e) {
+        /* navegador sem localStorage (janela anônima): fica no tema claro */
+      }
+    })();
+  </script>
 </head>
 <body>
 
@@ -27,12 +43,37 @@
   </div>
 </header>
 
+<!-- Menu de navegação. Os itens que apontam para seções ainda escondidas
+     ficam ocultos e aparecem sozinhos quando a seção surge — ver
+     `ligarMenu()` no app.js. -->
+<nav class="menu" id="menu" aria-label="Seções da página">
+  <div class="menu-interno conteudo">
+    <ul class="menu-itens" id="menu-itens">
+      <li><a href="#secao-consulta">Consultar</a></li>
+      <li><a href="#resultado">Resultado</a></li>
+      <li><a href="#secao-cidade">Cidade e região</a></li>
+      <li><a href="#secao-ano">O ano inteiro</a></li>
+      <li><a href="#secao-historico">Histórico</a></li>
+      <li><a href="#secao-mapa">Mapa do Brasil</a></li>
+      <li><a href="#secao-mapa-ano">Mapa por ano</a></li>
+      <li><a href="#secao-odds">O que pesa</a></li>
+      <li><a href="#secao-nota">Como ler</a></li>
+    </ul>
+
+    <button type="button" id="botao-tema" class="botao-tema"
+            aria-pressed="false" title="Alternar entre tema claro e escuro">
+      <span class="botao-tema-icone" aria-hidden="true"></span>
+      <span class="botao-tema-texto">Modo escuro</span>
+    </button>
+  </div>
+</nav>
+
 <main class="conteudo">
 
   <div id="aviso-modelo" class="aviso oculto"></div>
 
   <!-- ------------------------------------------------------------------ -->
-  <section class="cartao">
+  <section id="secao-consulta" class="cartao">
     <h2>Consultar um município</h2>
     <p class="ajuda">
       Escolha a cidade, o tipo de desastre e o mês. O histórico é buscado
@@ -97,13 +138,23 @@
       inteira sob pressão.
     </p>
 
+    <label class="camada-opcao" for="cidade-chuva">
+      <input type="checkbox" id="cidade-chuva">
+      <span>Camada: chuva medida (INMET)</span>
+    </label>
     <div class="mapa-area">
       <svg id="cidade-svg" viewBox="0 0 640 460" role="img"
            aria-label="Mapa da cidade e da região"></svg>
+      <canvas id="cidade-chuva-canvas" class="camada-chuva"
+              width="640" height="460" aria-hidden="true"></canvas>
+      <div id="cidade-animacao" class="animacao-mapa" aria-hidden="true"></div>
       <div id="cidade-dica" class="mapa-dica oculto"></div>
     </div>
 
     <div id="cidade-legenda" class="mapa-legenda oculto"></div>
+    <div id="cidade-chuva-legenda" class="mapa-legenda legenda-chuva oculto"></div>
+    <p id="cidade-chuva-nota" class="nota-chuva oculto"></p>
+    <p id="cidade-animacao-nota" class="nota-animacao oculto"></p>
     <p id="cidade-setores" class="ajuda" style="margin-top:16px"></p>
   </section>
 
@@ -149,15 +200,85 @@
       <button type="submit" id="mapa-botao">Desenhar</button>
     </form>
 
+    <label class="camada-opcao" for="mapa-chuva">
+      <input type="checkbox" id="mapa-chuva">
+      <span>Camada: chuva medida (INMET)</span>
+    </label>
     <p id="mapa-estado" class="ajuda"></p>
 
     <div class="mapa-area">
       <svg id="mapa-svg" viewBox="0 0 640 640" role="img"
            aria-label="Mapa de risco por município"></svg>
+      <canvas id="mapa-chuva-canvas" class="camada-chuva"
+              width="640" height="640" aria-hidden="true"></canvas>
+      <div id="mapa-animacao" class="animacao-mapa" aria-hidden="true"></div>
       <div id="mapa-dica" class="mapa-dica oculto"></div>
     </div>
 
     <div id="mapa-legenda" class="mapa-legenda oculto"></div>
+    <div id="mapa-chuva-legenda" class="mapa-legenda legenda-chuva oculto"></div>
+    <p id="mapa-chuva-nota" class="nota-chuva oculto"></p>
+    <p id="mapa-animacao-nota" class="nota-animacao oculto"></p>
+  </section>
+
+  <!-- ------------------------------------------------------------------ -->
+  <section id="secao-mapa-ano" class="cartao">
+    <h2>O que já aconteceu, ano a ano</h2>
+    <p class="ajuda">
+      Escolha um ano entre 1991 e 2025 e veja onde os desastres foram
+      registrados. Diferente do mapa acima, aqui não há previsão nenhuma:
+      é o <strong>registro do que aconteceu</strong>, direto do Atlas da
+      Defesa Civil. A cor indica quantas ocorrências cada município teve
+      naquele ano.
+    </p>
+
+    <form id="form-ano" class="mapa-filtros">
+      <div class="campo">
+        <label for="ano-escolhido">Ano</label>
+        <select id="ano-escolhido"></select>
+      </div>
+      <div class="campo">
+        <label for="ano-tipo">Tipo de desastre</label>
+        <select id="ano-tipo"></select>
+      </div>
+      <div class="campo">
+        <label for="ano-uf">Estado</label>
+        <select id="ano-uf"></select>
+      </div>
+      <button type="submit" id="ano-botao">Mostrar</button>
+    </form>
+
+    <div id="ano-numeros" class="numeros-ano oculto"></div>
+
+    <label class="camada-opcao" for="ano-chuva">
+      <input type="checkbox" id="ano-chuva">
+      <span>Camada: chuva medida (acumulado do ano)</span>
+    </label>
+    <p id="ano-estado" class="ajuda"></p>
+
+    <div class="mapa-area">
+      <svg id="ano-svg" viewBox="0 0 640 640" role="img"
+           aria-label="Mapa das ocorrências registradas no ano"></svg>
+      <canvas id="ano-chuva-canvas" class="camada-chuva"
+              width="640" height="640" aria-hidden="true"></canvas>
+      <div id="ano-animacao" class="animacao-mapa" aria-hidden="true"></div>
+      <div id="ano-dica" class="mapa-dica oculto"></div>
+    </div>
+
+    <div id="ano-legenda" class="mapa-legenda oculto"></div>
+    <div id="ano-chuva-legenda" class="mapa-legenda legenda-chuva oculto"></div>
+    <p id="ano-chuva-nota" class="nota-chuva oculto"></p>
+    <p id="ano-animacao-nota" class="nota-animacao oculto"></p>
+
+    <div id="ano-meses" class="meses-ano oculto">
+      <h3>Em que meses aconteceram</h3>
+      <div id="ano-grafico" class="grafico"></div>
+    </div>
+
+    <div id="ano-tipos" class="oculto">
+      <h3>Por tipo de desastre</h3>
+      <table id="ano-tabela-tipos" class="tabela"></table>
+    </div>
   </section>
 
   <!-- ------------------------------------------------------------------ -->
@@ -174,7 +295,7 @@
   </section>
 
   <!-- ------------------------------------------------------------------ -->
-  <section class="cartao cartao-nota">
+  <section id="secao-nota" class="cartao cartao-nota">
     <h2>Como ler estes números</h2>
     <p>
       O modelo estima o risco <strong>relativo</strong> de um município em

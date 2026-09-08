@@ -14,10 +14,17 @@ __pycache__/
 
 # Datasets:
 #  - ocorrencias.csv (5 MB) VAI: é o histórico que a API consulta em execução;
+#  - clima_estacoes.csv (5 MB) VAI, pela mesma razão: é o que a camada de
+#    chuva dos mapas consulta em execução. Sem ele, quem clonar só teria a
+#    camada depois de baixar 1,7 GB de ZIPs do INMET;
+#  - clima_mensal.csv (102 MB) fica de fora: passa do limite de 100 MB do
+#    GitHub, só serve para treinar e sai do mesmo comando que o anterior;
 #  - dados.csv (24 MB) fica de fora: só serve para treinar e é regenerável;
-#  - a base bruta do Atlas (82 MB) fica de fora: é dado de terceiro e pesado.
+#  - a base bruta do Atlas (82 MB) e os ZIPs do INMET (1,7 GB) ficam de fora:
+#    são dados de terceiros e pesados.
 dados/*.csv
 !dados/ocorrencias.csv
+!dados/clima_estacoes.csv
 dados/bruto/
 
 # Registro de procedência do CSV local: descreve o arquivo de dados de cada

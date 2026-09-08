@@ -433,10 +433,58 @@ e o modelo melhorou junto: a detecção de casos graves subiu de 48,9% para
 | `GET` | `/mapa/malha` | Fronteiras dos 5.570 municípios (GeoJSON do IBGE) |
 | `GET` | `/mapa/brasil` | Risco de todos os municípios de uma vez — é o que pinta o mapa |
 | `POST` | `/mapa/risco` | GeoJSON de pontos, para quem já tem coordenadas |
+| `GET` | `/historico/anos` | Quanto cada ano de 1991 a 2025 registrou |
+| `GET` | `/historico/ano/{ano}` | **O que aconteceu num ano, pronto para o mapa** |
+| `GET` | `/clima/chuva` | Chuva medida em cada estação do INMET, num mês ou num ano |
 
 O endpoint que a interface usa é o `/prever/municipio`: quem consulta informa
 apenas **onde, o quê e quando**, e o backend calcula as quinze variáveis
 históricas a partir do Atlas.
+
+Os dois endpoints de `/historico` são os únicos que **não passam pelo modelo**:
+respondem só o que o Atlas registrou. A separação é proposital — o mapa de
+risco mostra uma estimativa, que pode errar; o mapa por ano mostra um fato.
+
+---
+
+## A interface
+
+Servida pela própria API em **http://127.0.0.1:8000/app**, em HTML, CSS e
+JavaScript puros — sem framework e sem CDN, para o projeto inteiro rodar
+offline.
+
+**Menu fixo no topo.** Leva direto a qualquer seção. Boa parte delas só
+aparece depois de uma consulta, e um link para uma seção invisível não levaria
+a lugar nenhum: um `MutationObserver` acompanha as seções e liga ou desliga
+cada item sozinho, sem que o resto do código precise avisar o menu de nada.
+
+**Modo claro e escuro.** O botão do menu alterna, e a escolha fica guardada no
+navegador. O tema é aplicado por um script no `<head>`, antes da primeira
+pintura — se ficasse no `app.js`, quem escolheu o escuro veria um lampejo
+branco a cada carregamento. Só as variáveis do CSS mudam; nenhuma regra sabe
+que existe tema. As cores dos dados (verde, amarelo, vermelho) **não** mudam:
+significam nível de risco, e quem aprendeu "vermelho = alto" no claro não
+pode ter de reaprender no escuro.
+
+**Camada de chuva medida.** Um interruptor ao lado de cada mapa sobrepõe a
+chuva registrada pelas estações automáticas do INMET, no estilo dos mapas de
+tempo. O ponto delicado é de onde vem o número: no `clima_mensal.csv`, que
+alimenta o modelo, **92% das linhas carregam a chuva de uma estação de outro
+município** — só 8% do país tem estação própria. Isso serve como variável de
+entrada, mas pintar município a município com esses valores desenharia uma
+precisão que não existe. Por isso a camada interpola entre as **662 estações
+reais** e desenha os marcadores por cima: quem olha vê a mancha e vê de onde
+ela veio. O rodapé sempre diz de que período é a medição — o mapa de risco
+prevê um ano que ainda não aconteceu, e a chuva ao lado dele é sempre de
+outro momento.
+
+**Mapa por ano.** Escolha um ano de 1991 a 2025 e veja onde os desastres foram
+registrados, com filtro por tipo e por estado. A escala de cor conta
+ocorrências (cinco faixas, do amarelo ao vinho) e é deliberadamente diferente
+da escala de risco: duas escalas iguais para coisas diferentes seriam o jeito
+mais fácil de alguém confundir uma previsão com um fato. Municípios sem
+registro no ano ficam cinza, não verdes — "não aconteceu nada" e "não sabemos"
+não são a mesma informação.
 
 ---
 
@@ -507,8 +555,8 @@ python dados/preparar_dados.py --anos 2015 2025
 pytest
 ```
 
-71 testes cobrindo o ETL, o contrato de dados, o vazamento temporal, o modelo,
-a API e a interface. **Rode antes de todo commit.**
+252 testes cobrindo o ETL, o contrato de dados, o vazamento temporal, o
+modelo, a API, o histórico por ano, a camada de chuva e a interface.
 
 ---
 

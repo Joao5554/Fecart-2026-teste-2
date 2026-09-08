@@ -65,6 +65,19 @@ async function iniciar() {
   preencherMeses();
   preencherTipos(TIPOS_DESASTRE);
   prepararMapa();
+  prepararMapaDoAno();
+
+  // Menu e tema são de interface pura: não dependem da API e precisam
+  // funcionar mesmo com o servidor fora do ar, quando a página vira só um
+  // aviso de erro que a pessoa ainda tem de conseguir ler no tema que escolheu.
+  ligarTema();
+  ligarMenu();
+  ligarCamadasDeChuva();
+
+  // O mapa por ano lê o Atlas direto, sem passar pelo modelo. Por isso é
+  // carregado aqui, fora da verificação de modelo treinado logo abaixo: se o
+  // modelo faltar, a previsão para, mas o histórico continua de pé.
+  carregarAnos();
 
   try {
     const estado = await pedir("/");
@@ -358,6 +371,8 @@ async function desenharMapa(tipo, mes, ufEscolhida = "") {
     const porMunicipio = new Map(doMapa.map((m) => [m.codigo_ibge, m]));
 
     renderizarSvg("mapa-svg", "mapa-dica", feicoes, porMunicipio);
+    aplicarAnimacao("mapa-animacao", tipo);
+    atualizarChuva("mapa");
 
     const resumo = { baixo: 0, medio: 0, alto: 0 };
     doMapa.forEach((m) => { resumo[m.nivel_risco] += 1; });
@@ -397,6 +412,8 @@ async function mostrarMapaDaCidade(codigoIbge, tipo, mes) {
 
     const porMunicipio = new Map(dados.municipios.map((m) => [m.codigo_ibge, m]));
     renderizarSvg("cidade-svg", "cidade-dica", feicoes, porMunicipio, codigoIbge);
+    aplicarAnimacao("cidade-animacao", tipo);
+    atualizarChuva("cidade");
 
     const resumo = { baixo: 0, medio: 0, alto: 0 };
     dados.municipios.forEach((m) => { resumo[m.nivel_risco] += 1; });
@@ -422,14 +439,311 @@ function textoDosSetores(dados) {
        + `número aparece sem o mapa de bairros.`;
 }
 
+// ---------------------------------------------------------------------------
+// Camada de chuva medida
+// ---------------------------------------------------------------------------
+// Desenha, sobre o mapa, quanto choveu de fato — medido pelas estações
+// automáticas do INMET.
+//
+// O ponto delicado é de onde vem o número. O arquivo que alimenta o modelo
+// tem uma linha por município, mas em 92% delas a chuva foi medida em outro
+// município: só 8% do país tem estação própria. Pintar município a município
+// com esses valores desenharia uma precisão que não existe.
+//
+// Por isso a camada trabalha com os PONTOS: interpola entre as ~600 estações
+// reais (é o que o Windy faz entre os pontos da grade dele) e desenha os
+// marcadores por cima. Quem olha vê a mancha e vê de onde ela veio.
+
+const GRADE_CHUVA = 72;   // resolução do cálculo, antes de o navegador suavizar
+const RAIO_CHUVA = 3.2;   // graus: além disso, nenhuma estação influencia
+const POTENCIA_IDW = 2.4; // quanto o peso cai com a distância
+
+// Cada mapa e o que ele pede à API.
+const MAPAS_COM_CHUVA = {
+  mapa: { svg: "mapa-svg", periodo: () => ({ mes: Number($("mapa-mes").value) }) },
+  cidade: { svg: "cidade-svg", periodo: () => ({ mes: Number($("mes").value) }) },
+  ano: {
+    svg: "ano-svg",
+    // No mapa por ano faz sentido o acumulado do ano inteiro escolhido.
+    periodo: () => ({ ano: Number($("ano-escolhido").value) }),
+  },
+};
+
+function ligarCamadasDeChuva() {
+  for (const prefixo of Object.keys(MAPAS_COM_CHUVA)) {
+    const caixa = $(`${prefixo}-chuva`);
+    if (caixa) caixa.addEventListener("change", () => atualizarChuva(prefixo));
+  }
+}
+
+/** Liga, desliga ou redesenha a camada de chuva de um mapa. */
+async function atualizarChuva(prefixo) {
+  const caixa = $(`${prefixo}-chuva`);
+  const tela = $(`${prefixo}-chuva-canvas`);
+  const area = tela ? tela.closest(".mapa-area") : null;
+  const rodape = $(`${prefixo}-chuva-nota`);
+  if (!caixa || !tela || !area) return;
+
+  const contexto = tela.getContext("2d");
+  contexto.clearRect(0, 0, tela.width, tela.height);
+
+  if (!caixa.checked) {
+    // Sem a camada, o mapa volta a ser o dono da cor.
+    area.classList.remove("com-chuva");
+    rodape.classList.add("oculto");
+    return;
+  }
+
+  const projecao = projecaoDoMapa[MAPAS_COM_CHUVA[prefixo].svg];
+  if (!projecao) {
+    rodape.textContent = "Desenhe o mapa primeiro para sobrepor a chuva.";
+    rodape.classList.remove("oculto");
+    return;
+  }
+
+  rodape.textContent = "Buscando as medições do INMET...";
+  rodape.classList.remove("oculto");
+
+  try {
+    const { ano, mes } = MAPAS_COM_CHUVA[prefixo].periodo();
+    const parametros = new URLSearchParams();
+    if (ano) parametros.set("ano", ano);
+    if (mes) parametros.set("mes", mes);
+
+    const dados = await pedir(`/clima/chuva?${parametros}`);
+
+    // Com a chuva por cima, o mapa embaixo vira referência geográfica: as
+    // duas escalas de cor disputando a mesma área não se leem.
+    area.classList.add("com-chuva");
+    pintarChuva(tela, projecao, dados);
+    montarLegendaDeChuva(`${prefixo}-chuva-legenda`, dados);
+
+    rodape.textContent =
+      `Chuva medida em ${dados.periodo}, por ${dados.total_estacoes} estações `
+      + `automáticas do INMET · média ${dados.chuva_media_mm} mm, máxima `
+      + `${dados.chuva_maxima_mm} mm. Os pontos brancos são as estações; entre `
+      + `elas o valor é interpolado.`;
+  } catch (erro) {
+    caixa.checked = false;
+    area.classList.remove("com-chuva");
+    $(`${prefixo}-chuva-legenda`).classList.add("oculto");
+    rodape.textContent = `Sem camada de chuva: ${erro.message}`;
+  }
+}
+
 /**
- * Desenha um conjunto de municípios num SVG, colorindo pelo nível de risco.
+ * Interpola a chuva entre as estações e pinta no canvas.
  *
- * Serve tanto ao mapa do país quanto ao da cidade: muda só quais feições
- * entram. O enquadramento é recalculado a cada chamada, então um estado ou
+ * O cálculo roda numa grade pequena (72×72) e o resultado é ampliado pelo
+ * navegador, que suaviza de graça. Calcular direto nos 640×640 pixels seriam
+ * 400 mil células × 600 estações — a página congelaria. Assim são 5 mil
+ * células, e o degradê fica igual.
+ */
+function pintarChuva(tela, projecao, dados) {
+  const pontos = dados.estacoes.map((e) => ({
+    x: projecao.px(e.lon), y: projecao.py(e.lat), valor: e.chuva_mm,
+  }));
+
+  const passoX = projecao.largura / GRADE_CHUVA;
+  const passoY = projecao.altura / GRADE_CHUVA;
+  // O raio vale em graus; converte para as unidades do desenho usando a
+  // própria projeção, para valer igual num mapa do país e num de estado.
+  const raio = Math.abs(projecao.px(RAIO_CHUVA) - projecao.px(0));
+  const raio2 = raio * raio;
+
+  const grade = document.createElement("canvas");
+  grade.width = GRADE_CHUVA;
+  grade.height = GRADE_CHUVA;
+  const pincel = grade.getContext("2d");
+  const imagem = pincel.createImageData(GRADE_CHUVA, GRADE_CHUVA);
+
+  for (let linha = 0; linha < GRADE_CHUVA; linha++) {
+    for (let coluna = 0; coluna < GRADE_CHUVA; coluna++) {
+      const x = (coluna + 0.5) * passoX;
+      const y = (linha + 0.5) * passoY;
+
+      let soma = 0, pesos = 0, maisPerto = Infinity;
+      for (const ponto of pontos) {
+        const dx = ponto.x - x, dy = ponto.y - y;
+        const distancia2 = dx * dx + dy * dy;
+        if (distancia2 > raio2) continue;
+        if (distancia2 < maisPerto) maisPerto = distancia2;
+        // Distância zero (a célula cai em cima da estação) daria divisão por
+        // zero; o piso mantém o valor da própria estação.
+        const peso = 1 / Math.pow(Math.max(distancia2, 1), POTENCIA_IDW / 2);
+        soma += ponto.valor * peso;
+        pesos += peso;
+      }
+
+      const posicao = (linha * GRADE_CHUVA + coluna) * 4;
+      if (!pesos) continue;  // longe de tudo: fica transparente
+
+      const cor = corDaChuva(soma / pesos, dados.escala);
+      // Some suavemente na borda da área coberta, em vez de cortar reto numa
+      // circunferência — aresta dura pareceria fronteira de dado, e não é.
+      const proximidade = 1 - Math.min(Math.sqrt(maisPerto) / raio, 1);
+      imagem.data[posicao] = cor[0];
+      imagem.data[posicao + 1] = cor[1];
+      imagem.data[posicao + 2] = cor[2];
+      imagem.data[posicao + 3] = Math.round(235 * Math.min(proximidade * 2.2, 1));
+    }
+  }
+
+  pincel.putImageData(imagem, 0, 0);
+
+  const contexto = tela.getContext("2d");
+  contexto.clearRect(0, 0, tela.width, tela.height);
+  contexto.imageSmoothingEnabled = true;
+  contexto.imageSmoothingQuality = "high";
+  contexto.drawImage(grade, 0, 0, tela.width, tela.height);
+
+  desenharEstacoes(contexto, pontos);
+}
+
+/** Marca onde cada estação fica: é o que separa medição de interpolação. */
+function desenharEstacoes(contexto, pontos) {
+  contexto.save();
+  contexto.fillStyle = "rgba(255,255,255,.9)";
+  contexto.strokeStyle = "rgba(20,30,45,.65)";
+  contexto.lineWidth = 0.8;
+  for (const ponto of pontos) {
+    contexto.beginPath();
+    contexto.arc(ponto.x, ponto.y, 2.1, 0, Math.PI * 2);
+    contexto.fill();
+    contexto.stroke();
+  }
+  contexto.restore();
+}
+
+function corDaChuva(milimetros, escala) {
+  const faixa = escala.find(
+    (f) => milimetros >= f.de && (f.ate === null || milimetros < f.ate)
+  ) || escala[escala.length - 1];
+  const hex = faixa.cor;
+  return [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+}
+
+function montarLegendaDeChuva(idLegenda, dados) {
+  const legenda = $(idLegenda);
+  legenda.innerHTML =
+    `<span class="legenda-titulo">chuva (${dados.unidade})</span>`
+    + dados.escala.map(
+        (f) => `<span><i style="background:${f.cor}"></i>${f.rotulo}</span>`
+      ).join("");
+  legenda.classList.remove("oculto");
+}
+
+// ---------------------------------------------------------------------------
+// Animação do fenômeno escolhido
+// ---------------------------------------------------------------------------
+// Os dez tipos de desastre viram seis fenômenos: quatro deles são chuva com
+// nomes diferentes (o que muda entre inundação e enxurrada é para onde a água
+// vai, não o que cai do céu), e deslizamento e erosão são o mesmo material
+// descendo. Seis animações cobrem os dez tipos sem inventar diferença visual
+// onde não há diferença física.
+
+const FENOMENO_POR_TIPO = {
+  INUNDACAO: "chuva",
+  ENXURRADA: "chuva",
+  ALAGAMENTO: "chuva",
+  CHUVAS_INTENSAS: "chuva",
+  DESLIZAMENTO: "terra",
+  EROSAO: "terra",
+  ESTIAGEM_SECA: "seca",
+  INCENDIO_FLORESTAL: "fogo",
+  VENDAVAL_CICLONE: "vento",
+  GRANIZO: "granizo",
+};
+
+// Quantas partículas cada fenômeno usa. Chuva precisa de muitas para virar
+// chuva; rajada de vento, de poucas, senão vira listra.
+const PARTICULAS = {
+  chuva: 30, granizo: 20, terra: 18, fogo: 22, vento: 8, seca: 10,
+};
+
+const NOTA_ANIMACAO =
+  "A animação ilustra o tipo de desastre escolhido. É decoração: não indica "
+  + "onde está chovendo, nem onde vai chover.";
+
+/**
+ * Põe (ou tira) a animação de um mapa, conforme o tipo de desastre.
+ *
+ * É chamada no momento em que o mapa é desenhado, e não quando o seletor
+ * muda: assim a animação sempre combina com os dados que estão na tela. Se
+ * seguisse o seletor, apareceria chuva sobre um mapa que ainda mostra seca.
+ */
+function aplicarAnimacao(idCamada, tipo) {
+  const camada = $(idCamada);
+  if (!camada) return;
+
+  const fenomeno = FENOMENO_POR_TIPO[tipo] || "";
+  // Refazer as partículas a cada desenho reiniciaria a animação do zero e
+  // custaria DOM à toa. Se o fenômeno é o mesmo, não há o que trocar.
+  if (camada.dataset.fenomeno === fenomeno) return;
+
+  camada.dataset.fenomeno = fenomeno;
+  camada.innerHTML = fenomeno
+    ? Array.from({ length: PARTICULAS[fenomeno] },
+                 () => `<i style="${estiloDaParticula(fenomeno)}"></i>`).join("")
+    : "";
+
+  const nota = $(`${idCamada}-nota`);
+  if (nota) {
+    nota.textContent = fenomeno ? NOTA_ANIMACAO : "";
+    nota.classList.toggle("oculto", !fenomeno);
+  }
+}
+
+/** Sorteia posição, tamanho e ritmo de uma partícula. */
+function estiloDaParticula(fenomeno) {
+  // Sem variação, as trinta gotas cairiam em fila e no mesmo compasso — o
+  // olho lê isso como listra, não como chuva.
+  const n = (minimo, maximo) => (minimo + Math.random() * (maximo - minimo)).toFixed(2);
+
+  switch (fenomeno) {
+    case "chuva":
+      return `left:${n(-5, 100)}%;height:${n(14, 30)}px;`
+           + `animation-duration:${n(0.65, 1.25)}s;animation-delay:${n(0, 1.6)}s`;
+    case "granizo":
+      return `left:${n(-5, 100)}%;width:${n(3, 6)}px;height:${n(3, 6)}px;`
+           + `animation-duration:${n(0.5, 0.9)}s;animation-delay:${n(0, 1.2)}s`;
+    case "terra":
+      return `left:${n(-5, 100)}%;width:${n(3, 7)}px;height:${n(3, 7)}px;`
+           + `animation-duration:${n(2.2, 4)}s;animation-delay:${n(0, 3)}s`;
+    case "fogo":
+      return `left:${n(0, 100)}%;width:${n(3, 6)}px;height:${n(3, 6)}px;`
+           + `--desvio:${n(-45, 45)}px;`
+           + `animation-duration:${n(2.4, 4.2)}s;animation-delay:${n(0, 3.5)}s`;
+    case "vento":
+      return `top:${n(4, 94)}%;width:${n(90, 230)}px;`
+           + `animation-duration:${n(1.8, 3.2)}s;animation-delay:${n(0, 2.6)}s`;
+    case "seca":
+      // Sobem do chão: começam na metade de baixo do mapa.
+      return `left:${n(4, 96)}%;top:${n(35, 88)}%;height:${n(30, 60)}px;`
+           + `--desvio:${n(-20, 20)}px;`
+           + `animation-duration:${n(3.2, 5)}s;animation-delay:${n(0, 4)}s`;
+    default:
+      return "";
+  }
+}
+
+/** Texto da dica no mapa de risco: uma previsão do modelo. */
+function dicaDeRisco(info) {
+  return `<strong>${info.municipio}</strong> — ${info.uf}<br>`
+       + `risco ${info.nivel_risco}<br>`
+       + `chance de ser grave: ${porcento(info.probabilidade_alto)}`;
+}
+
+/**
+ * Desenha um conjunto de municípios num SVG, com a cor que a API mandou.
+ *
+ * Serve aos três mapas — país, cidade e ano — porque não sabe o que a cor
+ * significa: quem chama decide o que entra em `porMunicipio` e como a dica é
+ * escrita. O enquadramento é recalculado a cada chamada, então um estado ou
  * uma região preenchem a tela em vez de virar um ponto no meio do Brasil.
  */
-function renderizarSvg(idSvg, idDica, feicoes, porMunicipio, codigoEmFoco = null) {
+function renderizarSvg(idSvg, idDica, feicoes, porMunicipio, codigoEmFoco = null,
+                       descrever = dicaDeRisco) {
   const svg = $(idSvg);
   const [, , LARGURA, ALTURA] = svg.getAttribute("viewBox").split(" ").map(Number);
   const MARGEM = 12;
@@ -491,16 +805,23 @@ function renderizarSvg(idSvg, idDica, feicoes, porMunicipio, codigoEmFoco = null
     if (!alvo) { dica.classList.add("oculto"); return; }
 
     const info = porMunicipio.get(Number(alvo.dataset.ibge));
-    dica.innerHTML = `<strong>${info.municipio}</strong> — ${info.uf}<br>`
-                   + `risco ${info.nivel_risco}<br>`
-                   + `chance de ser grave: ${porcento(info.probabilidade_alto)}`;
+    dica.innerHTML = descrever(info);
     const area = svg.getBoundingClientRect();
     dica.style.left = `${Math.min(evento.clientX - area.left + 14, area.width - 250)}px`;
     dica.style.top = `${evento.clientY - area.top + 14}px`;
     dica.classList.remove("oculto");
   };
   svg.onmouseleave = () => $(idDica).classList.add("oculto");
+
+  // A projeção fica guardada para a camada de chuva poder desenhar sobre
+  // exatamente o mesmo enquadramento. Recalculá-la por fora daria um mapa
+  // deslocado toda vez que o recorte mudasse (um estado, uma região).
+  projecaoDoMapa[idSvg] = { px, py, largura: LARGURA, altura: ALTURA };
+  return projecaoDoMapa[idSvg];
 }
+
+// Enquadramento de cada mapa, preenchido por `renderizarSvg`.
+const projecaoDoMapa = {};
 
 function montarLegenda(idLegenda, resumo) {
   const legenda = $(idLegenda);
@@ -509,8 +830,260 @@ function montarLegenda(idLegenda, resumo) {
       `<span><i style="background:${CORES[nivel]}"></i>${nivel}`
       + ` (${resumo[nivel].toLocaleString("pt-BR")})</span>`
     ).join("")
-    + '<span><i style="background:#d6dbe3"></i>sem histórico deste tipo</span>';
+    + amostraSemDado("sem histórico deste tipo");
   legenda.classList.remove("oculto");
+}
+
+/* A cor de "sem dado" vem da variável do CSS, e não de um hexadecimal escrito
+   aqui: assim ela acompanha o tema escuro junto com o mapa que ela explica. */
+function amostraSemDado(rotulo) {
+  return `<span><i style="background:var(--cinza-dado)"></i>${rotulo}</span>`;
+}
+
+// ---------------------------------------------------------------------------
+// Mapa por ano — o que já aconteceu
+// ---------------------------------------------------------------------------
+// Este mapa não passa pelo modelo: mostra o registro do Atlas, ano a ano. A
+// diferença importa na leitura, e é por isso que a escala de cor é outra —
+// aqui a cor conta ocorrências, não estima risco. Duas escalas iguais para
+// coisas diferentes seria o jeito mais fácil de alguém confundir uma previsão
+// com um fato.
+
+function prepararMapaDoAno() {
+  const tipo = $("ano-tipo");
+  tipo.add(new Option("Todos os tipos", ""));
+  TIPOS_DESASTRE.forEach((t) => tipo.add(new Option(formatarTipo(t), t)));
+
+  const uf = $("ano-uf");
+  uf.add(new Option("Brasil inteiro", ""));
+  UFS.forEach((sigla) => uf.add(new Option(sigla, sigla)));
+
+  $("form-ano").addEventListener("submit", (evento) => {
+    evento.preventDefault();
+    desenharMapaDoAno(Number($("ano-escolhido").value), tipo.value, uf.value);
+  });
+}
+
+async function carregarAnos() {
+  const seletor = $("ano-escolhido");
+  try {
+    const dados = await pedir("/historico/anos");
+    // Do mais recente para o mais antigo: é o que quase todo mundo procura
+    // primeiro, e evita rolar 35 opções até o fim da lista.
+    [...dados.anos].reverse().forEach((a) => {
+      seletor.add(new Option(
+        `${a.ano} — ${a.ocorrencias.toLocaleString("pt-BR")} ocorrências`, a.ano
+      ));
+    });
+    seletor.value = String(dados.ultimo_ano);
+  } catch (erro) {
+    $("ano-estado").textContent =
+      `Não foi possível carregar os anos disponíveis: ${erro.message}`;
+    $("ano-botao").disabled = true;
+  }
+}
+
+async function desenharMapaDoAno(ano, tipo = "", ufEscolhida = "") {
+  const botao = $("ano-botao");
+  botao.disabled = true;
+  botao.textContent = "Desenhando...";
+  $("ano-estado").textContent = malhaCache
+    ? "Reunindo as ocorrências do ano..."
+    : "Baixando as fronteiras dos municípios (3 MB, só na primeira vez)...";
+
+  try {
+    if (!malhaCache) malhaCache = await pedir("/mapa/malha");
+
+    const filtro = tipo ? `?grupo_desastre=${tipo}` : "";
+    const dados = await pedir(`/historico/ano/${ano}${filtro}`);
+
+    const soDoEstado = (codigo) => !ufEscolhida || ufDoCodigo(codigo) === ufEscolhida;
+    const feicoes = malhaCache.features.filter(
+      (f) => soDoEstado(f.properties.codigo_ibge)
+    );
+    const doMapa = dados.municipios.filter((m) => soDoEstado(m.codigo_ibge));
+    const porMunicipio = new Map(doMapa.map((m) => [m.codigo_ibge, m]));
+
+    renderizarSvg("ano-svg", "ano-dica", feicoes, porMunicipio, null,
+                  dicaDeOcorrencias);
+    // Com "todos os tipos" não há um fenômeno só para ilustrar, e a camada
+    // fica vazia — misturar chuva com fogo não descreveria nada.
+    aplicarAnimacao("ano-animacao", tipo);
+    atualizarChuva("ano");
+
+    mostrarNumerosDoAno(dados, doMapa, ufEscolhida);
+    montarLegendaDoAno(dados.legenda);
+    mostrarMesesDoAno(dados);
+    mostrarTiposDoAno(dados);
+
+    const oQue = tipo ? formatarTipo(tipo) : "Desastres de todos os tipos";
+    const onde = ufEscolhida ? `em ${ufEscolhida}` : "no Brasil";
+    $("ano-estado").textContent =
+      `${oQue} registrados em ${ano}, ${onde} · `
+      + `${doMapa.length.toLocaleString("pt-BR")} municípios atingidos.`;
+  } catch (erro) {
+    $("ano-estado").textContent = `Não foi possível montar o mapa: ${erro.message}`;
+    ["ano-numeros", "ano-legenda", "ano-meses", "ano-tipos"]
+      .forEach((id) => $(id).classList.add("oculto"));
+    $("ano-svg").innerHTML = "";
+    // Sem isto, a chuva continuaria caindo sobre um mapa vazio e uma
+    // mensagem de erro.
+    aplicarAnimacao("ano-animacao", "");
+  } finally {
+    botao.disabled = false;
+    botao.textContent = "Mostrar";
+  }
+}
+
+function dicaDeOcorrencias(info) {
+  const tipos = (info.tipos || []).map(formatarTipo).join(", ");
+  const linhas = [
+    `<strong>${info.municipio}</strong> — ${info.uf}`,
+    `${info.ocorrencias} ocorrência(s) no ano`,
+  ];
+  if (tipos) linhas.push(tipos);
+  if (info.mortos) linhas.push(`${info.mortos} morto(s)`);
+  if (info.afetados) {
+    linhas.push(`${info.afetados.toLocaleString("pt-BR")} afetados`);
+  }
+  return linhas.join("<br>");
+}
+
+function montarLegendaDoAno(faixas) {
+  $("ano-legenda").innerHTML =
+    faixas.map((f) => `<span><i style="background:${f.cor}"></i>${f.rotulo}</span>`)
+      .join("")
+    + amostraSemDado("nenhuma ocorrência registrada");
+  $("ano-legenda").classList.remove("oculto");
+}
+
+function mostrarNumerosDoAno(dados, doMapa, ufEscolhida) {
+  // Com o mapa filtrado por estado, os totais do país deixariam de descrever o
+  // que está na tela. Nesse caso os números são recontados sobre o recorte.
+  const soma = (campo) => doMapa.reduce((total, m) => total + m[campo], 0);
+  const recorte = Boolean(ufEscolhida);
+
+  const numeros = [
+    [recorte ? soma("ocorrencias") : dados.total_ocorrencias, "ocorrências"],
+    [recorte ? doMapa.length : dados.municipios_atingidos, "municípios atingidos"],
+    [recorte ? soma("mortos") : dados.mortos, "mortos"],
+    [recorte ? soma("afetados") : dados.afetados, "pessoas afetadas"],
+    [recorte ? soma("reconhecidos") : dados.reconhecidos, "emergências reconhecidas"],
+  ];
+
+  $("ano-numeros").innerHTML = numeros.map(([valor, rotulo]) =>
+    `<div class="numero"><strong>${valor.toLocaleString("pt-BR")}</strong>`
+    + `<span>${rotulo}</span></div>`
+  ).join("");
+  $("ano-numeros").classList.remove("oculto");
+}
+
+function mostrarMesesDoAno(dados) {
+  const maximo = Math.max(...dados.por_mes, 1);
+  $("ano-grafico").innerHTML = dados.por_mes.map((valor, i) =>
+    `<div class="coluna" title="${MESES[i]}: ${valor} ocorrência(s)">
+       <span class="coluna-valor">${valor}</span>
+       <div class="coluna-barra" style="height:${(valor / maximo) * 100}%"></div>
+       <span class="coluna-mes">${MESES[i].slice(0, 3)}</span>
+     </div>`
+  ).join("");
+  $("ano-meses").classList.remove("oculto");
+}
+
+function mostrarTiposDoAno(dados) {
+  const tabela = $("ano-tabela-tipos");
+  tabela.innerHTML = "<tr><th>Tipo</th><th>Ocorrências</th><th>Municípios</th>"
+                   + "<th>Mortos</th><th>Afetados</th></tr>";
+
+  dados.por_tipo.forEach((t) => {
+    const linha = tabela.insertRow();
+    linha.insertCell().textContent = formatarTipo(t.grupo_desastre);
+    [t.ocorrencias, t.municipios, t.mortos, t.afetados].forEach((valor) => {
+      const celula = linha.insertCell();
+      celula.className = "numero";
+      celula.textContent = Number(valor).toLocaleString("pt-BR");
+    });
+  });
+  $("ano-tipos").classList.remove("oculto");
+}
+
+// ---------------------------------------------------------------------------
+// Menu e tema
+// ---------------------------------------------------------------------------
+
+/**
+ * Liga o menu do topo.
+ *
+ * Boa parte das seções começa escondida e só aparece depois de uma consulta.
+ * Um link para uma seção invisível não leva a lugar nenhum, então os itens
+ * acompanham as seções: um observador avisa quando `.oculto` sai ou entra, e
+ * o menu se ajusta sozinho — sem precisar lembrar de chamá-lo em cada ponto
+ * do código que revela uma seção.
+ */
+function ligarMenu() {
+  const itens = [...document.querySelectorAll("#menu-itens a")].map((link) => ({
+    link,
+    secao: document.querySelector(link.getAttribute("href")),
+  })).filter((item) => item.secao);
+
+  const sincronizar = () => {
+    itens.forEach(({ link, secao }) => {
+      link.parentElement.classList.toggle("oculto",
+        secao.classList.contains("oculto"));
+    });
+  };
+
+  const observador = new MutationObserver(sincronizar);
+  itens.forEach(({ secao }) => {
+    observador.observe(secao, { attributes: true, attributeFilter: ["class"] });
+  });
+  sincronizar();
+
+  // Marca no menu a seção que está sendo lida. A margem superior desconta a
+  // altura do próprio menu, senão a seção "ativa" seria sempre a que está
+  // escondida atrás dele.
+  const espia = new IntersectionObserver((entradas) => {
+    entradas.forEach((entrada) => {
+      if (!entrada.isIntersecting) return;
+      itens.forEach(({ link, secao }) => {
+        link.classList.toggle("ativo", secao === entrada.target);
+      });
+    });
+  }, { rootMargin: "-64px 0px -70% 0px", threshold: 0 });
+
+  itens.forEach(({ secao }) => espia.observe(secao));
+}
+
+/**
+ * Liga o botão de tema.
+ *
+ * O tema já foi aplicado pelo script no <head>, antes da primeira pintura.
+ * Aqui só ficam o botão e a memória da escolha.
+ */
+function ligarTema() {
+  const botao = $("botao-tema");
+
+  const aplicar = (tema, guardar) => {
+    document.documentElement.dataset.tema = tema;
+    const escuro = tema === "escuro";
+    botao.setAttribute("aria-pressed", String(escuro));
+    $("botao-tema").querySelector(".botao-tema-texto").textContent =
+      escuro ? "Modo claro" : "Modo escuro";
+    if (guardar) {
+      try {
+        localStorage.setItem("fecart-tema", tema);
+      } catch (e) {
+        /* sem localStorage: o tema vale só para esta visita */
+      }
+    }
+  };
+
+  aplicar(document.documentElement.dataset.tema || "claro", false);
+
+  botao.addEventListener("click", () => {
+    const atual = document.documentElement.dataset.tema;
+    aplicar(atual === "escuro" ? "claro" : "escuro", true);
+  });
 }
 
 async function mostrarOddsRatio() {

@@ -344,6 +344,13 @@ def agregar_mensal(medicoes: pd.DataFrame, metadados: dict) -> pd.DataFrame:
     mensal["estacao"] = metadados.get("estacao")
     mensal["uf"] = metadados.get("uf")
     mensal["codigo_estacao"] = metadados.get("codigo")
+    # As coordenadas seguem junto porque a medição é de um PONTO, não de um
+    # município. Quem só quer o valor por município as ignora (a agregação em
+    # `atribuir_a_municipios` lista as colunas que soma, e estas não estão
+    # nela); quem quer desenhar um mapa de chuva precisa delas para saber onde
+    # cada número foi medido de fato.
+    mensal["latitude"] = metadados.get("latitude")
+    mensal["longitude"] = metadados.get("longitude")
 
     return mensal.drop(columns=["rajada_max_ms"])
 

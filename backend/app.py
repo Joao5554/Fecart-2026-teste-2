@@ -470,6 +470,315 @@ def historico_municipio(codigo_ibge: int):
     }
 
 
+# --------------------------------------------------------------------------
+# Histórico por ano
+# --------------------------------------------------------------------------
+# Estes dois endpoints não usam o modelo: respondem só o que o Atlas registrou.
+# É uma diferença que vale manter visível, porque muda como o número deve ser
+# lido. O mapa de risco mostra uma estimativa, que pode errar; o mapa do ano
+# mostra o que de fato aconteceu, e não erra — no máximo está incompleto,
+# quando o município não informou a ocorrência à Defesa Civil.
+
+# Faixas de contagem para colorir o mapa do ano. Cinco classes, porque a
+# distribuição é muito torta: a maioria dos municípios tem 1 ou 2 ocorrências
+# no ano e uns poucos passam de 10. Uma escala linear jogaria quase todo mundo
+# na mesma cor e esconderia justamente a variação que interessa.
+FAIXAS_OCORRENCIAS = [
+    (1, 1, "#F6C445", "1 ocorrência"),
+    (2, 2, "#F08A3C", "2 ocorrências"),
+    (3, 4, "#E05A34", "3 a 4"),
+    (5, 9, "#B62D25", "5 a 9"),
+    (10, None, "#6E1013", "10 ou mais"),
+]
+
+
+def _cor_por_ocorrencias(quantidade: int) -> str:
+    for minimo, maximo, cor, _ in FAIXAS_OCORRENCIAS:
+        if quantidade >= minimo and (maximo is None or quantidade <= maximo):
+            return cor
+    return FAIXAS_OCORRENCIAS[-1][2]
+
+
+@app.get("/historico/anos", tags=["historico"])
+def anos_com_registro():
+    """
+    Quais anos existem no Atlas, e quanto cada um registrou.
+
+    A interface monta o seletor de ano a partir daqui, em vez de trazer
+    1991–2025 escrito no código: quando a base for atualizada com 2026, o
+    seletor cresce sozinho.
+    """
+    registros = _exigir_ocorrencias()
+
+    por_ano = (
+        registros.groupby("ano")
+        .agg(ocorrencias=("mes", "size"),
+             municipios=("codigo_ibge", "nunique"),
+             mortos=("mortos", "sum"))
+        .reset_index()
+        .sort_values("ano")
+    )
+
+    return {
+        "primeiro_ano": int(registros["ano"].min()),
+        "ultimo_ano": int(registros["ano"].max()),
+        "anos": [
+            {"ano": int(linha.ano), "ocorrencias": int(linha.ocorrencias),
+             "municipios": int(linha.municipios), "mortos": int(linha.mortos)}
+            for linha in por_ano.itertuples()
+        ],
+    }
+
+
+@app.get("/historico/ano/{ano}", tags=["historico"])
+def historico_do_ano(ano: int, grupo_desastre: str | None = None):
+    """
+    Tudo que o Atlas registrou num ano, pronto para desenhar no mapa.
+
+    Cada município vem com a cor da faixa em que caiu, seguindo o mesmo
+    contrato do `/mapa/brasil`: quem desenha o mapa não precisa saber de
+    escala de cor nenhuma, só pintar o que a API mandou.
+    """
+    registros = _exigir_ocorrencias()
+
+    do_ano = registros[registros["ano"] == ano]
+    if grupo_desastre:
+        do_ano = do_ano[do_ano["grupo_desastre"] == grupo_desastre]
+
+    if do_ano.empty:
+        detalhe = f"O Atlas não tem ocorrências registradas em {ano}"
+        if grupo_desastre:
+            detalhe += f" para '{grupo_desastre}'"
+        disponivel = f"{registros['ano'].min()}–{registros['ano'].max()}"
+        raise HTTPException(
+            status_code=404, detail=f"{detalhe}. Período disponível: {disponivel}."
+        )
+
+    por_municipio = (
+        do_ano.groupby("codigo_ibge")
+        .agg(municipio=("municipio", "last"), uf=("uf", "last"),
+             ocorrencias=("mes", "size"), mortos=("mortos", "sum"),
+             afetados=("afetados", "sum"), reconhecidos=("reconhecido", "sum"))
+        .reset_index()
+        .sort_values(["ocorrencias", "afetados"], ascending=False)
+    )
+
+    # Quais tipos atingiram cada município, para a dica do mapa dizer algo
+    # mais útil que "3 ocorrências".
+    tipos_por_municipio = (
+        do_ano.groupby(["codigo_ibge", "grupo_desastre"]).size()
+        .reset_index(name="n").sort_values("n", ascending=False)
+        .groupby("codigo_ibge")["grupo_desastre"].apply(list).to_dict()
+    )
+
+    municipios = [
+        {
+            "codigo_ibge": int(linha.codigo_ibge),
+            "municipio": linha.municipio,
+            "uf": linha.uf,
+            "ocorrencias": int(linha.ocorrencias),
+            "mortos": int(linha.mortos),
+            "afetados": int(linha.afetados),
+            "reconhecidos": int(linha.reconhecidos),
+            "tipos": tipos_por_municipio.get(linha.codigo_ibge, []),
+            "cor": _cor_por_ocorrencias(int(linha.ocorrencias)),
+        }
+        for linha in por_municipio.itertuples()
+    ]
+
+    por_tipo = (
+        do_ano.groupby("grupo_desastre")
+        .agg(ocorrencias=("mes", "size"), municipios=("codigo_ibge", "nunique"),
+             mortos=("mortos", "sum"), afetados=("afetados", "sum"))
+        .reset_index().sort_values("ocorrencias", ascending=False)
+    )
+
+    por_uf = (
+        do_ano.groupby("uf")
+        .agg(ocorrencias=("mes", "size"), municipios=("codigo_ibge", "nunique"))
+        .reset_index().sort_values("ocorrencias", ascending=False)
+    )
+
+    contagem_mensal = do_ano.groupby("mes").size()
+    por_mes = [int(contagem_mensal.get(m, 0)) for m in range(1, 13)]
+
+    return {
+        "ano": ano,
+        "grupo_desastre": grupo_desastre,
+        "total_ocorrencias": int(len(do_ano)),
+        "municipios_atingidos": int(do_ano["codigo_ibge"].nunique()),
+        "ufs_atingidas": int(do_ano["uf"].nunique()),
+        "mortos": int(do_ano["mortos"].sum()),
+        "afetados": int(do_ano["afetados"].sum()),
+        "reconhecidos": int(do_ano["reconhecido"].sum()),
+        "por_tipo": [
+            {"grupo_desastre": linha.grupo_desastre,
+             "ocorrencias": int(linha.ocorrencias),
+             "municipios": int(linha.municipios),
+             "mortos": int(linha.mortos), "afetados": int(linha.afetados)}
+            for linha in por_tipo.itertuples()
+        ],
+        "por_uf": [
+            {"uf": linha.uf, "ocorrencias": int(linha.ocorrencias),
+             "municipios": int(linha.municipios)}
+            for linha in por_uf.itertuples()
+        ],
+        "por_mes": por_mes,
+        "legenda": [
+            {"cor": cor, "rotulo": rotulo, "de": minimo, "ate": maximo}
+            for minimo, maximo, cor, rotulo in FAIXAS_OCORRENCIAS
+        ],
+        "municipios": municipios,
+    }
+
+
+# --------------------------------------------------------------------------
+# Chuva medida (camada opcional dos mapas)
+# --------------------------------------------------------------------------
+# Serve os PONTOS de medição, não valores por município — e a distinção é o
+# ponto principal deste endpoint.
+#
+# O `clima_mensal.csv`, que alimenta o modelo, tem uma linha por município,
+# mas em 92% delas a chuva vem de uma estação de outro município: só 8% do
+# país tem estação própria. Isso é aceitável como variável de entrada (e a
+# coluna `fonte_clima` registra a qualidade de cada linha), mas desenhar um
+# mapa com esses valores afirmaria uma medição que nunca foi feita ali.
+#
+# Aqui vão as 662 estações reais, com as coordenadas onde mediram. Quem
+# desenha interpola entre elas e mostra os pontos por cima, para o leitor ver
+# de onde a mancha veio.
+
+ARQUIVO_ESTACOES = RAIZ / "dados" / "clima_estacoes.csv"
+
+chuva_estacoes: pd.DataFrame | None = None
+
+# Faixas em milímetros. Duas escalas porque as grandezas não se comparam: um
+# mês de 200 mm é chuvoso, um ano de 200 mm é semiárido.
+ESCALA_CHUVA_MES = [
+    (0, 5, "#EAF4FB", "até 5 mm"),
+    (5, 25, "#BBDCF0", "5 a 25"),
+    (25, 60, "#7FC0E4", "25 a 60"),
+    (60, 120, "#3F93CE", "60 a 120"),
+    (120, 200, "#2E7D5B", "120 a 200"),
+    (200, 300, "#94C13D", "200 a 300"),
+    (300, 450, "#EFB61C", "300 a 450"),
+    (450, None, "#D2451E", "mais de 450"),
+]
+
+ESCALA_CHUVA_ANO = [
+    (0, 250, "#EAF4FB", "até 250 mm"),
+    (250, 500, "#BBDCF0", "250 a 500"),
+    (500, 800, "#7FC0E4", "500 a 800"),
+    (800, 1200, "#3F93CE", "800 a 1.200"),
+    (1200, 1600, "#2E7D5B", "1.200 a 1.600"),
+    (1600, 2000, "#94C13D", "1.600 a 2.000"),
+    (2000, 2600, "#EFB61C", "2.000 a 2.600"),
+    (2600, None, "#D2451E", "mais de 2.600"),
+]
+
+MESES_POR_EXTENSO = [
+    "janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho",
+    "agosto", "setembro", "outubro", "novembro", "dezembro",
+]
+
+
+def carregar_chuva() -> bool:
+    """Carrega a medição de chuva de cada estação do INMET."""
+    global chuva_estacoes
+
+    if not ARQUIVO_ESTACOES.exists():
+        chuva_estacoes = None
+        return False
+
+    chuva_estacoes = pd.read_csv(ARQUIVO_ESTACOES)
+    return True
+
+
+carregar_chuva()
+
+
+@app.get("/clima/chuva", tags=["clima"])
+def chuva_medida(ano: int | None = None, mes: int | None = None):
+    """
+    Chuva medida em cada estação do INMET, num mês ou num ano inteiro.
+
+    Sem `mes`, devolve o acumulado do ano — que é o que o mapa por ano pede.
+
+    Sem `ano`, usa o ano mais recente com medição. É o que o mapa de risco
+    precisa: ele prevê um ano que ainda não aconteceu, e chuva de 2026 não
+    existe. A resposta sempre diz de que período é o número, no campo
+    `periodo`, para a tela nunca mostrar uma medição sem data.
+    """
+    if chuva_estacoes is None:
+        raise HTTPException(
+            status_code=503,
+            detail=("Dados de chuva não preparados (dados/clima_estacoes.csv).\n"
+                    "Rode: python dados/preparar_clima.py"),
+        )
+
+    if mes is not None and not 1 <= mes <= 12:
+        raise HTTPException(status_code=422, detail="mês precisa estar entre 1 e 12")
+
+    primeiro = int(chuva_estacoes["ano"].min())
+    ultimo = int(chuva_estacoes["ano"].max())
+    if ano is None:
+        ano = ultimo
+
+    recorte = chuva_estacoes[chuva_estacoes["ano"] == ano]
+    if mes is not None:
+        recorte = recorte[recorte["mes"] == mes]
+
+    if recorte.empty:
+        quando = f"{MESES_POR_EXTENSO[mes - 1]} de {ano}" if mes else str(ano)
+        raise HTTPException(
+            status_code=404,
+            detail=(f"O INMET não tem medição de chuva para {quando}. "
+                    f"As estações automáticas cobrem {primeiro}–{ultimo} — "
+                    f"antes disso a rede ainda não existia."),
+        )
+
+    # Uma estação pode ter mais de uma linha no ano (uma por mês). No modo
+    # anual as chuvas somam; no mensal já vem uma linha por estação.
+    por_estacao = (
+        recorte.groupby(["estacao", "uf"], as_index=False)
+        .agg(latitude=("latitude", "first"), longitude=("longitude", "first"),
+             chuva_mm=("chuva_total_mm", "sum"),
+             chuva_max_dia_mm=("chuva_max_dia_mm", "max"),
+             dias_com_chuva=("dias_com_chuva", "sum"),
+             meses_medidos=("mes", "nunique"))
+    )
+
+    escala = ESCALA_CHUVA_MES if mes else ESCALA_CHUVA_ANO
+
+    return {
+        "ano": ano,
+        "mes": mes,
+        "periodo": (f"{MESES_POR_EXTENSO[mes - 1]} de {ano}" if mes else str(ano)),
+        "unidade": "mm",
+        "cobertura": {"primeiro_ano": primeiro, "ultimo_ano": ultimo},
+        "total_estacoes": int(len(por_estacao)),
+        "chuva_media_mm": round(float(por_estacao["chuva_mm"].mean()), 1),
+        "chuva_maxima_mm": round(float(por_estacao["chuva_mm"].max()), 1),
+        "escala": [
+            {"de": de, "ate": ate, "cor": cor, "rotulo": rotulo}
+            for de, ate, cor, rotulo in escala
+        ],
+        "estacoes": [
+            {
+                "estacao": linha.estacao,
+                "uf": linha.uf,
+                "lat": float(linha.latitude),
+                "lon": float(linha.longitude),
+                "chuva_mm": round(float(linha.chuva_mm), 1),
+                "chuva_max_dia_mm": round(float(linha.chuva_max_dia_mm), 1),
+                "dias_com_chuva": int(linha.dias_com_chuva),
+                "meses_medidos": int(linha.meses_medidos),
+            }
+            for linha in por_estacao.itertuples()
+        ],
+    }
+
+
 @app.post("/prever/municipio", tags=["consulta"])
 def prever_municipio(consulta: ConsultaMunicipio):
     """

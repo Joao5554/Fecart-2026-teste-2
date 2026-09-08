@@ -20,7 +20,42 @@
   --borda-forte: #cfd6e0;
   --marinho: #0f2340;
   --azul: #1857b8;
+  --azul-forte: #144a9e;
   --azul-claro: #eaf1fc;
+
+  /* Tons de apoio. Estavam escritos direto nas regras; viraram variáveis
+     quando o tema escuro entrou, porque são exatamente os que precisam
+     mudar de valor sem mudar de papel. */
+  --trilho: #eef1f6;
+  --marcador: #9aa5b1;
+  --borda-hover: #b4becb;
+  --desabilitado: #a8b2be;
+  --fundo-mapa: #eef2f7;
+  --traco-mapa: rgba(255, 255, 255, .85);
+  --aviso-fundo: #fff8e8;
+  --aviso-borda: #f0d9a8;
+  --erro-fundo: #fdeeec;
+  --erro-borda: #e8b5ae;
+  --marca-nota: #e6eaf0;
+
+  /* Cores das animações de fenômeno (chuva, fogo...). Ficam separadas das
+     cores de dado porque são ilustração: podem clarear no tema escuro sem
+     mudar o significado de nada. */
+  --anim-chuva: rgba(43, 118, 219, .70);
+  --anim-granizo: rgba(120, 176, 232, .90);
+  --anim-vento: rgba(103, 132, 170, .50);
+  --anim-fogo-claro: #ffcf72;
+  --anim-fogo-escuro: #e2571e;
+  --anim-seca: rgba(206, 140, 12, .55);
+  --anim-terra: rgba(133, 94, 58, .70);
+  /* Deslocamento lateral de cada partícula. Cada uma sobrescreve o seu no
+     atributo style; este é só o valor neutro de quem não sobrescrever. */
+  --desvio: 0px;
+
+  /* A seta do <select> é um SVG embutido. Uma variável não pode substituir só
+     um pedaço de dentro de url(), então a variável carrega a URL inteira e o
+     tema escuro troca a imagem toda, por outra de traço mais claro. */
+  --seta-select: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%236b7784' stroke-width='1.8' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
 
   --sombra: 0 1px 2px rgba(16, 21, 28, .04), 0 4px 16px rgba(16, 21, 28, .05);
   --sombra-alta: 0 2px 6px rgba(16, 21, 28, .06), 0 12px 32px rgba(16, 21, 28, .10);
@@ -34,6 +69,63 @@
            "Inter", "Helvetica Neue", Arial, sans-serif;
   --fonte-num: "Segoe UI Variable Text", "SF Mono", Consolas, monospace;
 }
+
+/* ---------- tema escuro ---------- */
+/* Só as variáveis mudam: nenhuma regra abaixo precisa saber que existe tema.
+   O atributo é posto em <html> pelo script no topo do index.html, antes de a
+   página pintar, e trocado pelo botão do menu.
+
+   As cores dos dados (verde, amarelo, vermelho) NÃO mudam de matiz: elas
+   significam nível de risco, e um leitor que aprendeu "vermelho = alto" no
+   tema claro não pode reaprender no escuro. Muda só o cinza de "sem dado",
+   que num fundo escuro brilharia mais que os próprios dados. */
+
+[data-tema="escuro"] {
+  --cinza-dado: #39434f;
+
+  --tinta: #e6ecf3;
+  --tinta-media: #a8b6c6;
+  --tinta-fraca: #7f8ea0;
+  --papel: #151b24;
+  --fundo: #0d1117;
+  --fundo-suave: #1a212b;
+  --borda: #262e3a;
+  --borda-forte: #38424f;
+  --azul: #5a9dff;
+  --azul-forte: #7bb2ff;
+  --azul-claro: #1b2c45;
+
+  --trilho: #232c38;
+  --marcador: #6b7784;
+  --borda-hover: #4a5666;
+  --desabilitado: #3a4453;
+  --fundo-mapa: #131a23;
+  /* Contorno escuro: no tema claro o traço branco separa os municípios; aqui
+     é o inverso, senão a malha vira uma teia branca sobre o mapa. */
+  --traco-mapa: rgba(8, 11, 16, .75);
+  --aviso-fundo: #2a2415;
+  --aviso-borda: #574823;
+  --erro-fundo: #2c1a18;
+  --erro-borda: #5c2f2a;
+  --marca-nota: #232c38;
+
+  /* No fundo escuro as partículas precisam de mais brilho para existir. */
+  --anim-chuva: rgba(122, 178, 255, .80);
+  --anim-granizo: rgba(200, 228, 255, .95);
+  --anim-vento: rgba(160, 186, 220, .45);
+  --anim-seca: rgba(240, 190, 90, .55);
+  --anim-terra: rgba(186, 142, 96, .70);
+
+  --seta-select: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%23a8b6c6' stroke-width='1.8' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+
+  --sombra: 0 1px 2px rgba(0, 0, 0, .3), 0 4px 16px rgba(0, 0, 0, .28);
+  --sombra-alta: 0 2px 6px rgba(0, 0, 0, .36), 0 12px 32px rgba(0, 0, 0, .44);
+}
+
+/* O botão azul do tema claro tem texto branco. No escuro o azul clareia, e
+   texto branco sobre ele perde contraste: a tinta escura volta a ser a certa. */
+[data-tema="escuro"] button { color: #0d1117; }
+[data-tema="escuro"] .botao-tema { color: var(--tinta); }
 
 * { box-sizing: border-box; }
 
@@ -222,9 +314,9 @@ input, select, button {
   transition: border-color .18s ease, box-shadow .18s ease, background .18s ease;
 }
 
-input::placeholder { color: #9aa5b1; }
+input::placeholder { color: var(--marcador); }
 
-input:hover, select:hover { border-color: #b4becb; }
+input:hover, select:hover { border-color: var(--borda-hover); }
 
 input:focus, select:focus {
   outline: none;
@@ -235,7 +327,7 @@ input:focus, select:focus {
 select {
   appearance: none;
   /* Seta desenhada como data-URI: sem imagem externa. */
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%236b7784' stroke-width='1.8' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-image: var(--seta-select);
   background-repeat: no-repeat;
   background-position: right 14px center;
   padding-right: 38px;
@@ -253,14 +345,14 @@ button {
 }
 
 button:hover:not(:disabled) {
-  background: #144a9e;
+  background: var(--azul-forte);
   transform: translateY(-1px);
   box-shadow: 0 6px 18px rgba(24, 87, 184, .26);
 }
 
 button:active:not(:disabled) { transform: translateY(0); }
 
-button:disabled { background: #a8b2be; cursor: not-allowed; }
+button:disabled { background: var(--desabilitado); cursor: not-allowed; }
 
 /* ---------- autocomplete ---------- */
 
@@ -329,7 +421,7 @@ button:disabled { background: #a8b2be; cursor: not-allowed; }
 
 .barra-linha { display: grid; grid-template-columns: 70px 1fr 62px; align-items: center; gap: 12px; }
 .barra-nome { font-size: .87rem; text-transform: capitalize; color: var(--tinta-media); font-weight: 500; }
-.barra-trilho { background: #eef1f6; border-radius: 6px; height: 22px; overflow: hidden; }
+.barra-trilho { background: var(--trilho); border-radius: 6px; height: 22px; overflow: hidden; }
 .barra-preenchida { height: 100%; border-radius: 6px; transition: width .5s cubic-bezier(.4,0,.2,1); }
 .barra-valor { font-size: .87rem; text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
 
@@ -361,34 +453,34 @@ button:disabled { background: #a8b2be; cursor: not-allowed; }
 .mapa-area {
   position: relative;
   margin-top: 16px;
-  background: linear-gradient(170deg, var(--fundo-suave), #eef2f7);
+  background: linear-gradient(170deg, var(--fundo-suave), var(--fundo-mapa));
   border: 1px solid var(--borda);
   border-radius: var(--raio-pequeno);
   overflow: hidden;
 }
 
-#mapa-svg, #cidade-svg { width: 100%; height: auto; display: block; }
+.mapa-area svg { width: 100%; height: auto; display: block; }
 
 /* Contorno fino: com 5.570 municípios, borda grossa engole o preenchimento. */
-#mapa-svg path, #cidade-svg path {
-  stroke: rgba(255,255,255,.85);
+.mapa-area svg path {
+  stroke: var(--traco-mapa);
   stroke-width: .3;
   stroke-linejoin: round;
   cursor: pointer;
   transition: opacity .15s ease;
 }
 
-#mapa-svg path:hover, #cidade-svg path:hover {
+.mapa-area svg path:hover {
   stroke: var(--marinho);
   stroke-width: 1.3;
 }
 
-#mapa-svg path.sem-dado, #cidade-svg path.sem-dado {
+.mapa-area svg path.sem-dado {
   fill: var(--cinza-dado);
   cursor: default;
 }
-#mapa-svg path.sem-dado:hover, #cidade-svg path.sem-dado:hover {
-  stroke: rgba(255,255,255,.85);
+.mapa-area svg path.sem-dado:hover {
+  stroke: var(--traco-mapa);
   stroke-width: .3;
 }
 
@@ -428,7 +520,7 @@ button:disabled { background: #a8b2be; cursor: not-allowed; }
 
 .odds-linha { display: grid; grid-template-columns: 200px 1fr 104px; align-items: center; gap: 12px; }
 .odds-nome { font-size: .84rem; text-align: right; color: var(--tinta-media); }
-.odds-trilho { position: relative; height: 24px; background: #eef1f6; border-radius: 5px; }
+.odds-trilho { position: relative; height: 24px; background: var(--trilho); border-radius: 5px; }
 .odds-centro { position: absolute; left: 50%; top: -4px; bottom: -4px; width: 2px; background: var(--tinta-fraca); opacity: .45; }
 .odds-barra { position: absolute; top: 5px; bottom: 5px; border-radius: 4px; transition: width .5s cubic-bezier(.4,0,.2,1); }
 .odds-barra.aumenta { background: linear-gradient(90deg, #d9483a, var(--vermelho)); }
@@ -466,8 +558,8 @@ button:disabled { background: #a8b2be; cursor: not-allowed; }
 /* ---------- avisos ---------- */
 
 .aviso {
-  background: #fff8e8;
-  border: 1px solid #f0d9a8;
+  background: var(--aviso-fundo);
+  border: 1px solid var(--aviso-borda);
   border-left: 4px solid var(--amarelo);
   border-radius: var(--raio-pequeno);
   padding: 15px 17px;
@@ -477,11 +569,11 @@ button:disabled { background: #a8b2be; cursor: not-allowed; }
   box-shadow: var(--sombra);
 }
 
-.aviso.erro { background: #fdeeec; border-color: #e8b5ae; border-left-color: var(--vermelho); }
+.aviso.erro { background: var(--erro-fundo); border-color: var(--erro-borda); border-left-color: var(--vermelho); }
 
 .cartao-nota { background: var(--fundo-suave); }
 .cartao-nota p { font-size: .92rem; margin: 0 0 12px; color: var(--tinta-media); max-width: 76ch; }
-.cartao-nota > h2::before { background: #e6eaf0; color: var(--tinta-media); }
+.cartao-nota > h2::before { background: var(--marca-nota); color: var(--tinta-media); }
 
 .rodape {
   text-align: center;
@@ -491,6 +583,349 @@ button:disabled { background: #a8b2be; cursor: not-allowed; }
 }
 
 .oculto { display: none !important; }
+
+/* ---------- menu de navegação ---------- */
+/* Fica colado no topo ao rolar: com nove seções, voltar ao início para trocar
+   de assunto seria uma viagem longa. */
+
+.menu {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  /* Cor cheia primeiro: navegador sem color-mix cai nela e o menu continua
+     legível, só sem o vidro fosco. */
+  background: var(--papel);
+  background: color-mix(in srgb, var(--papel) 92%, transparent);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--borda);
+  margin-bottom: 26px;
+}
+
+.menu-interno {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  justify-content: space-between;
+}
+
+.menu-itens {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  /* Em tela estreita a lista rola na horizontal em vez de quebrar em duas
+     linhas, que empurraria o conteúdo para baixo. */
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.menu-itens a {
+  display: block;
+  padding: 13px 12px;
+  border-bottom: 2px solid transparent;
+  color: var(--tinta-media);
+  text-decoration: none;
+  font-size: .87rem;
+  font-weight: 500;
+  white-space: nowrap;
+  transition: color .15s ease, border-color .15s ease;
+}
+
+.menu-itens a:hover { color: var(--tinta); }
+
+.menu-itens a.ativo {
+  color: var(--azul);
+  border-bottom-color: var(--azul);
+  font-weight: 600;
+}
+
+/* Cada seção reserva espaço acima de si para não ficar embaixo do menu
+   quando alguém pula direto para ela pelo link. */
+main section[id], #resultado { scroll-margin-top: 64px; }
+
+/* ---------- botão de tema ---------- */
+
+.botao-tema {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+  grid-column: auto;
+  padding: 8px 14px;
+  background: var(--fundo-suave);
+  border: 1px solid var(--borda-forte);
+  color: var(--tinta-media);
+  font-size: .82rem;
+  font-weight: 600;
+  border-radius: 999px;
+}
+
+.botao-tema:hover:not(:disabled) {
+  background: var(--azul-claro);
+  color: var(--azul);
+  border-color: var(--azul);
+  transform: none;
+  box-shadow: none;
+}
+
+/* Ícone desenhado em CSS: um círculo que vira lua ganhando uma sombra
+   deslocada. Evita depender de fonte de ícones ou de imagem externa. */
+.botao-tema-icone {
+  width: 15px; height: 15px;
+  border-radius: 50%;
+  background: var(--tinta-media);
+  box-shadow: inset -4px -4px 0 0 transparent;
+  transition: box-shadow .2s ease, background .2s ease;
+}
+
+[data-tema="escuro"] .botao-tema-icone {
+  background: #f0c96b;
+  box-shadow: inset -5px -3px 0 0 var(--fundo-suave);
+}
+
+/* ---------- mapa por ano ---------- */
+
+.numeros-ano {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 26px;
+  margin: 20px 0 4px;
+  padding: 18px 20px;
+  background: var(--fundo-suave);
+  border: 1px solid var(--borda);
+  border-radius: var(--raio-pequeno);
+}
+
+.numeros-ano .numero strong {
+  font-size: 1.45rem;
+  color: var(--tinta);
+}
+
+.numeros-ano .numero span {
+  font-size: .74rem;
+  color: var(--tinta-fraca);
+  text-transform: uppercase;
+  letter-spacing: .07em;
+}
+
+.meses-ano .grafico { margin-top: 4px; }
+
+/* ---------- camada de chuva medida ---------- */
+/*
+  Canvas alinhado ao SVG do mapa: os dois usam o mesmo viewBox, e o canvas
+  recebe a projeção calculada em `renderizarSvg`. Fica acima do mapa e abaixo
+  da animação e da dica, e nunca intercepta o mouse.
+*/
+
+.camada-chuva {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+/* Com a chuva ligada, o mapa embaixo vira referência geográfica. Duas escalas
+   de cor cheias disputando a mesma área não se leem — nem a de risco, nem a
+   de chuva. */
+.mapa-area.com-chuva svg path { fill-opacity: .22; }
+.mapa-area.com-chuva svg path.sem-dado { fill-opacity: .12; }
+
+.camada-opcao {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  margin: 14px 0 4px;
+  padding: 9px 15px;
+  background: var(--fundo-suave);
+  border: 1px solid var(--borda-forte);
+  border-radius: 999px;
+  font-size: .86rem;
+  font-weight: 600;
+  color: var(--tinta-media);
+  cursor: pointer;
+  user-select: none;
+  transition: border-color .18s ease, color .18s ease, background .18s ease;
+}
+
+.camada-opcao:hover { border-color: var(--azul); color: var(--azul); }
+
+.camada-opcao input {
+  width: 15px; height: 15px;
+  margin: 0; padding: 0;
+  accent-color: var(--azul);
+  cursor: pointer;
+}
+
+.camada-opcao:has(input:checked) {
+  background: var(--azul-claro);
+  border-color: var(--azul);
+  color: var(--azul);
+}
+
+.legenda-chuva { margin-top: 10px; }
+
+.legenda-titulo {
+  font-weight: 700;
+  font-size: .74rem;
+  text-transform: uppercase;
+  letter-spacing: .07em;
+  color: var(--tinta-fraca);
+}
+
+.nota-chuva {
+  margin: 10px 0 0;
+  font-size: .8rem;
+  color: var(--tinta-fraca);
+  max-width: 78ch;
+}
+
+/* ---------- animação do fenômeno escolhido ---------- */
+/*
+  Camada de ilustração sobre o mapa: chuva quando o tipo é inundação, brasas
+  quando é incêndio, e assim por diante.
+
+  Três decisões que sustentam o resto:
+
+  1. É uma camada SEPARADA, irmã do <svg>, e não elementos dentro dele. O mapa
+     tem 5.570 <path>; animar qualquer coisa lá dentro obrigaria o navegador a
+     redesenhar todos a cada quadro. Aqui só `transform` e `opacity` mudam, e
+     a composição fica com a placa de vídeo — o mapa nem é tocado.
+
+  2. `pointer-events: none`. Sem isso a camada roubaria o mouse e a dica de
+     cada município pararia de funcionar.
+
+  3. Fica abaixo da dica (z-index 10) e acima do mapa.
+
+  Quem usa "reduzir movimento" no sistema não vê nada disto: a regra geral no
+  fim do arquivo desliga toda animação.
+*/
+
+.animacao-mapa {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.animacao-mapa i {
+  position: absolute;
+  display: block;
+  will-change: transform, opacity;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+}
+
+/* O percurso é maior que o mapa de propósito: o SVG é quadrado e no máximo
+   ~940 px de lado, então a partícula sempre sai de cena antes de sumir. */
+
+/* --- chuva: inundação, enxurrada, alagamento, chuvas intensas --- */
+[data-fenomeno="chuva"] i {
+  top: -40px;
+  width: 1.5px;
+  border-radius: 1px;
+  background: linear-gradient(to bottom, transparent, var(--anim-chuva));
+  animation-name: cai-chuva;
+}
+
+@keyframes cai-chuva {
+  from { transform: translate3d(0, 0, 0); opacity: 0; }
+  8%   { opacity: 1; }
+  92%  { opacity: 1; }
+  to   { transform: translate3d(-70px, 1100px, 0); opacity: 0; }
+}
+
+/* --- granizo: pedra, não risco. Redonda, mais rápida e mais reta. --- */
+[data-fenomeno="granizo"] i {
+  top: -24px;
+  border-radius: 50%;
+  background: var(--anim-granizo);
+  box-shadow: 0 0 4px var(--anim-granizo);
+  animation-name: cai-granizo;
+}
+
+@keyframes cai-granizo {
+  from { transform: translate3d(0, 0, 0); opacity: 0; }
+  10%  { opacity: 1; }
+  to   { transform: translate3d(-30px, 1100px, 0); opacity: .85; }
+}
+
+/* --- terra: deslizamento e erosão. Cai devagar, girando. --- */
+[data-fenomeno="terra"] i {
+  top: -24px;
+  /* Cantos irregulares: fragmento de terra, não gota. */
+  border-radius: 42% 58% 55% 45%;
+  background: var(--anim-terra);
+  animation-name: cai-terra;
+}
+
+@keyframes cai-terra {
+  from { transform: translate3d(0, 0, 0) rotate(0deg); opacity: 0; }
+  10%  { opacity: .85; }
+  88%  { opacity: .85; }
+  to   { transform: translate3d(-120px, 1100px, 0) rotate(540deg); opacity: 0; }
+}
+
+/* --- fogo: incêndio florestal. Brasas subindo e apagando. --- */
+[data-fenomeno="fogo"] i {
+  bottom: -20px;
+  border-radius: 50%;
+  background: radial-gradient(circle,
+              var(--anim-fogo-claro) 0%, var(--anim-fogo-escuro) 65%, transparent 100%);
+  animation-name: sobe-brasa;
+}
+
+@keyframes sobe-brasa {
+  from { transform: translate3d(0, 0, 0) scale(1); opacity: 0; }
+  14%  { opacity: .95; }
+  to   { transform: translate3d(var(--desvio), -720px, 0) scale(.25); opacity: 0; }
+}
+
+/* --- vento: vendaval e ciclone. Rajadas atravessando o mapa. --- */
+[data-fenomeno="vento"] i {
+  left: -240px;
+  height: 2px;
+  border-radius: 2px;
+  background: linear-gradient(90deg, transparent, var(--anim-vento), transparent);
+  animation-name: passa-rajada;
+  animation-timing-function: ease-in-out;
+}
+
+@keyframes passa-rajada {
+  from { transform: translate3d(0, 0, 0); opacity: 0; }
+  15%  { opacity: 1; }
+  85%  { opacity: 1; }
+  to   { transform: translate3d(1200px, 0, 0); opacity: 0; }
+}
+
+/* --- seca: estiagem. Ondas de calor subindo do chão. --- */
+[data-fenomeno="seca"] i {
+  width: 2px;
+  border-radius: 2px;
+  background: linear-gradient(to top, transparent, var(--anim-seca), transparent);
+  filter: blur(1px);
+  animation-name: sobe-calor;
+  animation-timing-function: ease-out;
+}
+
+@keyframes sobe-calor {
+  from { transform: translate3d(0, 0, 0) scaleY(.5); opacity: 0; }
+  25%  { opacity: .7; }
+  to   { transform: translate3d(var(--desvio), -420px, 0) scaleY(1.5); opacity: 0; }
+}
+
+/* Aviso ao lado da legenda. A animação é ilustração do tipo escolhido, e o
+   mapa é a única parte da tela onde ela poderia ser confundida com dado. */
+.nota-animacao {
+  margin: 10px 0 0;
+  font-size: .8rem;
+  color: var(--tinta-fraca);
+  font-style: italic;
+}
 
 /* ---------- telas menores ---------- */
 
@@ -505,6 +940,14 @@ button:disabled { background: #a8b2be; cursor: not-allowed; }
   .odds-linha { grid-template-columns: 116px 1fr 76px; }
   .odds-nome { font-size: .75rem; }
   .numeros-topo { gap: 22px; }
+
+  .menu-interno { gap: 8px; }
+  .menu-itens a { padding: 12px 9px; font-size: .82rem; }
+  /* Em tela pequena sobra só o ícone: o rótulo roubaria a largura de que a
+     lista de seções precisa para rolar. */
+  .botao-tema { padding: 8px 10px; }
+  .botao-tema-texto { display: none; }
+  .numeros-ano { gap: 18px; padding: 14px 16px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

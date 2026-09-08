@@ -26,6 +26,8 @@ recentes se quiser só testar o encanamento.
 """
 
 import argparse
+import gzip
+import json
 import sys
 import urllib.request
 from pathlib import Path
@@ -37,23 +39,58 @@ from src import inmet, regioes  # noqa: E402
 RAIZ = Path(__file__).resolve().parent.parent
 SAIDA_CLIMA = RAIZ / "dados" / "clima_mensal.csv"
 SAIDA_NORMAIS = RAIZ / "dados" / "clima_normais.csv"
+SAIDA_ESTACOES = RAIZ / "dados" / "clima_estacoes.csv"
+
+
+def _json_legivel(caminho: Path) -> bool:
+    """O arquivo existe e é um JSON que dá para ler?"""
+    try:
+        json.loads(caminho.read_text(encoding="utf-8"))
+        return True
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return False
 
 
 def garantir_lista_ibge(caminho: Path) -> None:
-    """Baixa a lista de municípios do IBGE se ela ainda não estiver aqui."""
-    if caminho.exists():
+    """
+    Baixa a lista de municípios do IBGE se ela ainda não estiver aqui.
+
+    Também refaz o download quando o arquivo existe mas está ilegível. Isso
+    não é zelo excessivo: o IBGE responde **comprimido em gzip mesmo sem
+    receber o cabeçalho `Accept-Encoding`**, e o `urlretrieve` grava o corpo
+    exatamente como veio. O resultado era um arquivo de 0,1 MB que parecia
+    salvo com sucesso e só estourava muito depois, dentro de
+    `regioes.carregar_municipios`, com um erro de decodificação que não
+    apontava para a causa. Quem já rodou a versão anterior tem esse arquivo
+    quebrado em disco — daí a rechecagem em vez de um simples `exists()`.
+    """
+    if caminho.exists() and _json_legivel(caminho):
         return
 
-    print(f"Baixando a lista de municípios do IBGE...")
+    print("Baixando a lista de municípios do IBGE...")
     caminho.parent.mkdir(parents=True, exist_ok=True)
     try:
-        urllib.request.urlretrieve(regioes.URL_IBGE, caminho)
-    except OSError as erro:
+        with urllib.request.urlopen(regioes.URL_IBGE, timeout=180) as resposta:
+            conteudo = resposta.read()
+            if resposta.headers.get("Content-Encoding") == "gzip":
+                conteudo = gzip.decompress(conteudo)
+    except (OSError, gzip.BadGzipFile) as erro:
         raise regioes.ErroRegioes(
             f"Não consegui baixar a lista do IBGE ({erro}).\n\n"
             f"Baixe manualmente e salve em {caminho}:\n  {regioes.URL_IBGE}"
         ) from erro
 
+    # Confere antes de gravar: melhor falhar aqui, dizendo o que houve, do que
+    # deixar um arquivo inválido no disco para quebrar na próxima etapa.
+    try:
+        json.loads(conteudo)
+    except (UnicodeDecodeError, json.JSONDecodeError) as erro:
+        raise regioes.ErroRegioes(
+            f"O IBGE respondeu algo que não é JSON ({erro}).\n"
+            f"Tente de novo em alguns minutos: {regioes.URL_IBGE}"
+        ) from erro
+
+    caminho.write_bytes(conteudo)
     tamanho = caminho.stat().st_size / 1024 / 1024
     print(f"  salvo em {caminho.name} ({tamanho:.1f} MB)")
 
@@ -149,9 +186,33 @@ def main() -> int:
     clima.to_csv(SAIDA_CLIMA, index=False, encoding="utf-8")
     normais.to_csv(SAIDA_NORMAIS, index=False, encoding="utf-8")
 
+    # Medição por estação, com as coordenadas onde ela foi feita.
+    #
+    # O arquivo por município serve ao modelo, mas não serve a um mapa de
+    # chuva: nele 92% dos municípios carregam o valor de uma estação que fica
+    # em outro lugar, e pintar cada um com esse número passaria a impressão de
+    # uma medição que não existe. Aqui ficam só os pontos reais — é a partir
+    # deles que o mapa interpola, e é neles que os marcadores são desenhados,
+    # para quem olha saber de onde veio a mancha.
+    por_estacao = (
+        mensal[mensal["fracao_valida"] >= argumentos.minimo_valido]
+        .groupby(["estacao", "uf", "ano", "mes"], as_index=False)
+        .agg(latitude=("latitude", "first"), longitude=("longitude", "first"),
+             chuva_total_mm=("chuva_total_mm", "sum"),
+             chuva_max_dia_mm=("chuva_max_dia_mm", "max"),
+             dias_com_chuva=("dias_com_chuva", "max"))
+        .dropna(subset=["latitude", "longitude"])
+        .round({"chuva_total_mm": 1, "chuva_max_dia_mm": 1,
+                "latitude": 5, "longitude": 5})
+    )
+    por_estacao.to_csv(SAIDA_ESTACOES, index=False, encoding="utf-8")
+
     print(f"\nSalvos:")
     print(f"  {SAIDA_CLIMA.name} ({SAIDA_CLIMA.stat().st_size / 1024 / 1024:.1f} MB)")
     print(f"  {SAIDA_NORMAIS.name}")
+    print(f"  {SAIDA_ESTACOES.name} "
+          f"({SAIDA_ESTACOES.stat().st_size / 1024 / 1024:.1f} MB, "
+          f"{por_estacao['estacao'].nunique()} estações com coordenada)")
 
     print("\nPróximo passo: juntar o clima ao dataset de treino.")
     return 0
