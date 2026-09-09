@@ -122,40 +122,59 @@ def _css() -> str:
     return ARQUIVO_CSS.read_text(encoding="utf-8")
 
 
-def test_todo_item_do_menu_aponta_para_uma_secao_existente():
-    """
-    Um link para um id que não existe simplesmente não faz nada quando
-    clicado — falha silenciosa, do tipo que ninguém percebe até a
-    apresentação.
-    """
-    html = _html()
-    menu = html[html.index('id="menu-itens"'):html.index("</ul>")]
-    destinos = re.findall(r'href="#([\w-]+)"', menu)
+PALCOS = ("abertura", "mapas", "despedida")
 
-    assert destinos, "o menu não tem nenhum item"
-    for destino in destinos:
-        assert f'id="{destino}"' in html, (
-            f"o menu aponta para #{destino}, que não existe na página"
+
+def test_cada_palco_existe_e_tem_como_ser_alcancado():
+    """
+    A página é uma sequência de três telas cheias, e cada uma só aparece
+    quando `data-palco` no <body> muda. Um palco sem regra de CSS que o acenda
+    fica invisível para sempre; um botão que aponte para um palco que não
+    existe não faz nada quando clicado — falha silenciosa, do tipo que só
+    aparece na hora da apresentação.
+    """
+    html, css, js = _html(), _css(), _js()
+
+    for palco in PALCOS:
+        assert f'id="palco-{palco}"' in html, f"o palco {palco} não existe"
+        assert f'body[data-palco="{palco}"]' in css, (
+            f"nenhuma regra de CSS acende o palco {palco}"
+        )
+        assert f'trocarPalco("{palco}")' in js, (
+            f"nenhum botão leva ao palco {palco}"
         )
 
 
-def test_menu_cobre_todas_as_secoes_da_pagina():
-    """Seção sem item no menu vira conteúdo que só se acha rolando."""
+def test_toda_secao_esta_dentro_de_um_palco_ou_da_gaveta():
+    """
+    Seção solta fora dos palcos não é alcançável por nenhum caminho: a página
+    não rola, e o que está fora de um palco simplesmente nunca é mostrado.
+    """
     html = _html()
-    menu = html[html.index('id="menu-itens"'):html.index("</ul>")]
-    no_menu = set(re.findall(r'href="#([\w-]+)"', menu))
 
-    secoes = set(re.findall(r'<section id="([\w-]+)"', html))
-    assert secoes <= no_menu, f"seções fora do menu: {sorted(secoes - no_menu)}"
+    # Onde cada contêiner que pode conter seções começa, em ordem no arquivo.
+    recipientes = [html.index(f'id="palco-{p}"') for p in PALCOS]
+    recipientes.append(html.index('id="gaveta"'))
+
+    for secao in re.finditer(r'<section id="([\w-]+)"', html):
+        assert any(inicio < secao.start() for inicio in recipientes), (
+            f"a seção {secao.group(1)} está fora de qualquer palco"
+        )
 
 
-def test_secoes_reservam_espaco_para_o_menu_fixo():
+def test_as_abas_apontam_para_mapas_que_existem():
     """
-    Sem `scroll-margin-top`, pular para uma seção a esconde atrás do menu
-    fixo: o clique parece funcionar, mas o título fica coberto.
+    Cada aba troca o mapa em cena e o bloco de controles junto. Se qualquer um
+    dos dois faltar, a aba deixa a tela pela metade — com o mapa novo e os
+    controles do antigo, ou sem mapa nenhum.
     """
-    assert "scroll-margin-top" in _css()
-    assert "position: sticky" in _css()
+    html = _html()
+    abas = re.findall(r'class="aba[^"]*"[^>]*data-mapa="([\w-]+)"', html)
+
+    assert set(abas) == {"mapa", "ano"}, f"abas encontradas: {abas}"
+    for aba in abas:
+        assert f'id="teatro-{aba}"' in html, f"a aba {aba} não tem teatro"
+        assert f'id="controles-{aba}"' in html, f"a aba {aba} não tem controles"
 
 
 # --------------------------------------------------------------------------
@@ -175,46 +194,67 @@ def test_o_tema_e_aplicado_antes_do_app_js():
     assert 'id="botao-tema"' in html
 
 
-def test_tema_escuro_redefine_as_variaveis_da_interface():
+def _bloco_do_tema_claro() -> str:
+    """O bloco de variáveis que o tema claro redefine."""
     css = _css()
-    assert '[data-tema="escuro"]' in css
+    inicio = css.index('[data-tema="claro"] {')
+    return css[inicio:css.index("}", inicio)]
 
-    escuro = css[css.index('[data-tema="escuro"]'):]
-    escuro = escuro[:escuro.index("}")]
 
+def test_tema_claro_redefine_as_variaveis_da_interface():
+    """
+    O padrão passou a ser o escuro, porque os palcos têm um céu estrelado e um
+    campo de vento por trás e a interface clara sobre eles apagaria a animação
+    inteira. O tema claro virou a exceção — e precisa redefinir tudo o que dá
+    contraste, senão sobra texto claro sobre fundo claro.
+    """
     for variavel in ("--tinta", "--papel", "--fundo", "--borda"):
-        assert variavel in escuro, f"{variavel} não muda no tema escuro"
-
-
-def test_tema_escuro_nao_mexe_nas_cores_do_risco():
-    """
-    Verde, amarelo e vermelho significam nível de risco. Quem aprendeu
-    "vermelho = alto" no tema claro não pode ter de reaprender no escuro —
-    e as barras e legendas recebem essas cores do app.js, que não sabe qual
-    tema está ativo.
-    """
-    css = _css()
-    escuro = css[css.index('[data-tema="escuro"]'):]
-    escuro = escuro[:escuro.index("}")]
-
-    for variavel in ("--verde:", "--amarelo:", "--vermelho:"):
-        assert variavel not in escuro, (
-            f"{variavel} muda no tema escuro, mas é cor de dado, não de decoração"
+        assert variavel in _bloco_do_tema_claro(), (
+            f"{variavel} não muda no tema claro"
         )
 
 
-def test_toda_variavel_usada_existe_no_tema_claro():
+def test_tema_claro_nao_mexe_nas_cores_do_risco():
     """
-    O tema claro é o padrão: uma variável só definida no escuro deixaria a
-    regra sem valor nenhum na abertura normal da página.
+    Verde, amarelo e vermelho significam nível de risco. Quem aprendeu
+    "vermelho = alto" num tema não pode ter de reaprender no outro — e as
+    barras e legendas recebem essas cores do app.js, que não sabe qual tema
+    está ativo.
+    """
+    for variavel in ("--verde:", "--amarelo:", "--vermelho:"):
+        assert variavel not in _bloco_do_tema_claro(), (
+            f"{variavel} muda no tema claro, mas é cor de dado, não de decoração"
+        )
+
+
+# Variáveis que existem de propósito fora do `:root`, com um valor por
+# elemento. `--zoom` é a escala corrente da câmera de cada mapa: o app.js a
+# reescreve a cada quadro do voo, e é ela que mantém a espessura dos traços
+# constante na tela em qualquer altura.
+VARIAVEIS_LOCAIS = {"--zoom"}
+
+
+def test_toda_variavel_usada_existe_no_tema_padrao():
+    """
+    O `:root` é o tema padrão: uma variável só definida no tema claro deixaria
+    a regra sem valor nenhum na abertura normal da página.
     """
     css = _css()
-    raiz = css[css.index(":root {"):css.index('[data-tema="escuro"]')]
+    raiz = css[css.index(":root {"):css.index('[data-tema="claro"]')]
 
-    definidas = set(re.findall(r"(--[\w-]+):", raiz))
+    definidas = set(re.findall(r"(--[\w-]+):", raiz)) | VARIAVEIS_LOCAIS
     usadas = set(re.findall(r"var\((--[\w-]+)", css))
 
     assert usadas <= definidas, f"usadas sem definir: {sorted(usadas - definidas)}"
+
+
+def test_variavel_local_e_definida_antes_de_ser_usada():
+    """
+    `--zoom` tem um valor de partida no CSS além do que o app.js escreve: sem
+    ele, a primeira pintura — antes de a câmera existir — calcularia uma
+    divisão por nada e o mapa entraria sem fronteira nenhuma.
+    """
+    assert "--zoom: 1;" in _css()
 
 
 # --------------------------------------------------------------------------
@@ -436,18 +476,19 @@ def test_a_escala_de_chuva_e_continua():
 # --------------------------------------------------------------------------
 
 
-def test_o_mapa_da_consulta_fica_dentro_da_secao_de_consulta():
+def test_o_mapa_da_consulta_fica_no_painel_do_resultado():
     """
-    O mapa responde à pergunta que acabou de ser feita, no lugar em que ela
-    foi feita. Fora da seção ele vira mais um mapa perdido na página.
+    O mapa responde à pergunta que acabou de ser feita, e fica junto do
+    resultado dela — no painel da direita, logo abaixo do selo de risco. Solto
+    em qualquer outro canto ele vira mais um mapa perdido na tela.
     """
     html = _html()
-    secao = html[html.index('id="secao-consulta"'):html.index('id="resultado"')]
+    painel = html[html.index('id="painel"'):html.index('id="palco-despedida"')]
     for identificador in ("consulta-mapa", "consulta-svg", "consulta-dica",
                           "consulta-legenda", "consulta-capitais-svg",
                           "consulta-chuva-canvas"):
-        assert f'id="{identificador}"' in secao, (
-            f"{identificador} não está dentro da seção de consulta"
+        assert f'id="{identificador}"' in painel, (
+            f"{identificador} não está dentro do painel do resultado"
         )
 
 
@@ -471,3 +512,90 @@ def test_trocar_de_municipio_apaga_o_mapa_da_consulta():
     """
     corpo = _corpo_da_funcao('$("busca").addEventListener("input"')
     assert 'consulta-mapa").classList.add("oculto")' in corpo
+
+
+# --------------------------------------------------------------------------
+# Câmera: o voo do Brasil até o município
+# --------------------------------------------------------------------------
+
+
+def test_os_mapas_grandes_desenham_sempre_o_pais_inteiro():
+    """
+    O recorte por estado é trabalho da câmera, não do desenho. Se estes mapas
+    voltassem a filtrar as feições por UF, aproximar uma cidade exigiria
+    redesenhar 5.570 polígonos e o voo perderia o ponto de partida — não
+    haveria mais um Brasil de onde sair.
+    """
+    for funcao in ("async function desenharMapa(",
+                   "async function desenharMapaDoAno("):
+        corpo = _corpo_da_funcao(funcao)
+        assert "malhaCache.features" in corpo, (
+            f"{funcao} não desenha a malha inteira"
+        )
+        assert "soDoEstado" not in corpo, (
+            f"{funcao} voltou a recortar o desenho por estado"
+        )
+
+
+def test_a_camera_move_as_tres_camadas_juntas():
+    """
+    Mapa, chuva e capitais têm de sair de registro nunca. Ficando todas dentro
+    do mesmo elemento transformado, uma só matriz move as três — qualquer uma
+    delas fora da câmera ficaria parada enquanto as outras voam.
+    """
+    html = _html()
+    for mapa in ("mapa", "ano"):
+        camera = html[html.index(f'id="camera-{mapa}"'):]
+        camera = camera[:camera.index("</div>")]
+        for camada in (f'id="{mapa}-svg"', f'id="{mapa}-chuva-canvas"',
+                       f'id="{mapa}-capitais-svg"'):
+            assert camada in camera, f"{camada} está fora da câmera"
+
+
+def test_a_espessura_do_traco_e_dividida_pelo_zoom():
+    """
+    `vector-effect: non-scaling-stroke` só compensa transformações de dentro do
+    SVG, e o zoom da câmera é um `transform` CSS num elemento acima dele. Sem
+    dividir a espessura pela escala, o traço de 2px do município em foco vira
+    uma faixa de cinquenta pixels no fim do voo.
+    """
+    css, js = _css(), _js()
+    assert "calc(2.2 / var(--zoom))" in css, (
+        "o contorno de foco não corrige a espessura pelo zoom"
+    )
+    assert 'setProperty("--zoom"' in js, (
+        "o app.js não publica a escala corrente da câmera"
+    )
+
+
+def test_o_voo_termina_mesmo_sem_quadros():
+    """
+    Em aba escondida o navegador não entrega quadro nenhum. Um voo que
+    esperasse por eles nunca terminaria, e a previsão inteira ficaria pendurada
+    em "Calculando..." até alguém voltar para a aba.
+    """
+    js = _js()
+    assert "document.hidden" in _corpo_da_funcao("function voar("), (
+        "voar() não trata a página escondida"
+    )
+    assert "visibilitychange" in js, (
+        "nada conclui um voo que já estava em curso quando a aba sumiu"
+    )
+
+
+def test_o_cenario_carrega_antes_do_app():
+    """
+    O app.js chama Cenario.globo() e Cenario.clima() já na inicialização. Fora
+    de ordem, a página abre num erro de referência e nada mais acontece.
+    """
+    html = _html()
+    assert html.index('src="cenario.js"') < html.index('src="app.js"')
+
+
+def test_o_fundo_animado_para_quando_sai_de_cena():
+    """
+    Dois cenários desenhando ao mesmo tempo é o dobro do custo para mostrar
+    metade — um deles está sempre atrás de um palco invisível.
+    """
+    corpo = _corpo_da_funcao("function trocarPalco(")
+    assert "pausar()" in corpo and "seguir()" in corpo

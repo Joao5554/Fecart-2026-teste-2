@@ -44,3 +44,7 @@ apresentacao.zip
 .claude/
 Thumbs.db
 desktop.ini
+
+# Copia do layout anterior, guardada antes do redesenho da interface.
+# E local: o layout antigo esta no historico do git, no commit 1890909.
+layout-antigo-backup/

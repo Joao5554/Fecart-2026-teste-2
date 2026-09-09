@@ -1,5 +1,9 @@
 /* Interface do projeto Fecart 2026.
-   Sem bibliotecas nem fontes externas: o projeto inteiro roda offline. */
+   Sem bibliotecas nem fontes externas: o projeto inteiro roda offline.
+
+   A página não rola: são três palcos em tela cheia (abertura, mapas e
+   despedida) e só um fica visível por vez. O que rola é o conteúdo dentro
+   das colunas do palco dos mapas. */
 
 :root {
   /* Cores dos dados. Fixas, porque significam nível de risco — não são
@@ -7,47 +11,54 @@
   --verde: #1b7a3e;
   --amarelo: #d99400;
   --vermelho: #c0392b;
-  --cinza-dado: #d6dbe3;
+  --cinza-dado: #39434f;
 
-  /* Paleta da interface */
-  --tinta: #10151c;
-  --tinta-media: #3d4956;
-  --tinta-fraca: #6b7784;
-  --papel: #ffffff;
-  --fundo: #f4f6f9;
-  --fundo-suave: #fafbfd;
-  --borda: #e3e8ef;
-  --borda-forte: #cfd6e0;
-  --marinho: #0f2340;
-  --azul: #1857b8;
-  --azul-forte: #144a9e;
-  --azul-claro: #eaf1fc;
+  /* Paleta da interface. O padrão agora é o tema escuro: os palcos têm um
+     céu estrelado e um campo de vento por trás, e a interface clara sobre
+     eles apagaria a animação inteira. */
+  --tinta: #e6ecf3;
+  --tinta-media: #a8b6c6;
+  --tinta-fraca: #7f8ea0;
+  --papel: rgba(20, 27, 38, .72);
+  --papel-solido: #151b24;
+  --fundo: #070d1b;
+  --fundo-suave: rgba(255, 255, 255, .04);
+  --borda: rgba(255, 255, 255, .09);
+  --borda-forte: rgba(255, 255, 255, .17);
+  --azul: #5a9dff;
+  --azul-forte: #7bb2ff;
+  --azul-claro: rgba(90, 157, 255, .16);
 
-  /* Tons de apoio. Estavam escritos direto nas regras; viraram variáveis
-     quando o tema escuro entrou, porque são exatamente os que precisam
-     mudar de valor sem mudar de papel. */
-  --trilho: #eef1f6;
-  --marcador: #9aa5b1;
-  --borda-hover: #b4becb;
-  --desabilitado: #a8b2be;
-  --fundo-mapa: #eef2f7;
-  --traco-mapa: rgba(255, 255, 255, .85);
-  --aviso-fundo: #fff8e8;
-  --aviso-borda: #f0d9a8;
-  --erro-fundo: #fdeeec;
-  --erro-borda: #e8b5ae;
-  --marca-nota: #e6eaf0;
+  --trilho: rgba(255, 255, 255, .08);
+  --marcador: #6b7784;
+  --borda-hover: rgba(255, 255, 255, .28);
+  --desabilitado: #333c4a;
+  --fundo-mapa: rgba(10, 16, 27, .55);
+  /* Contorno escuro: sobre o fundo animado, um traço branco entre municípios
+     vira uma teia que compete com o próprio dado. */
+  --traco-mapa: rgba(8, 11, 16, .75);
+  --aviso-fundo: #2a2415;
+  --aviso-borda: #574823;
+  --erro-fundo: #2c1a18;
+  --erro-borda: #5c2f2a;
 
   /* A seta do <select> é um SVG embutido. Uma variável não pode substituir só
-     um pedaço de dentro de url(), então a variável carrega a URL inteira e o
-     tema escuro troca a imagem toda, por outra de traço mais claro. */
-  --seta-select: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%236b7784' stroke-width='1.8' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+     um pedaço de dentro de url(), então ela carrega a URL inteira e o tema
+     claro troca a imagem toda, por outra de traço mais escuro. */
+  --seta-select: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%23a8b6c6' stroke-width='1.8' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
 
-  --sombra: 0 1px 2px rgba(16, 21, 28, .04), 0 4px 16px rgba(16, 21, 28, .05);
-  --sombra-alta: 0 2px 6px rgba(16, 21, 28, .06), 0 12px 32px rgba(16, 21, 28, .10);
+  --sombra: 0 1px 2px rgba(0, 0, 0, .3), 0 8px 28px rgba(0, 0, 0, .34);
+  --sombra-alta: 0 2px 6px rgba(0, 0, 0, .4), 0 18px 48px rgba(0, 0, 0, .5);
 
-  --raio: 14px;
-  --raio-pequeno: 9px;
+  --raio: 16px;
+  --raio-pequeno: 10px;
+
+  /* Quanto o vidro dos painéis desfoca o cenário atrás. */
+  --vidro: blur(18px) saturate(130%);
+
+  /* Véu entre o cenário animado e o texto das telas de abertura e despedida. */
+  --veu: rgba(4, 7, 15, .84);
+  --veu-meio: rgba(4, 7, 15, .58);
 
   /* Pilha de fontes do sistema: nenhuma requisição de rede, e boa em
      Windows, Mac e Linux. */
@@ -56,333 +67,965 @@
   --fonte-num: "Segoe UI Variable Text", "SF Mono", Consolas, monospace;
 }
 
-/* ---------- tema escuro ---------- */
+/* ---------- tema claro ---------- */
 /* Só as variáveis mudam: nenhuma regra abaixo precisa saber que existe tema.
-   O atributo é posto em <html> pelo script no topo do index.html, antes de a
-   página pintar, e trocado pelo botão do menu.
-
    As cores dos dados (verde, amarelo, vermelho) NÃO mudam de matiz: elas
-   significam nível de risco, e um leitor que aprendeu "vermelho = alto" no
-   tema claro não pode reaprender no escuro. Muda só o cinza de "sem dado",
-   que num fundo escuro brilharia mais que os próprios dados. */
+   significam nível de risco, e quem aprendeu "vermelho = alto" num tema não
+   pode reaprender no outro. */
 
-[data-tema="escuro"] {
-  --cinza-dado: #39434f;
+[data-tema="claro"] {
+  --cinza-dado: #d6dbe3;
 
-  --tinta: #e6ecf3;
-  --tinta-media: #a8b6c6;
-  --tinta-fraca: #7f8ea0;
-  --papel: #151b24;
-  --fundo: #0d1117;
-  --fundo-suave: #1a212b;
-  --borda: #262e3a;
-  --borda-forte: #38424f;
-  --azul: #5a9dff;
-  --azul-forte: #7bb2ff;
-  --azul-claro: #1b2c45;
+  --tinta: #10151c;
+  --tinta-media: #3d4956;
+  --tinta-fraca: #6b7784;
+  --papel: rgba(255, 255, 255, .82);
+  --papel-solido: #ffffff;
+  --fundo: #eef2f8;
+  --fundo-suave: rgba(15, 35, 64, .04);
+  --borda: rgba(15, 35, 64, .12);
+  --borda-forte: rgba(15, 35, 64, .22);
+  --azul: #1857b8;
+  --azul-forte: #144a9e;
+  --azul-claro: rgba(24, 87, 184, .12);
 
-  --trilho: #232c38;
-  --marcador: #6b7784;
-  --borda-hover: #4a5666;
-  --desabilitado: #3a4453;
-  --fundo-mapa: #131a23;
-  /* Contorno escuro: no tema claro o traço branco separa os municípios; aqui
-     é o inverso, senão a malha vira uma teia branca sobre o mapa. */
-  --traco-mapa: rgba(8, 11, 16, .75);
-  --aviso-fundo: #2a2415;
-  --aviso-borda: #574823;
-  --erro-fundo: #2c1a18;
-  --erro-borda: #5c2f2a;
-  --marca-nota: #232c38;
+  --trilho: rgba(15, 35, 64, .09);
+  --marcador: #9aa5b1;
+  --borda-hover: rgba(15, 35, 64, .32);
+  --desabilitado: #a8b2be;
+  --fundo-mapa: rgba(255, 255, 255, .5);
+  --traco-mapa: rgba(255, 255, 255, .85);
+  --aviso-fundo: #fff8e8;
+  --aviso-borda: #f0d9a8;
+  --erro-fundo: #fdeeec;
+  --erro-borda: #e8b5ae;
 
-  --seta-select: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%23a8b6c6' stroke-width='1.8' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+  --seta-select: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%236b7784' stroke-width='1.8' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
 
-  --sombra: 0 1px 2px rgba(0, 0, 0, .3), 0 4px 16px rgba(0, 0, 0, .28);
-  --sombra-alta: 0 2px 6px rgba(0, 0, 0, .36), 0 12px 32px rgba(0, 0, 0, .44);
+  --veu: rgba(238, 242, 248, .88);
+  --veu-meio: rgba(238, 242, 248, .62);
+
+  --sombra: 0 1px 2px rgba(16, 21, 28, .05), 0 8px 24px rgba(16, 21, 28, .08);
+  --sombra-alta: 0 2px 6px rgba(16, 21, 28, .07), 0 18px 44px rgba(16, 21, 28, .14);
 }
 
-/* O botão azul do tema claro tem texto branco. No escuro o azul clareia, e
-   texto branco sobre ele perde contraste: a tinta escura volta a ser a certa. */
-[data-tema="escuro"] button { color: #0d1117; }
-[data-tema="escuro"] .botao-tema { color: var(--tinta); }
+/* O cenário pinta o próprio fundo escuro a cada quadro. Sobre uma interface
+   clara ele viraria manchas escuras em volta dos painéis, e não um cenário:
+   fica quase apagado, como textura. */
+[data-tema="claro"] .fundo { opacity: .07; }
 
 * { box-sizing: border-box; }
 
-html { scroll-behavior: smooth; }
+html, body { height: 100%; }
 
 body {
   margin: 0;
-  font-family: var(--fonte);
-  background: var(--fundo);
-  color: var(--tinta);
-  line-height: 1.6;
-  -webkit-font-smoothing: antialiased;
-  text-rendering: optimizeLegibility;
-}
-
-.conteudo { max-width: 1000px; margin: 0 auto; padding: 0 24px; }
-
-/* ---------- cabeçalho ---------- */
-
-.cabecalho {
-  position: relative;
-  background:
-    radial-gradient(1100px 380px at 12% -60%, rgba(64,140,255,.30), transparent 60%),
-    radial-gradient(760px 300px at 88% -10%, rgba(0,214,170,.16), transparent 60%),
-    linear-gradient(150deg, #0b1a30 0%, var(--marinho) 55%, #16325c 100%);
-  color: #fff;
-  padding: 54px 0 46px;
-  margin-bottom: 30px;
+  /* A página inteira é palco: nada aqui rola. Quem rola são as colunas. */
   overflow: hidden;
+  font-family: var(--fonte);
+  color: var(--tinta);
+  background: var(--fundo);
+  -webkit-font-smoothing: antialiased;
 }
 
-/* Linha de luz no rodapé do cabeçalho, para separar sem usar borda dura. */
-.cabecalho::after {
+.oculto { display: none !important; }
+
+
+/* ===================================================================== */
+/* Cenário animado                                                        */
+/* ===================================================================== */
+
+.fundo {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 0;
+  opacity: 0;
+  transition: opacity .9s ease;
+  pointer-events: none;
+}
+
+/* Cada palco acende o seu próprio fundo. O outro fica invisível e tem a
+   animação pausada pelo app.js — desenhar um globo que ninguém vê só gasta
+   bateria. */
+body[data-palco="abertura"]  #fundo-globo,
+body[data-palco="despedida"] #fundo-globo { opacity: 1; }
+body[data-palco="mapas"]     #fundo-clima { opacity: 1; }
+
+
+/* ===================================================================== */
+/* Palcos                                                                 */
+/* ===================================================================== */
+
+.palco {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  opacity: 0;
+  visibility: hidden;
+  transform: scale(1.04);
+  transition: opacity .7s ease, transform .7s cubic-bezier(.16, 1, .3, 1),
+              visibility .7s;
+}
+
+body[data-palco="abertura"]  #palco-abertura,
+body[data-palco="mapas"]     #palco-mapas,
+body[data-palco="despedida"] #palco-despedida {
+  opacity: 1;
+  visibility: visible;
+  transform: scale(1);
+}
+
+/* ---------- abertura e despedida ---------- */
+
+.palco-abertura, .palco-despedida {
+  display: grid;
+  place-items: center;
+  padding: 32px;
+  overflow-y: auto;
+}
+
+/* Véu radial entre o globo e o texto. Sem ele o contorno do Brasil passa por
+   trás do subtítulo bem no meio da linha, e a frase fica difícil de ler
+   justamente onde a animação está mais interessante. O degradê escurece só o
+   miolo: nas bordas o globo continua inteiro. */
+.palco-abertura::before, .palco-despedida::before {
   content: "";
   position: absolute;
-  left: 0; right: 0; bottom: 0;
-  height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(255,255,255,.28), transparent);
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(ellipse 62% 48% at 50% 46%,
+    var(--veu) 0%, var(--veu-meio) 48%, transparent 76%);
+}
+
+.abertura-interno, .despedida-interno {
+  position: relative;   /* acima do véu */
+  z-index: 1;
+  max-width: 760px;
+  width: 100%;
+  text-align: center;
+}
+
+/* A entrada é encenada: cada elemento sobe com um atraso próprio, para o
+   olho percorrer a tela na ordem em que o texto deve ser lido. */
+body[data-palco="abertura"]  .abertura-interno > *,
+body[data-palco="despedida"] .despedida-interno > * {
+  animation: subir .9s cubic-bezier(.16, 1, .3, 1) backwards;
+}
+.abertura-interno > :nth-child(1),
+.despedida-interno > :nth-child(1) { animation-delay: .15s; }
+.abertura-interno > :nth-child(2),
+.despedida-interno > :nth-child(2) { animation-delay: .3s; }
+.abertura-interno > :nth-child(3),
+.despedida-interno > :nth-child(3) { animation-delay: .45s; }
+.abertura-interno > :nth-child(4),
+.despedida-interno > :nth-child(4) { animation-delay: .6s; }
+.abertura-interno > :nth-child(5),
+.despedida-interno > :nth-child(5) { animation-delay: .75s; }
+.abertura-interno > :nth-child(6),
+.despedida-interno > :nth-child(6) { animation-delay: .9s; }
+
+@keyframes subir {
+  from { opacity: 0; transform: translateY(26px); }
+  to   { opacity: 1; transform: translateY(0); }
 }
 
 .marca {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  font-size: .7rem;
-  font-weight: 700;
-  letter-spacing: .14em;
+  font-size: .82rem;
+  font-weight: 600;
+  letter-spacing: .16em;
   text-transform: uppercase;
-  color: #9fc4ff;
-  margin-bottom: 16px;
+  color: var(--azul-forte);
+  margin: 0 0 22px;
 }
 
-.marca::before {
-  content: "";
-  width: 22px; height: 2px;
-  background: #9fc4ff;
-  border-radius: 2px;
-}
-
-.cabecalho h1 {
-  margin: 0 0 14px;
-  font-size: clamp(1.85rem, 4.2vw, 2.9rem);
-  line-height: 1.12;
+.titulo-grande {
+  font-size: clamp(2.4rem, 6.5vw, 4.6rem);
+  line-height: 1.04;
+  letter-spacing: -.03em;
   font-weight: 700;
-  letter-spacing: -.022em;
-  max-width: 17ch;
+  margin: 0 0 24px;
+  text-wrap: balance;
+}
+
+.titulo-grande .destaque {
+  background: linear-gradient(100deg, var(--azul-forte), #67e8f9 65%, #a5f3fc);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
 }
 
 .subtitulo {
-  margin: 0;
-  max-width: 60ch;
-  font-size: 1.02rem;
-  color: rgba(255,255,255,.76);
-  font-weight: 400;
+  font-size: clamp(1rem, 1.5vw, 1.15rem);
+  line-height: 1.65;
+  color: var(--tinta-media);
+  max-width: 62ch;
+  margin: 0 auto 40px;
+  text-wrap: pretty;
 }
 
 .numeros-topo {
   display: flex;
   flex-wrap: wrap;
-  gap: 34px;
-  margin-top: 32px;
-  padding-top: 26px;
-  border-top: 1px solid rgba(255,255,255,.14);
+  justify-content: center;
+  gap: 14px;
+  margin-bottom: 44px;
+}
+
+.numeros-topo .numero {
+  flex: 1 1 130px;
+  max-width: 190px;
+  padding: 18px 14px;
+  border: 1px solid var(--borda);
+  border-radius: var(--raio);
+  background: var(--papel);
+  backdrop-filter: var(--vidro);
+  -webkit-backdrop-filter: var(--vidro);
 }
 
 .numero strong {
   display: block;
-  font-size: 1.6rem;
+  font-size: 1.5rem;
   font-weight: 700;
   letter-spacing: -.02em;
   font-variant-numeric: tabular-nums;
+  margin-bottom: 5px;
 }
 
 .numero span {
-  font-size: .78rem;
-  color: rgba(255,255,255,.62);
+  font-size: .74rem;
+  letter-spacing: .06em;
   text-transform: uppercase;
-  letter-spacing: .07em;
+  color: var(--tinta-fraca);
 }
 
-/* ---------- cartões ---------- */
+.nota-rodape {
+  margin: 34px 0 0;
+  font-size: .84rem;
+  color: var(--tinta-fraca);
+}
 
-.cartao {
-  background: var(--papel);
+.creditos {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 14px;
+  margin-bottom: 44px;
+  text-align: left;
+}
+
+.credito {
+  padding: 18px 20px;
   border: 1px solid var(--borda);
   border-radius: var(--raio);
-  padding: 30px;
-  margin-bottom: 26px;
-  box-shadow: var(--sombra);
-  transition: box-shadow .25s ease, transform .25s ease;
+  background: var(--papel);
+  backdrop-filter: var(--vidro);
+  -webkit-backdrop-filter: var(--vidro);
 }
 
-.cartao:hover { box-shadow: var(--sombra-alta); }
-
-.cartao h2 {
-  margin: 0 0 6px;
-  font-size: 1.28rem;
-  font-weight: 700;
-  letter-spacing: -.016em;
+.credito strong {
+  display: block;
+  font-size: .72rem;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--azul-forte);
+  margin-bottom: 8px;
 }
 
-/* Numeração das seções: dá ritmo e ajuda a acompanhar a leitura. */
-.cartao > h2 { counter-increment: secao; }
-.cartao > h2::before {
-  content: counter(secao);
+.credito span { font-size: .88rem; color: var(--tinta-media); line-height: 1.55; }
+
+
+/* ===================================================================== */
+/* Botões                                                                 */
+/* ===================================================================== */
+
+button {
+  font-family: inherit;
+  font-size: .95rem;
+  cursor: pointer;
+  border: none;
+  border-radius: var(--raio-pequeno);
+  transition: transform .16s ease, box-shadow .2s ease,
+              background .2s ease, border-color .2s ease;
+}
+
+.botao-principal {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  width: 26px; height: 26px;
-  margin-right: 11px;
-  border-radius: 7px;
-  background: var(--azul-claro);
-  color: var(--azul);
-  font-size: .8rem;
-  font-weight: 700;
-  vertical-align: 2px;
+  gap: 12px;
+  padding: 17px 38px;
+  font-size: 1.02rem;
+  font-weight: 600;
+  color: #06101f;
+  background: linear-gradient(100deg, var(--azul-forte), #67e8f9);
+  border-radius: 999px;
+  box-shadow: 0 8px 30px rgba(90, 157, 255, .3);
 }
 
-body { counter-reset: secao; }
+.botao-principal:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 14px 40px rgba(90, 157, 255, .42);
+}
 
-.cartao h3 {
-  margin: 26px 0 10px;
-  font-size: .82rem;
+.botao-principal:active:not(:disabled) { transform: translateY(0); }
+
+.botao-principal:disabled {
+  background: var(--desabilitado);
+  color: var(--tinta-fraca);
+  box-shadow: none;
+  cursor: not-allowed;
+}
+
+.botao-principal.pequeno {
+  width: 100%;
+  justify-content: center;
+  padding: 13px 22px;
+  font-size: .95rem;
+}
+
+.botao-principal .seta { transition: transform .25s ease; }
+.botao-principal:hover:not(:disabled) .seta { transform: translateX(5px); }
+#botao-reiniciar:hover .seta { transform: rotate(-180deg); }
+
+.botao-secundario {
+  padding: 12px 22px;
+  font-weight: 600;
+  color: var(--tinta);
+  background: var(--fundo-suave);
+  border: 1px solid var(--borda-forte);
+}
+
+.botao-secundario:hover:not(:disabled) {
+  border-color: var(--azul);
+  color: var(--azul-forte);
+}
+
+.botao-secundario:disabled { opacity: .5; cursor: not-allowed; }
+
+.botao-fino {
+  padding: 9px 16px;
+  font-size: .85rem;
+  font-weight: 500;
+  color: var(--tinta-media);
+  background: transparent;
+  border: 1px solid var(--borda);
+}
+
+.botao-fino:hover { color: var(--tinta); border-color: var(--borda-forte); }
+
+
+/* ===================================================================== */
+/* Palco dos mapas: barra do topo                                         */
+/* ===================================================================== */
+
+.palco-mapas {
+  display: grid;
+  grid-template-rows: auto 1fr;
+}
+
+.barra {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  padding: 12px 22px;
+  border-bottom: 1px solid var(--borda);
+  background: var(--papel);
+  backdrop-filter: var(--vidro);
+  -webkit-backdrop-filter: var(--vidro);
+  z-index: 5;
+}
+
+.barra-marca {
+  margin: 0;
+  font-size: .8rem;
   font-weight: 700;
-  letter-spacing: .08em;
+  letter-spacing: .13em;
+  text-transform: uppercase;
+  color: var(--azul-forte);
+  white-space: nowrap;
+}
+
+.barra-acoes { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+
+/* ---------- abas dos dois mapas ---------- */
+
+.abas {
+  display: flex;
+  gap: 6px;
+  padding: 4px;
+  border-radius: 999px;
+  background: var(--fundo-suave);
+  border: 1px solid var(--borda);
+}
+
+.aba {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  padding: 8px 20px;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--tinta-fraca);
+  text-align: left;
+}
+
+.aba strong { font-size: .92rem; font-weight: 600; }
+.aba span { font-size: .71rem; opacity: .85; }
+
+.aba:hover { color: var(--tinta-media); }
+
+.aba.ativa {
+  background: var(--azul);
+  color: #fff;
+  box-shadow: 0 4px 16px rgba(90, 157, 255, .3);
+}
+
+[data-tema="escuro"] .aba.ativa { color: #06101f; }
+
+
+/* ===================================================================== */
+/* Palco dos mapas: as três colunas                                       */
+/* ===================================================================== */
+
+.oficina {
+  display: grid;
+  grid-template-columns: 310px minmax(0, 1fr) 370px;
+  gap: 16px;
+  padding: 16px;
+  min-height: 0;   /* deixa as colunas rolarem em vez de esticar a grade */
+}
+
+.controles, .painel {
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding-right: 4px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--borda-forte) transparent;
+}
+
+.controles::-webkit-scrollbar,
+.painel::-webkit-scrollbar { width: 8px; }
+.controles::-webkit-scrollbar-thumb,
+.painel::-webkit-scrollbar-thumb {
+  background: var(--borda-forte);
+  border-radius: 4px;
+}
+
+.bloco {
+  padding: 20px;
+  border: 1px solid var(--borda);
+  border-radius: var(--raio);
+  background: var(--papel);
+  backdrop-filter: var(--vidro);
+  -webkit-backdrop-filter: var(--vidro);
+  box-shadow: var(--sombra);
+  animation: aparecer .45s ease backwards;
+}
+
+@keyframes aparecer {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.bloco h2 {
+  margin: 0 0 6px;
+  font-size: 1.02rem;
+  font-weight: 650;
+  letter-spacing: -.01em;
+}
+
+.bloco h3 {
+  margin: 22px 0 12px;
+  font-size: .86rem;
+  font-weight: 600;
+  letter-spacing: .04em;
   text-transform: uppercase;
   color: var(--tinta-fraca);
 }
 
 .ajuda {
+  font-size: .85rem;
+  line-height: 1.6;
+  color: var(--tinta-fraca);
+  margin: 0 0 16px;
+  text-wrap: pretty;
+}
+
+.painel-vazio {
+  margin: auto 0;
+  padding: 34px 24px;
+  text-align: center;
+  border: 1px dashed var(--borda-forte);
+  border-radius: var(--raio);
   color: var(--tinta-media);
-  font-size: .93rem;
-  margin: 6px 0 20px;
-  max-width: 72ch;
 }
 
-/* ---------- formulário ---------- */
+.painel-vazio p { margin: 0 0 8px; }
+.painel-vazio .ajuda { margin: 0; }
 
-.formulario {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 16px;
-  align-items: end;
-}
+
+/* ===================================================================== */
+/* Formulários                                                            */
+/* ===================================================================== */
+
+.formulario { display: flex; flex-direction: column; gap: 14px; }
 
 .campo { position: relative; display: flex; flex-direction: column; }
-.campo-busca { grid-column: 1 / -1; }
 
 label {
-  font-size: .73rem;
-  font-weight: 700;
+  font-size: .74rem;
+  font-weight: 600;
+  letter-spacing: .05em;
   text-transform: uppercase;
-  letter-spacing: .08em;
   color: var(--tinta-fraca);
   margin-bottom: 7px;
 }
 
-input, select, button {
-  font: inherit;
-  font-size: .95rem;
-  padding: 12px 14px;
+input, select {
+  font-family: inherit;
+  font-size: .93rem;
+  padding: 11px 13px;
+  color: var(--tinta);
+  background: var(--fundo-suave);
   border: 1px solid var(--borda-forte);
   border-radius: var(--raio-pequeno);
-  background: var(--papel);
-  color: var(--tinta);
-  transition: border-color .18s ease, box-shadow .18s ease, background .18s ease;
+  transition: border-color .18s ease, box-shadow .18s ease;
+  width: 100%;
 }
 
 input::placeholder { color: var(--marcador); }
-
 input:hover, select:hover { border-color: var(--borda-hover); }
 
 input:focus, select:focus {
   outline: none;
   border-color: var(--azul);
-  box-shadow: 0 0 0 3px rgba(24, 87, 184, .13);
+  box-shadow: 0 0 0 3px var(--azul-claro);
 }
 
 select {
   appearance: none;
-  /* Seta desenhada como data-URI: sem imagem externa. */
+  -webkit-appearance: none;
   background-image: var(--seta-select);
   background-repeat: no-repeat;
-  background-position: right 14px center;
-  padding-right: 38px;
-}
-
-button {
-  grid-column: 1 / -1;
-  background: var(--azul);
-  color: #fff;
-  border: none;
-  font-weight: 600;
+  background-position: right 13px center;
+  padding-right: 34px;
   cursor: pointer;
-  padding: 13px;
-  letter-spacing: .01em;
 }
 
-button:hover:not(:disabled) {
-  background: var(--azul-forte);
-  transform: translateY(-1px);
-  box-shadow: 0 6px 18px rgba(24, 87, 184, .26);
-}
+/* O <option> herda o fundo translúcido do <select> e ficaria ilegível no menu
+   nativo, que é desenhado pelo sistema sobre fundo opaco. */
+option { background: var(--papel-solido); color: var(--tinta); }
 
-button:active:not(:disabled) { transform: translateY(0); }
+.mapa-filtros { display: flex; flex-direction: column; gap: 14px; }
+.mapa-filtros button { margin-top: 2px; }
 
-button:disabled { background: var(--desabilitado); cursor: not-allowed; }
-
-/* ---------- autocomplete ---------- */
+/* ---------- sugestões da busca ---------- */
 
 .sugestoes {
   position: absolute;
-  top: 100%; left: 0; right: 0;
-  z-index: 20;
-  margin: 6px 0 0;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: 30;
+  margin: 5px 0 0;
   padding: 5px;
   list-style: none;
-  background: var(--papel);
-  border: 1px solid var(--borda);
-  border-radius: var(--raio-pequeno);
   max-height: 260px;
   overflow-y: auto;
+  background: var(--papel-solido);
+  border: 1px solid var(--borda-forte);
+  border-radius: var(--raio-pequeno);
   box-shadow: var(--sombra-alta);
 }
 
 .sugestoes li {
-  padding: 10px 12px;
+  padding: 9px 11px;
+  font-size: .89rem;
+  border-radius: 7px;
   cursor: pointer;
-  font-size: .93rem;
-  border-radius: 6px;
-  transition: background .13s ease;
 }
 
 .sugestoes li:hover { background: var(--azul-claro); }
-.sugestoes .uf { color: var(--tinta-fraca); font-size: .83rem; }
+.sugestoes .uf { color: var(--tinta-fraca); font-size: .8rem; }
 
 .escolhido {
-  margin: 10px 0 0;
-  font-size: .87rem;
-  color: var(--verde);
-  font-weight: 600;
+  margin: 9px 0 0;
+  font-size: .82rem;
+  color: var(--azul-forte);
+  font-weight: 500;
 }
 
-/* ---------- resultado ---------- */
 
-.resultado-topo { display: flex; gap: 22px; align-items: center; }
+/* ===================================================================== */
+/* Os dois teatros de mapa                                                */
+/* ===================================================================== */
+
+.teatros { position: relative; min-height: 0; }
+
+/* O seletor é duplo de propósito: o teatro também carrega a classe
+   `.mapa-area`, para o código das camadas de chuva e capitais o encontrar com
+   closest(), e a regra genérica dessa classe o deixaria `relative`. */
+.teatros .teatro {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  border: 1px solid var(--borda);
+  border-radius: var(--raio);
+  background: var(--fundo-mapa);
+  backdrop-filter: var(--vidro);
+  -webkit-backdrop-filter: var(--vidro);
+  box-shadow: var(--sombra);
+  opacity: 0;
+  visibility: hidden;
+  transform: scale(.985);
+  transition: opacity .45s ease, transform .45s ease, visibility .45s;
+}
+
+.teatro.ativo { opacity: 1; visibility: visible; transform: scale(1); }
+
+/* A câmera tem tamanho lógico fixo, e é ela que recebe o transform do voo.
+   Manter as três camadas (mapa, chuva e capitais) dentro do mesmo elemento
+   transformado é o que garante que elas nunca saiam de registro: uma só
+   matriz move as três de uma vez. */
+.camera {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 1000px;
+  height: 820px;
+  transform-origin: 0 0;
+}
+
+/* `will-change` promove a câmera a uma camada própria e deixa o voo suave —
+   mas o navegador rasteriza o SVG no tamanho que ele tinha antes do zoom e
+   depois amplia esse bitmap, o que a 25x deixa o mapa borrado. Por isso ele
+   só vale enquanto a câmera está em movimento: parada, o desenho volta a ser
+   vetor e as fronteiras ficam nítidas. */
+.teatro.voando .camera { will-change: transform; }
+
+.camera > svg, .camera > canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 1000px;
+  height: 820px;
+  display: block;
+}
+
+.teatro-topo, .teatro-base {
+  position: absolute;
+  left: 0;
+  right: 0;
+  z-index: 4;
+  padding: 12px 16px;
+  pointer-events: none;
+}
+
+.teatro-topo { top: 0; }
+.teatro-base { bottom: 0; }
+
+.linha-estado {
+  margin: 0;
+  display: inline-block;
+  font-size: .84rem;
+  line-height: 1.5;
+  color: var(--tinta-media);
+}
+
+.linha-estado:not(:empty),
+.teatro-base .mapa-legenda:not(.oculto) {
+  padding: 8px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--borda);
+  background: var(--papel);
+  backdrop-filter: var(--vidro);
+  -webkit-backdrop-filter: var(--vidro);
+}
+
+/* Enquanto o servidor calcula, a linha de estado pulsa e uma barra corre no
+   topo do teatro. São dez segundos no primeiro cálculo de cada pergunta: sem
+   sinal nenhum, esse tempo é indistinguível de uma tela travada. */
+.teatro.carregando .linha-estado { animation: respirar 1.5s ease-in-out infinite; }
+
+@keyframes respirar { 50% { opacity: .45; } }
+
+.teatro.carregando::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  z-index: 7;
+  background: linear-gradient(90deg, transparent, var(--azul-forte), transparent);
+  animation: correr 1.4s linear infinite;
+}
+
+@keyframes correr {
+  from { transform: translateX(-100%); }
+  to   { transform: translateX(100%); }
+}
+
+.botao-voltar-brasil {
+  position: absolute;
+  top: 12px;
+  right: 16px;
+  z-index: 6;
+  padding: 9px 17px;
+  font-size: .84rem;
+  font-weight: 600;
+  color: var(--tinta);
+  background: var(--papel);
+  border: 1px solid var(--borda-forte);
+  backdrop-filter: var(--vidro);
+  -webkit-backdrop-filter: var(--vidro);
+  animation: aparecer .3s ease;
+}
+
+.botao-voltar-brasil:hover { border-color: var(--azul); color: var(--azul-forte); }
+
+
+/* ===================================================================== */
+/* Desenho dos mapas                                                      */
+/* ===================================================================== */
+
+.mapa-area { position: relative; }
+
+/* Nos mapas pequenos do painel o SVG acompanha a largura da coluna; nos
+   teatros ele tem tamanho fixo, porque quem o dimensiona é a câmera. */
+.painel .mapa-area {
+  margin-top: 14px;
+  border: 1px solid var(--borda);
+  border-radius: var(--raio-pequeno);
+  background: var(--fundo-mapa);
+  overflow: hidden;
+}
+
+.painel .mapa-area svg { width: 100%; height: auto; display: block; }
+
+.mapa-area svg path {
+  stroke: var(--traco-mapa);
+  stroke-width: .35;
+  vector-effect: non-scaling-stroke;
+  transition: fill-opacity .2s ease;
+}
+
+
+.mapa-area svg path:hover { fill-opacity: .75; }
+
+.mapa-area svg path.sem-dado { fill: var(--cinza-dado); fill-opacity: .5; }
+.mapa-area svg path.sem-dado:hover { fill-opacity: .7; }
+
+.mapa-area svg path.foco {
+  stroke: var(--tinta);
+  stroke-width: 2;
+  paint-order: stroke;
+}
+
+#consulta-svg path.foco { stroke-width: 2.8; }
+
+/* Nos teatros o zoom é um `transform` CSS aplicado a um elemento HTML acima do
+   SVG, e `vector-effect: non-scaling-stroke` não o enxerga: ele só compensa
+   transformações de dentro do próprio SVG. Sem correção, o traço de 2px do
+   município em foco vira uma faixa de cinquenta pixels no fim do voo. A saída
+   é dividir a espessura pela escala, que o app.js publica em `--zoom` a cada
+   quadro — assim o traço tem sempre a mesma grossura na tela, em qualquer
+   altura de voo.
+
+   Estas regras vêm depois das de `.mapa-area` de propósito: têm a mesma
+   especificidade que elas, e é a ordem que decide. */
+.teatros .camera { --zoom: 1; }
+.teatros svg path { stroke-width: calc(.55 / var(--zoom)); }
+.teatros svg path.foco { stroke-width: calc(2.2 / var(--zoom)); }
+.teatros .capital-contorno { stroke-width: calc(1.6 / var(--zoom)); }
+
+.mapa-dica {
+  position: absolute;
+  z-index: 20;
+  pointer-events: none;
+  max-width: 260px;
+  padding: 10px 13px;
+  font-size: .82rem;
+  line-height: 1.5;
+  color: var(--tinta);
+  background: var(--papel-solido);
+  border: 1px solid var(--borda-forte);
+  border-radius: var(--raio-pequeno);
+  box-shadow: var(--sombra-alta);
+}
+
+.mapa-legenda {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  align-items: center;
+}
+
+.painel .mapa-legenda { margin-top: 14px; }
+
+.mapa-legenda span {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: .82rem;
+  color: var(--tinta-media);
+}
+
+.mapa-legenda i {
+  width: 14px;
+  height: 14px;
+  border-radius: 4px;
+  display: inline-block;
+}
+
+/* ---------- camada de chuva ---------- */
+
+.camada-chuva {
+  z-index: 2;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity .3s ease;
+}
+
+.painel .camada-chuva {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.mapa-area.com-chuva .camada-chuva { opacity: 1; }
+.mapa-area.com-chuva svg path { fill-opacity: .28; }
+.mapa-area.com-chuva svg path.sem-dado { fill-opacity: .14; }
+.mapa-area.com-chuva .capital-contorno { opacity: 1; }
+
+.legenda-chuva { margin-top: 10px; }
+
+.legenda-titulo {
+  font-size: .74rem;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+  color: var(--tinta-fraca);
+  width: 100%;
+}
+
+.nota-chuva {
+  margin: 10px 0 0;
+  font-size: .78rem;
+  line-height: 1.55;
+  color: var(--tinta-fraca);
+}
+
+.teatro .nota-chuva { display: none; }
+
+/* ---------- camada das capitais ---------- */
+
+.camada-capitais { z-index: 3; pointer-events: none; }
+
+.painel .camada-capitais {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.mapa-area:not(.mostrar-capitais) .camada-capitais { display: none; }
+
+/* Muito ampliado, o nome da capital vira um letreiro atravessado na tela e
+   esconde justamente o município que a câmera foi buscar. */
+.teatro.ampliado .camada-capitais { display: none; }
+
+.capital-contorno {
+  fill: none;
+  stroke: var(--tinta);
+  stroke-width: 1.6;
+  opacity: .55;
+  vector-effect: non-scaling-stroke;
+}
+
+.capital-halo { fill: var(--papel-solido); opacity: .8; }
+.capital-ponto { fill: var(--tinta); }
+
+.capital-nome {
+  font-family: var(--fonte);
+  font-size: 11px;
+  font-weight: 600;
+  fill: var(--tinta);
+  paint-order: stroke;
+  stroke: var(--papel-solido);
+  stroke-width: 3;
+  stroke-linejoin: round;
+}
+
+#consulta-capitais-svg .capital-nome { font-size: 12px; }
+
+.camada-opcao {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-top: 10px;
+  padding: 9px 12px;
+  font-size: .83rem;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--tinta-media);
+  border: 1px solid var(--borda);
+  border-radius: var(--raio-pequeno);
+  cursor: pointer;
+  transition: border-color .18s ease, color .18s ease;
+}
+
+.camada-opcao:hover { border-color: var(--azul); color: var(--azul-forte); }
+
+.camada-opcao input {
+  width: auto;
+  margin: 0;
+  padding: 0;
+  accent-color: var(--azul);
+  cursor: pointer;
+}
+
+.camada-opcao:has(input:checked) {
+  border-color: var(--azul);
+  background: var(--azul-claro);
+  color: var(--tinta);
+}
+
+
+/* ===================================================================== */
+/* Resultado da previsão                                                  */
+/* ===================================================================== */
+
+.resultado-topo { display: flex; gap: 16px; align-items: center; }
 
 .selo {
-  min-width: 148px;
-  padding: 22px 14px;
-  border-radius: var(--raio-pequeno);
-  text-align: center;
-  color: #fff;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 88px;
+  height: 88px;
+  border-radius: 50%;
+  font-size: .92rem;
   font-weight: 700;
-  font-size: 1.3rem;
   text-transform: uppercase;
-  letter-spacing: .05em;
+  letter-spacing: .04em;
+  color: #fff;
+  background: var(--desabilitado);
   box-shadow: var(--sombra);
+  animation: pulsar .6s cubic-bezier(.16, 1, .3, 1);
+}
+
+@keyframes pulsar {
+  from { transform: scale(.7); opacity: 0; }
+  to   { transform: scale(1); opacity: 1; }
 }
 
 .selo.baixo { background: linear-gradient(140deg, #22914a, var(--verde)); }
@@ -391,535 +1034,336 @@ button:disabled { background: var(--desabilitado); cursor: not-allowed; }
 
 .resultado-titulo {
   margin: 0 0 6px;
-  font-size: 1.12rem;
-  font-weight: 700;
-  letter-spacing: -.01em;
+  font-size: .98rem;
+  font-weight: 650;
+  line-height: 1.4;
 }
 
-.barras { display: flex; flex-direction: column; gap: 10px; }
+.resultado-texto .ajuda { margin: 0; }
 
-.barra-linha { display: grid; grid-template-columns: 70px 1fr 62px; align-items: center; gap: 12px; }
-.barra-nome { font-size: .87rem; text-transform: capitalize; color: var(--tinta-media); font-weight: 500; }
-.barra-trilho { background: var(--trilho); border-radius: 6px; height: 22px; overflow: hidden; }
-.barra-preenchida { height: 100%; border-radius: 6px; transition: width .5s cubic-bezier(.4,0,.2,1); }
-.barra-valor { font-size: .87rem; text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
+.barras { display: flex; flex-direction: column; gap: 9px; }
 
-/* ---------- gráfico do ano ---------- */
-
-.grafico {
+.barra-linha {
   display: grid;
-  grid-template-columns: repeat(12, 1fr);
-  gap: 7px;
-  align-items: end;
-  height: 200px;
-  padding-top: 10px;
+  grid-template-columns: 56px 1fr 52px;
+  align-items: center;
+  gap: 10px;
 }
 
-.coluna { display: flex; flex-direction: column; align-items: center; height: 100%; justify-content: flex-end; gap: 5px; }
-.coluna-valor { font-size: .68rem; color: var(--tinta-fraca); font-variant-numeric: tabular-nums; }
-.coluna-barra {
-  width: 100%;
-  background: linear-gradient(180deg, #d9483a, var(--vermelho));
-  border-radius: 5px 5px 0 0;
-  min-height: 3px;
-  transition: height .5s cubic-bezier(.4,0,.2,1);
+.barra-nome {
+  font-size: .82rem;
+  text-transform: capitalize;
+  color: var(--tinta-media);
+  font-weight: 500;
 }
-.coluna-mes { font-size: .7rem; color: var(--tinta-fraca); }
-.coluna.destaque .coluna-barra { outline: 2px solid var(--azul); outline-offset: 2px; }
 
-/* ---------- mapa ---------- */
-
-.mapa-area {
-  position: relative;
-  margin-top: 16px;
-  background: linear-gradient(170deg, var(--fundo-suave), var(--fundo-mapa));
-  border: 1px solid var(--borda);
-  border-radius: var(--raio-pequeno);
+.barra-trilho {
+  background: var(--trilho);
+  border-radius: 6px;
+  height: 20px;
   overflow: hidden;
 }
 
-.mapa-area svg { width: 100%; height: auto; display: block; }
-
-/* Contorno fino: com 5.570 municípios, borda grossa engole o preenchimento. */
-.mapa-area svg path {
-  stroke: var(--traco-mapa);
-  stroke-width: .3;
-  stroke-linejoin: round;
-  cursor: pointer;
-  transition: opacity .15s ease;
+.barra-preenchida {
+  height: 100%;
+  border-radius: 6px;
+  transition: width .6s cubic-bezier(.4, 0, .2, 1);
 }
 
-.mapa-area svg path:hover {
-  stroke: var(--marinho);
-  stroke-width: 1.3;
+.barra-valor {
+  font-size: .82rem;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
 }
 
-.mapa-area svg path.sem-dado {
-  fill: var(--cinza-dado);
-  cursor: default;
-}
-.mapa-area svg path.sem-dado:hover {
-  stroke: var(--traco-mapa);
-  stroke-width: .3;
-}
+/* ---------- gráfico de colunas ---------- */
 
-#cidade-svg path,
-#consulta-svg path { stroke-width: .6; }
-
-#cidade-svg path.foco,
-#consulta-svg path.foco {
-  stroke: var(--marinho);
-  stroke-width: 2.2;
-  filter: drop-shadow(0 3px 8px rgba(15,35,64,.35));
+.grafico {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  height: 170px;
+  padding-top: 8px;
 }
 
-/* Um município sozinho na tela: o contorno pode ser mais grosso sem engolir
-   o preenchimento, e é ele que dá a forma que a pessoa reconhece. */
-#consulta-svg path.foco { stroke-width: 2.8; }
-
-.mapa-dica {
-  position: absolute;
-  pointer-events: none;
-  background: rgba(15, 35, 64, .96);
-  color: #fff;
-  padding: 9px 12px;
-  border-radius: 8px;
-  font-size: .83rem;
-  line-height: 1.45;
-  box-shadow: 0 6px 20px rgba(0,0,0,.3);
-  z-index: 10;
-  max-width: 240px;
+.coluna {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  height: 100%;
+  justify-content: flex-end;
+  gap: 4px;
 }
 
-.mapa-legenda { display: flex; flex-wrap: wrap; gap: 18px; margin-top: 16px; align-items: center; }
-.mapa-legenda span { display: flex; align-items: center; gap: 7px; font-size: .86rem; color: var(--tinta-media); }
-.mapa-legenda i { width: 15px; height: 15px; border-radius: 4px; display: inline-block; }
+.coluna-valor {
+  font-size: .62rem;
+  color: var(--tinta-fraca);
+  font-variant-numeric: tabular-nums;
+}
 
-.mapa-filtros { display: flex; flex-wrap: wrap; gap: 14px; align-items: end; }
-.mapa-filtros .campo { flex: 1 1 170px; }
-.mapa-filtros button { grid-column: auto; flex: 0 0 auto; padding: 12px 22px; }
+.coluna-barra {
+  width: 100%;
+  min-height: 2px;
+  border-radius: 4px 4px 0 0;
+  background: linear-gradient(180deg, var(--azul-forte), var(--azul));
+  transition: height .6s cubic-bezier(.4, 0, .2, 1);
+}
 
-/* ---------- odds ratio ---------- */
-/* Escala centrada em 1: a linha do meio é "não altera a chance". */
+.coluna-mes { font-size: .66rem; color: var(--tinta-fraca); }
+.coluna.destaque .coluna-barra { outline: 2px solid var(--azul-forte); outline-offset: 2px; }
+
+.numeros-ano {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(88px, 1fr));
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.numeros-ano .numero {
+  padding: 12px 10px;
+  border: 1px solid var(--borda);
+  border-radius: var(--raio-pequeno);
+  text-align: center;
+}
+
+.numeros-ano .numero strong { font-size: 1.15rem; }
+.numeros-ano .numero span { font-size: .66rem; }
+
+
+/* ===================================================================== */
+/* Odds ratio, tabelas e detalhes                                         */
+/* ===================================================================== */
 
 .odds { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
 
-.odds-linha { display: grid; grid-template-columns: 200px 1fr 104px; align-items: center; gap: 12px; }
-.odds-nome { font-size: .84rem; text-align: right; color: var(--tinta-media); }
-.odds-trilho { position: relative; height: 24px; background: var(--trilho); border-radius: 5px; }
-.odds-centro { position: absolute; left: 50%; top: -4px; bottom: -4px; width: 2px; background: var(--tinta-fraca); opacity: .45; }
-.odds-barra { position: absolute; top: 5px; bottom: 5px; border-radius: 4px; transition: width .5s cubic-bezier(.4,0,.2,1); }
+.odds-linha {
+  display: grid;
+  grid-template-columns: 190px 1fr 100px;
+  align-items: center;
+  gap: 12px;
+}
+
+.odds-nome { font-size: .82rem; text-align: right; color: var(--tinta-media); }
+
+.odds-trilho {
+  position: relative;
+  height: 24px;
+  background: var(--trilho);
+  border-radius: 5px;
+}
+
+.odds-centro {
+  position: absolute;
+  left: 50%;
+  top: -4px;
+  bottom: -4px;
+  width: 2px;
+  background: var(--tinta-fraca);
+  opacity: .45;
+}
+
+.odds-barra {
+  position: absolute;
+  top: 5px;
+  bottom: 5px;
+  border-radius: 4px;
+  transition: width .5s cubic-bezier(.4, 0, .2, 1);
+}
+
 .odds-barra.aumenta { background: linear-gradient(90deg, #d9483a, var(--vermelho)); }
 .odds-barra.reduz { background: linear-gradient(90deg, var(--verde), #22914a); }
-.odds-valor { font-size: .84rem; font-variant-numeric: tabular-nums; font-weight: 600; }
-.odds-ic { display: block; font-size: .7rem; color: var(--tinta-fraca); font-weight: 400; }
 
-/* ---------- tabelas ---------- */
+.odds-valor { font-size: .82rem; font-variant-numeric: tabular-nums; font-weight: 600; }
+.odds-ic { display: block; font-size: .68rem; color: var(--tinta-fraca); font-weight: 400; }
 
-.tabela { width: 100%; border-collapse: collapse; font-size: .89rem; }
-.tabela th, .tabela td { text-align: left; padding: 10px 10px; border-bottom: 1px solid var(--borda); }
-.tabela th {
-  color: var(--tinta-fraca);
-  font-weight: 700;
-  font-size: .72rem;
-  text-transform: uppercase;
-  letter-spacing: .07em;
+.tabela { width: 100%; border-collapse: collapse; font-size: .84rem; }
+
+.tabela th, .tabela td {
+  text-align: left;
+  padding: 9px 8px;
+  border-bottom: 1px solid var(--borda);
 }
+
+.tabela th {
+  font-size: .68rem;
+  font-weight: 600;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--tinta-fraca);
+}
+
 .tabela tr:last-child td { border-bottom: none; }
 .tabela tbody tr:hover { background: var(--fundo-suave); }
 .tabela td.numero { text-align: right; font-variant-numeric: tabular-nums; }
 
-.detalhes { margin-top: 22px; border-top: 1px solid var(--borda); padding-top: 16px; }
+.detalhes { margin-top: 18px; border-top: 1px solid var(--borda); padding-top: 14px; }
+
 .detalhes summary {
-  cursor: pointer;
+  font-size: .85rem;
   font-weight: 600;
-  font-size: .91rem;
-  color: var(--azul);
+  color: var(--azul-forte);
+  cursor: pointer;
   list-style: none;
 }
+
 .detalhes summary::-webkit-details-marker { display: none; }
-.detalhes summary::before { content: "▸ "; display: inline-block; transition: transform .2s ease; }
+.detalhes summary::before { content: "▸ "; display: inline-block; }
 .detalhes[open] summary::before { content: "▾ "; }
 
-/* ---------- avisos ---------- */
 
-.aviso {
-  background: var(--aviso-fundo);
-  border: 1px solid var(--aviso-borda);
-  border-left: 4px solid var(--amarelo);
-  border-radius: var(--raio-pequeno);
-  padding: 15px 17px;
-  margin-bottom: 24px;
-  font-size: .91rem;
-  white-space: pre-line;
-  box-shadow: var(--sombra);
-}
+/* ===================================================================== */
+/* Gaveta "saiba mais"                                                    */
+/* ===================================================================== */
 
-.aviso.erro { background: var(--erro-fundo); border-color: var(--erro-borda); border-left-color: var(--vermelho); }
-
-.cartao-nota { background: var(--fundo-suave); }
-.cartao-nota p { font-size: .92rem; margin: 0 0 12px; color: var(--tinta-media); max-width: 76ch; }
-.cartao-nota > h2::before { background: var(--marca-nota); color: var(--tinta-media); }
-
-.rodape {
-  text-align: center;
-  padding: 34px 0 46px;
-  color: var(--tinta-fraca);
-  font-size: .84rem;
-}
-
-.oculto { display: none !important; }
-
-/* ---------- menu de navegação ---------- */
-/* Fica colado no topo ao rolar: com nove seções, voltar ao início para trocar
-   de assunto seria uma viagem longa. */
-
-.menu {
-  position: sticky;
-  top: 0;
+.gaveta-fundo {
+  position: fixed;
+  inset: 0;
   z-index: 40;
-  /* Cor cheia primeiro: navegador sem color-mix cai nela e o menu continua
-     legível, só sem o vidro fosco. */
-  background: var(--papel);
-  background: color-mix(in srgb, var(--papel) 92%, transparent);
-  backdrop-filter: blur(10px);
-  border-bottom: 1px solid var(--borda);
-  margin-bottom: 26px;
+  background: rgba(4, 8, 16, .6);
+  backdrop-filter: blur(3px);
+  animation: surgir .3s ease;
 }
 
-.menu-interno {
+@keyframes surgir { from { opacity: 0; } to { opacity: 1; } }
+
+.gaveta {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 41;
+  width: min(680px, 94vw);
+  overflow-y: auto;
+  padding: 30px 34px 44px;
   display: flex;
-  align-items: center;
-  gap: 16px;
-  justify-content: space-between;
+  flex-direction: column;
+  gap: 18px;
+  background: var(--papel-solido);
+  border-left: 1px solid var(--borda-forte);
+  box-shadow: var(--sombra-alta);
+  animation: deslizar .38s cubic-bezier(.16, 1, .3, 1);
 }
 
-.menu-itens {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  /* Em tela estreita a lista rola na horizontal em vez de quebrar em duas
-     linhas, que empurraria o conteúdo para baixo. */
-  overflow-x: auto;
-  scrollbar-width: thin;
+@keyframes deslizar {
+  from { transform: translateX(100%); }
+  to   { transform: translateX(0); }
 }
 
-.menu-itens a {
-  display: block;
-  padding: 13px 12px;
-  border-bottom: 2px solid transparent;
+.gaveta .bloco { background: transparent; backdrop-filter: none; box-shadow: none; }
+.gaveta .bloco p { font-size: .9rem; line-height: 1.65; color: var(--tinta-media); }
+
+.gaveta-fechar {
+  position: absolute;
+  top: 18px;
+  right: 20px;
+  width: 36px;
+  height: 36px;
+  font-size: 1.4rem;
+  line-height: 1;
   color: var(--tinta-media);
-  text-decoration: none;
-  font-size: .87rem;
-  font-weight: 500;
-  white-space: nowrap;
-  transition: color .15s ease, border-color .15s ease;
+  background: var(--fundo-suave);
+  border: 1px solid var(--borda);
+  border-radius: 50%;
 }
 
-.menu-itens a:hover { color: var(--tinta); }
+.gaveta-fechar:hover { color: var(--tinta); border-color: var(--borda-forte); }
 
-.menu-itens a.ativo {
-  color: var(--azul);
-  border-bottom-color: var(--azul);
-  font-weight: 600;
-}
 
-/* Cada seção reserva espaço acima de si para não ficar embaixo do menu
-   quando alguém pula direto para ela pelo link. */
-main section[id], #resultado { scroll-margin-top: 64px; }
-
-/* ---------- botão de tema ---------- */
+/* ===================================================================== */
+/* Botão de tema e avisos                                                 */
+/* ===================================================================== */
 
 .botao-tema {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  flex: 0 0 auto;
-  grid-column: auto;
-  padding: 8px 14px;
-  background: var(--fundo-suave);
-  border: 1px solid var(--borda-forte);
+  padding: 9px 14px;
+  font-size: .85rem;
+  font-weight: 500;
   color: var(--tinta-media);
-  font-size: .82rem;
-  font-weight: 600;
-  border-radius: 999px;
+  background: transparent;
+  border: 1px solid var(--borda);
 }
 
-.botao-tema:hover:not(:disabled) {
-  background: var(--azul-claro);
-  color: var(--azul);
-  border-color: var(--azul);
-  transform: none;
-  box-shadow: none;
-}
+.botao-tema:hover { color: var(--tinta); border-color: var(--borda-forte); }
 
-/* Ícone desenhado em CSS: um círculo que vira lua ganhando uma sombra
-   deslocada. Evita depender de fonte de ícones ou de imagem externa. */
 .botao-tema-icone {
-  width: 15px; height: 15px;
+  width: 15px;
+  height: 15px;
   border-radius: 50%;
   background: var(--tinta-media);
-  box-shadow: inset -4px -4px 0 0 transparent;
-  transition: box-shadow .2s ease, background .2s ease;
+  /* Uma lua é o mesmo círculo com uma mordida: a sombra interna à direita
+     recorta o disco sem precisar de imagem nenhuma. */
+  box-shadow: inset -4px -1px 0 0 var(--papel-solido);
 }
 
-[data-tema="escuro"] .botao-tema-icone {
-  background: #f0c96b;
-  box-shadow: inset -5px -3px 0 0 var(--fundo-suave);
+[data-tema="claro"] .botao-tema-icone {
+  box-shadow: 0 0 0 2px var(--papel-solido), 0 0 0 4px var(--tinta-media);
+  transform: scale(.62);
 }
 
-/* ---------- mapa por ano ---------- */
-
-.numeros-ano {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 26px;
-  margin: 20px 0 4px;
-  padding: 18px 20px;
-  background: var(--fundo-suave);
-  border: 1px solid var(--borda);
-  border-radius: var(--raio-pequeno);
-}
-
-.numeros-ano .numero strong {
-  font-size: 1.45rem;
-  color: var(--tinta);
-}
-
-.numeros-ano .numero span {
-  font-size: .74rem;
-  color: var(--tinta-fraca);
-  text-transform: uppercase;
-  letter-spacing: .07em;
-}
-
-.meses-ano .grafico { margin-top: 4px; }
-
-/* ---------- camada de chuva medida ---------- */
-/*
-  Canvas alinhado ao SVG do mapa: os dois usam o mesmo viewBox, e o canvas
-  recebe a projeção calculada em `renderizarSvg`. Fica acima do mapa e abaixo
-  da animação e da dica, e nunca intercepta o mouse.
-*/
-
-.camada-chuva {
-  position: absolute;
-  inset: 0;
-  z-index: 3;
-  width: 100%;
-  height: 100%;
-  pointer-events: none;
-}
-
-/* Com a chuva ligada, o mapa embaixo vira referência geográfica. Duas escalas
-   de cor cheias disputando a mesma área não se leem — nem a de risco, nem a
-   de chuva. */
-.mapa-area.com-chuva svg path { fill-opacity: .28; }
-.mapa-area.com-chuva svg path.sem-dado { fill-opacity: .14; }
-/* O contorno das capitais é referência geográfica, não dado concorrente:
-   continua inteiro por cima da chuva. */
-.mapa-area.com-chuva .capital-contorno { opacity: 1; }
-
-.camada-opcao {
-  display: inline-flex;
-  align-items: center;
-  gap: 9px;
-  margin: 14px 0 4px;
-  padding: 9px 15px;
-  background: var(--fundo-suave);
-  border: 1px solid var(--borda-forte);
-  border-radius: 999px;
-  font-size: .86rem;
-  font-weight: 600;
-  color: var(--tinta-media);
-  cursor: pointer;
-  user-select: none;
-  transition: border-color .18s ease, color .18s ease, background .18s ease;
-}
-
-.camada-opcao:hover { border-color: var(--azul); color: var(--azul); }
-
-.camada-opcao input {
-  width: 15px; height: 15px;
-  margin: 0; padding: 0;
-  accent-color: var(--azul);
-  cursor: pointer;
-}
-
-.camada-opcao:has(input:checked) {
-  background: var(--azul-claro);
-  border-color: var(--azul);
-  color: var(--azul);
-}
-
-.legenda-chuva { margin-top: 10px; }
-
-.legenda-titulo {
-  font-weight: 700;
-  font-size: .74rem;
-  text-transform: uppercase;
-  letter-spacing: .07em;
-  color: var(--tinta-fraca);
-}
-
-.nota-chuva {
-  margin: 10px 0 0;
-  font-size: .8rem;
-  color: var(--tinta-fraca);
-  max-width: 78ch;
-}
-
-/* ---------- mapa dentro da consulta ---------- */
-
-#consulta-mapa {
-  margin-top: 26px;
-  padding-top: 22px;
-  border-top: 1px solid var(--borda);
-}
-
-#consulta-mapa h3 { margin-top: 0; }
-
-/* ---------- capitais ---------- */
-/*
-  Vinte e sete marcadores por cima do mapa. Não carregam dado nenhum — o
-  risco continua sendo a cor do município — e por isso ficam num <svg>
-  próprio, sobreposto: dentro do mapa eles seriam cobertos pela camada de
-  chuva, e o nome da capital sumiria justamente quando ela está ligada.
-
-  `pointer-events: none` é obrigatório: a dica de cada município vem de um
-  listener no <svg> de baixo, que procura o `path` sob o mouse. Um marcador
-  capturando o clique apagaria a dica bem em cima das capitais.
-*/
-
-.camada-capitais {
-  position: absolute;
-  inset: 0;
-  z-index: 4;
-  width: 100%;
-  height: 100%;
-  pointer-events: none;
-}
-
-.mapa-area:not(.mostrar-capitais) .camada-capitais { display: none; }
-
-/* Contorno do município da capital, redesenhado por cima de tudo. Como
-   classe no `path` original ele sumiria: com milhares de polígonos vizinhos
-   empilhados, o traço de quem foi desenhado antes fica sob quem veio depois. */
-.capital-contorno {
-  fill: none;
-  stroke: var(--tinta);
-  stroke-width: 1.5;
-  stroke-linejoin: round;
-  opacity: .85;
-}
-
-.capital-halo {
-  fill: var(--papel);
-  stroke: var(--tinta);
-  stroke-width: 1.1;
-  opacity: .95;
-}
-
-.capital-ponto { fill: var(--tinta); }
-
-.capital-nome {
-  font-family: var(--fonte);
-  font-size: 10.5px;
-  font-weight: 700;
-  fill: var(--tinta);
-  /* O nome cai sobre verde, vermelho, cinza ou sobre a mancha de chuva. Sem
-     um contorno claro por baixo da letra, some em pelo menos uma delas. */
-  stroke: var(--papel);
-  stroke-width: 2.8;
-  paint-order: stroke fill;
-  stroke-linejoin: round;
-}
-
-/* No mapa da cidade cabe menos coisa na tela, e o recorte é pequeno: o nome
-   pode crescer sem virar tapume. */
-#cidade-capitais-svg .capital-nome,
-#consulta-capitais-svg .capital-nome { font-size: 12px; }
-
-/* ---------- escala da chuva ---------- */
-/*
-  Era uma fileira de quadradinhos, um por faixa, todos do mesmo tamanho — e
-  isso dizia que "0 a 25 mm" ocupa tanto da escala quanto "300 a 450 mm". Na
-  barra contínua a posição de cada marca é o próprio valor, então a legenda
-  passa a ter a mesma geometria do mapa que ela explica.
-*/
-
-.legenda-chuva {
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 9px;
-}
-
-.escala-chuva {
-  position: relative;
-  width: 100%;
-  max-width: 520px;
-}
-
-.escala-barra {
-  height: 13px;
-  border-radius: 999px;
-  border: 1px solid var(--borda-forte);
-}
-
-/* Altura zero: as marcas são absolutas e não devem empurrar o que vem
-   depois; o espaço para elas sai do padding de baixo. */
-.escala-marcas { position: relative; height: 0; padding-bottom: 20px; }
-
-.mapa-legenda .escala-marcas span {
-  position: absolute;
-  top: 5px;
+.aviso {
+  position: fixed;
+  top: 16px;
+  left: 50%;
   transform: translateX(-50%);
-  display: block;
-  font-size: .68rem;
-  font-variant-numeric: tabular-nums;
-  color: var(--tinta-fraca);
-  white-space: nowrap;
+  z-index: 60;
+  max-width: min(680px, 92vw);
+  padding: 14px 20px;
+  font-size: .88rem;
+  line-height: 1.6;
+  white-space: pre-line;
+  color: var(--tinta);
+  background: var(--aviso-fundo);
+  border: 1px solid var(--aviso-borda);
+  border-left: 4px solid var(--amarelo);
+  border-radius: var(--raio-pequeno);
+  box-shadow: var(--sombra-alta);
 }
 
-/* A marca da última faixa fica na ponta da barra; puxada para dentro, para
-   não sair do cartão. */
-.mapa-legenda .escala-marcas span:last-child { transform: translateX(-85%); }
-
-.mapa-legenda .legenda-estacao i {
-  width: 11px;
-  height: 11px;
-  border-radius: 50%;
-  background: #fff;
-  box-shadow: 0 0 0 2.5px rgba(12, 22, 38, .55);
+.aviso.erro {
+  background: var(--erro-fundo);
+  border-color: var(--erro-borda);
+  border-left-color: var(--vermelho);
 }
 
-/* ---------- telas menores ---------- */
 
-@media (max-width: 720px) {
-  .conteudo { padding: 0 16px; }
-  .cabecalho { padding: 38px 0 32px; }
-  .cartao { padding: 22px; border-radius: 11px; }
-  .formulario { grid-template-columns: 1fr; }
-  .resultado-topo { flex-direction: column; align-items: stretch; text-align: center; }
-  .grafico { height: 160px; }
-  .coluna-valor { display: none; }
-  .odds-linha { grid-template-columns: 116px 1fr 76px; }
-  .odds-nome { font-size: .75rem; }
-  .numeros-topo { gap: 22px; }
+/* ===================================================================== */
+/* Telas menores                                                          */
+/* ===================================================================== */
 
-  .menu-interno { gap: 8px; }
-  .menu-itens a { padding: 12px 9px; font-size: .82rem; }
-  /* Em tela pequena sobra só o ícone: o rótulo roubaria a largura de que a
-     lista de seções precisa para rolar. */
-  .botao-tema { padding: 8px 10px; }
-  .botao-tema-texto { display: none; }
-  .numeros-ano { gap: 18px; padding: 14px 16px; }
+@media (max-width: 1280px) {
+  .oficina { grid-template-columns: 280px minmax(0, 1fr) 320px; }
+  .aba span { display: none; }
 }
 
+@media (max-width: 1040px) {
+  /* Abaixo desta largura as três colunas viram uma pilha: o mapa continua
+     grande e os painéis passam a vir depois dele. Quem rola deixa de ser cada
+     coluna e passa a ser o palco inteiro — mas continua sendo só um palco por
+     vez, como nas telas largas. */
+  /* `align-content: start` é o que faz a diferença: sem ele as linhas se
+     esticam para preencher a altura do palco e, como as colunas podem encolher
+     até zero, o mapa (que tem altura fixa) espremeria as duas ao tamanho de
+     uma linha de texto. Com as linhas medidas pelo conteúdo, quem rola é o
+     palco. */
+  .palco-mapas { overflow-y: auto; grid-template-rows: auto auto; align-content: start; }
+  .oficina { grid-template-columns: 1fr; align-content: start; }
+  .teatros { height: 62vh; min-height: 360px; }
+  .controles, .painel { overflow: visible; min-height: auto; }
+  .barra { flex-wrap: wrap; gap: 12px; position: sticky; top: 0; }
+  .abas { order: 3; width: 100%; }
+  .aba { flex: 1; align-items: center; }
+}
+
+/* Quem pediu menos animação no sistema recebe as trocas de palco sem
+   movimento — mas continua vendo tudo. */
 @media (prefers-reduced-motion: reduce) {
-  * { transition: none !important; animation: none !important; }
-  html { scroll-behavior: auto; }
+  *, *::before, *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+  }
 }

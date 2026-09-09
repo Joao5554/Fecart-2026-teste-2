@@ -67,11 +67,13 @@ async function iniciar() {
   prepararMapa();
   prepararMapaDoAno();
 
-  // Menu e tema são de interface pura: não dependem da API e precisam
+  // Palcos, abas e tema são de interface pura: não dependem da API e precisam
   // funcionar mesmo com o servidor fora do ar, quando a página vira só um
   // aviso de erro que a pessoa ainda tem de conseguir ler no tema que escolheu.
   ligarTema();
-  ligarMenu();
+  ligarPalcos();
+  ligarAbas();
+  ligarCamera();
   ligarCamadasDeChuva();
   ligarCapitais();
   carregarCapitais();
@@ -236,11 +238,16 @@ $("formulario").addEventListener("submit", async (evento) => {
     });
     mostrarResultado(previsao);
 
-    // Os dois em paralelo, e não um depois do outro. O gráfico do ano custa
+    // O voo é a resposta à pergunta "onde fica isso?", e ela não pode esperar
+    // as doze previsões do gráfico do ano. Sai junto com o resto, não depois.
+    const voo = prepararEVoar(previsao, tipo, mes);
+
+    // Os demais em paralelo, e não um depois do outro. O gráfico do ano custa
     // doze previsões; enfileirado atrás dele, o mapa da cidade demorava quase
     // um minuto para aparecer — tempo suficiente para quem consultou concluir
     // que ele não existe mais. Cada um revela a sua seção quando termina.
     await Promise.all([
+      voo,
       mostrarMapaDaConsulta(previsao),
       mostrarMapaDaCidade(municipioEscolhido.codigo_ibge, tipo, mes),
       mostrarAno(municipioEscolhido.codigo_ibge, tipo, ano, mes),
@@ -253,7 +260,55 @@ $("formulario").addEventListener("submit", async (evento) => {
   }
 });
 
+/**
+ * Leva o mapa grande até o município consultado.
+ *
+ * Se o mapa na tela é de outro tipo de desastre ou de outro mês, ele é
+ * redesenhado antes do voo: pousar sobre um município pintado com o risco de
+ * outra pergunta mostraria uma cor que não responde a nada.
+ */
+async function prepararEVoar(previsao, tipo, mes) {
+  mostrarMapa("mapa");
+
+  const jaDesenhado = Boolean(projecaoDoMapa["mapa-svg"]);
+  const precisaRedesenhar = !jaDesenhado
+    || $("mapa-tipo").value !== tipo
+    || Number($("mapa-mes").value) !== mes;
+
+  let redesenho = Promise.resolve();
+  if (precisaRedesenhar) {
+    $("mapa-tipo").value = tipo;
+    $("mapa-mes").value = String(mes);
+    mapaJaDesenhado = true;
+    redesenho = desenharMapa(tipo, mes);
+  }
+
+  // O primeiro cálculo de um tipo e mês novos leva alguns segundos no
+  // servidor. Só que o voo não depende dele: onde fica o município é a malha
+  // do IBGE que diz, e ela não muda com a pergunta. A câmera parte na hora, e
+  // a cor do risco chega por baixo quando ficar pronta. Esperar o desenho
+  // para só então começar a voar transformaria a resposta mais imediata da
+  // tela — "é aqui" — na mais demorada.
+  //
+  // A exceção é o primeiro desenho de todos: antes dele não existe geometria
+  // projetada, e não há para onde voar.
+  if (!jaDesenhado) await redesenho;
+
+  // O seletor de estado passa a mostrar onde a câmera está de fato.
+  $("mapa-uf").value = ufDoCodigo(previsao.codigo_ibge) || "";
+  destacarNoMapa("mapa", previsao.codigo_ibge);
+
+  await Promise.all([
+    redesenho,
+    voarAteOMunicipio("mapa", previsao.codigo_ibge),
+  ]);
+
+  // O redesenho refaz todos os caminhos e leva o destaque junto.
+  destacarNoMapa("mapa", previsao.codigo_ibge);
+}
+
 function mostrarResultado(p) {
+  $("painel-vazio").classList.add("oculto");
   $("resultado").classList.remove("oculto");
 
   $("selo").textContent = p.nivel_risco;
@@ -290,7 +345,10 @@ function mostrarResultado(p) {
     celula.textContent = formatarValor(chave, valor);
   });
 
-  $("resultado").scrollIntoView({ behavior: "smooth", block: "nearest" });
+  // O painel rola até o resultado sozinho: numa coluna que já tem o mapa da
+  // cidade, o gráfico do ano e o histórico, o resultado novo pode ter nascido
+  // fora da vista.
+  $("painel").scrollTo({ top: 0, behavior: "smooth" });
 }
 
 async function mostrarAno(codigoIbge, tipo, ano, mesEscolhido) {
@@ -347,20 +405,42 @@ function prepararMapa() {
   const mes = $("mapa-mes");
   MESES.forEach((nome, i) => mes.add(new Option(nome, i + 1, false, i === 1)));
 
+  // O seletor de estado deixou de recortar o desenho: ele agora aponta para
+  // onde a câmera deve voar. O mapa continua sendo o país inteiro, e o estado
+  // é um enquadramento dele — assim dá para sair de um estado para outro sem
+  // recalcular 5.570 polígonos a cada troca.
   const uf = $("mapa-uf");
   uf.add(new Option("Brasil inteiro", ""));
   UFS.forEach((sigla) => uf.add(new Option(sigla, sigla)));
+  uf.addEventListener("change", () => voarAteOEstado("mapa", uf.value));
 
   $("form-mapa").addEventListener("submit", (evento) => {
     evento.preventDefault();
-    desenharMapa(tipo.value, Number(mes.value), uf.value);
+    desenharMapa(tipo.value, Number(mes.value));
   });
 }
 
-async function desenharMapa(tipo, mes, ufEscolhida = "") {
+/** Enquadra um estado — ou o país inteiro, quando nenhum foi escolhido. */
+function voarAteOEstado(prefixo, sigla) {
+  const projecao = projecaoDoMapa[`${prefixo}-svg`];
+  if (!projecao) return;
+
+  if (!sigla) {
+    voar(prefixo, null);
+    return;
+  }
+  const caixa = projecao.caixasUf.get(sigla);
+  if (caixa) voar(prefixo, caixa);
+}
+
+async function desenharMapa(tipo, mes) {
   const botao = $("mapa-botao");
   botao.disabled = true;
   botao.textContent = "Desenhando...";
+  // O primeiro cálculo de cada combinação de tipo e mês passa de dez segundos
+  // no servidor (depois fica em cache). Sem um sinal de que algo está
+  // acontecendo, esse tempo é indistinguível de uma tela travada.
+  $("teatro-mapa").classList.add("carregando");
   $("mapa-estado").textContent = malhaCache
     ? "Calculando o risco de cada município..."
     : "Baixando as fronteiras dos municípios (3 MB, só na primeira vez)...";
@@ -372,25 +452,19 @@ async function desenharMapa(tipo, mes, ufEscolhida = "") {
       `/mapa/brasil?grupo_desastre=${tipo}&mes=${mes}&ano=${new Date().getFullYear()}`
     );
 
-    // Filtrar por UF muda o enquadramento: os limites do desenho passam a ser
-    // os do estado, e ele preenche a tela em vez de virar um ponto no país.
-    const soDoEstado = (codigo) => !ufEscolhida || ufDoCodigo(codigo) === ufEscolhida;
-
-    const feicoes = malhaCache.features.filter(
-      (f) => soDoEstado(f.properties.codigo_ibge)
-    );
-    const doMapa = dados.municipios.filter((m) => soDoEstado(m.codigo_ibge));
+    const doMapa = dados.municipios;
     const porMunicipio = new Map(doMapa.map((m) => [m.codigo_ibge, m]));
 
-    renderizarSvg("mapa-svg", "mapa-dica", feicoes, porMunicipio);
+    // Sempre o país inteiro: o recorte por estado agora é trabalho da câmera.
+    renderizarSvg("mapa-svg", "mapa-dica", malhaCache.features, porMunicipio);
     atualizarChuva("mapa");
+    reenquadrar("mapa");
 
     const resumo = { baixo: 0, medio: 0, alto: 0 };
     doMapa.forEach((m) => { resumo[m.nivel_risco] += 1; });
 
-    const onde = ufEscolhida ? `em ${ufEscolhida}` : "no Brasil";
     $("mapa-estado").textContent =
-      `${formatarTipo(tipo)} em ${MESES[mes - 1]}, ${onde} · `
+      `${formatarTipo(tipo)} em ${MESES[mes - 1]}, no Brasil · `
       + `${doMapa.length.toLocaleString("pt-BR")} municípios com histórico · `
       + `${resumo.alto} em risco alto, ${resumo.medio} em médio.`;
 
@@ -398,6 +472,7 @@ async function desenharMapa(tipo, mes, ufEscolhida = "") {
   } catch (erro) {
     $("mapa-estado").textContent = `Não foi possível montar o mapa: ${erro.message}`;
   } finally {
+    $("teatro-mapa").classList.remove("carregando");
     botao.disabled = false;
     botao.textContent = "Desenhar";
   }
@@ -999,6 +1074,19 @@ function renderizarSvg(idSvg, idDica, feicoes, porMunicipio, codigoEmFoco = null
   const contornosCapitais = [];
   const capitaisNoRecorte = [];
 
+  // Onde cada município e cada estado caem no desenho. É o que a câmera usa
+  // para saber até onde voar: sem isso, aproximar uma cidade exigiria varrer
+  // a malha de novo a cada consulta.
+  const caixas = new Map();
+  const caixasUf = new Map();
+
+  const juntar = (caixa, x, y) => {
+    if (x < caixa[0]) caixa[0] = x;
+    if (y < caixa[1]) caixa[1] = y;
+    if (x > caixa[2]) caixa[2] = x;
+    if (y > caixa[3]) caixa[3] = y;
+  };
+
   feicoes.forEach((f) => {
     const codigo = f.properties.codigo_ibge;
     const info = porMunicipio.get(codigo);
@@ -1007,6 +1095,18 @@ function renderizarSvg(idSvg, idDica, feicoes, porMunicipio, codigoEmFoco = null
 
     const d = poligonos.map((p) => p.map(anelParaPath).join("")).join("");
     if (!d) return;
+
+    const caixa = [Infinity, Infinity, -Infinity, -Infinity];
+    visitar(g.coordinates, ([lon, lat]) => juntar(caixa, px(lon), py(lat)));
+    caixas.set(codigo, caixa);
+
+    const uf = ufDoCodigo(codigo);
+    if (uf) {
+      const doEstado = caixasUf.get(uf)
+        || caixasUf.set(uf, [Infinity, Infinity, -Infinity, -Infinity]).get(uf);
+      juntar(doEstado, caixa[0], caixa[1]);
+      juntar(doEstado, caixa[2], caixa[3]);
+    }
 
     contorno.push(d);
 
@@ -1045,9 +1145,14 @@ function renderizarSvg(idSvg, idDica, feicoes, porMunicipio, codigoEmFoco = null
     if (!alvo) { dica.classList.add("oculto"); return; }
 
     const info = porMunicipio.get(Number(alvo.dataset.ibge));
+    if (!info) { dica.classList.add("oculto"); return; }
+
     dica.innerHTML = descrever(info);
-    const area = svg.getBoundingClientRect();
-    dica.style.left = `${Math.min(evento.clientX - area.left + 14, area.width - 250)}px`;
+    // A referência é a moldura do mapa, e não o próprio <svg>: nos mapas
+    // grandes o SVG anda junto com a câmera, e medir por ele deixaria a dica
+    // deslocada — mais errada quanto mais ampliado estivesse.
+    const area = (svg.closest(".mapa-area") || svg).getBoundingClientRect();
+    dica.style.left = `${Math.min(evento.clientX - area.left + 14, area.width - 270)}px`;
     dica.style.top = `${evento.clientY - area.top + 14}px`;
     dica.classList.remove("oculto");
   };
@@ -1059,8 +1164,18 @@ function renderizarSvg(idSvg, idDica, feicoes, porMunicipio, codigoEmFoco = null
   // `contorno` é o desenho inteiro num só caminho: a camada de chuva recorta
   // a mancha interpolada por ele, para a chuva não vazar para o mar nem para
   // fora do estado escolhido.
+  // A caixa de tudo que foi desenhado. O Brasil é quase quadrado e o teatro
+  // não é: enquadrar a área lógica inteira deixaria faixas vazias em volta do
+  // país, e o mapa entraria menor do que cabe.
+  const caixaTudo = [Infinity, Infinity, -Infinity, -Infinity];
+  caixas.forEach((c) => {
+    juntar(caixaTudo, c[0], c[1]);
+    juntar(caixaTudo, c[2], c[3]);
+  });
+
   projecaoDoMapa[idSvg] = {
     px, py, largura: LARGURA, altura: ALTURA, contorno: contorno.join(""),
+    caixas, caixasUf, caixaTudo,
   };
   return projecaoDoMapa[idSvg];
 }
@@ -1102,10 +1217,11 @@ function prepararMapaDoAno() {
   const uf = $("ano-uf");
   uf.add(new Option("Brasil inteiro", ""));
   UFS.forEach((sigla) => uf.add(new Option(sigla, sigla)));
+  uf.addEventListener("change", () => voarAteOEstado("ano", uf.value));
 
   $("form-ano").addEventListener("submit", (evento) => {
     evento.preventDefault();
-    desenharMapaDoAno(Number($("ano-escolhido").value), tipo.value, uf.value);
+    desenharMapaDoAno(Number($("ano-escolhido").value), tipo.value);
   });
 }
 
@@ -1128,10 +1244,11 @@ async function carregarAnos() {
   }
 }
 
-async function desenharMapaDoAno(ano, tipo = "", ufEscolhida = "") {
+async function desenharMapaDoAno(ano, tipo = "") {
   const botao = $("ano-botao");
   botao.disabled = true;
   botao.textContent = "Desenhando...";
+  $("teatro-ano").classList.add("carregando");
   $("ano-estado").textContent = malhaCache
     ? "Reunindo as ocorrências do ano..."
     : "Baixando as fronteiras dos municípios (3 MB, só na primeira vez)...";
@@ -1143,26 +1260,24 @@ async function desenharMapaDoAno(ano, tipo = "", ufEscolhida = "") {
     const filtro = tipo ? `?grupo_desastre=${tipo}` : "";
     const dados = await pedir(`/historico/ano/${ano}${filtro}`);
 
-    const soDoEstado = (codigo) => !ufEscolhida || ufDoCodigo(codigo) === ufEscolhida;
-    const feicoes = malhaCache.features.filter(
-      (f) => soDoEstado(f.properties.codigo_ibge)
-    );
-    const doMapa = dados.municipios.filter((m) => soDoEstado(m.codigo_ibge));
+    const doMapa = dados.municipios;
     const porMunicipio = new Map(doMapa.map((m) => [m.codigo_ibge, m]));
 
-    renderizarSvg("ano-svg", "ano-dica", feicoes, porMunicipio, null,
-                  dicaDeOcorrencias);
+    // Como no mapa de previsão: desenha o país inteiro e deixa o recorte por
+    // conta da câmera.
+    renderizarSvg("ano-svg", "ano-dica", malhaCache.features, porMunicipio,
+                  null, dicaDeOcorrencias);
     atualizarChuva("ano");
+    reenquadrar("ano");
 
-    mostrarNumerosDoAno(dados, doMapa, ufEscolhida);
+    mostrarNumerosDoAno(dados);
     montarLegendaDoAno(dados.legenda);
     mostrarMesesDoAno(dados);
     mostrarTiposDoAno(dados);
 
     const oQue = tipo ? formatarTipo(tipo) : "Desastres de todos os tipos";
-    const onde = ufEscolhida ? `em ${ufEscolhida}` : "no Brasil";
     $("ano-estado").textContent =
-      `${oQue} registrados em ${ano}, ${onde} · `
+      `${oQue} registrados em ${ano}, no Brasil · `
       + `${doMapa.length.toLocaleString("pt-BR")} municípios atingidos.`;
   } catch (erro) {
     $("ano-estado").textContent = `Não foi possível montar o mapa: ${erro.message}`;
@@ -1170,6 +1285,7 @@ async function desenharMapaDoAno(ano, tipo = "", ufEscolhida = "") {
       .forEach((id) => $(id).classList.add("oculto"));
     $("ano-svg").innerHTML = "";
   } finally {
+    $("teatro-ano").classList.remove("carregando");
     botao.disabled = false;
     botao.textContent = "Mostrar";
   }
@@ -1197,18 +1313,17 @@ function montarLegendaDoAno(faixas) {
   $("ano-legenda").classList.remove("oculto");
 }
 
-function mostrarNumerosDoAno(dados, doMapa, ufEscolhida) {
-  // Com o mapa filtrado por estado, os totais do país deixariam de descrever o
-  // que está na tela. Nesse caso os números são recontados sobre o recorte.
-  const soma = (campo) => doMapa.reduce((total, m) => total + m[campo], 0);
-  const recorte = Boolean(ufEscolhida);
-
+function mostrarNumerosDoAno(dados) {
+  // Os totais são sempre os do país. Antes o mapa podia vir recortado por
+  // estado, e havia um segundo caminho que recontava tudo sobre o recorte;
+  // agora quem recorta é a câmera, e o desenho é o Brasil inteiro — os
+  // números do país descrevem exatamente o que está na tela.
   const numeros = [
-    [recorte ? soma("ocorrencias") : dados.total_ocorrencias, "ocorrências"],
-    [recorte ? doMapa.length : dados.municipios_atingidos, "municípios atingidos"],
-    [recorte ? soma("mortos") : dados.mortos, "mortos"],
-    [recorte ? soma("afetados") : dados.afetados, "pessoas afetadas"],
-    [recorte ? soma("reconhecidos") : dados.reconhecidos, "emergências reconhecidas"],
+    [dados.total_ocorrencias, "ocorrências"],
+    [dados.municipios_atingidos, "municípios atingidos"],
+    [dados.mortos, "mortos"],
+    [dados.afetados, "pessoas afetadas"],
+    [dados.reconhecidos, "emergências reconhecidas"],
   ];
 
   $("ano-numeros").innerHTML = numeros.map(([valor, rotulo]) =>
@@ -1248,51 +1363,353 @@ function mostrarTiposDoAno(dados) {
 }
 
 // ---------------------------------------------------------------------------
-// Menu e tema
+// Palcos
 // ---------------------------------------------------------------------------
+// A página não rola: são três telas cheias — abertura, mapas e despedida — e
+// só uma fica visível por vez. Quem manda é o atributo `data-palco` no <body>;
+// o CSS cuida da transição, e aqui ficam só as consequências que o CSS não
+// tem como ter: pausar o fundo animado que saiu de cena e desenhar o mapa na
+// primeira vez que os mapas aparecem.
 
-/**
- * Liga o menu do topo.
- *
- * Boa parte das seções começa escondida e só aparece depois de uma consulta.
- * Um link para uma seção invisível não leva a lugar nenhum, então os itens
- * acompanham as seções: um observador avisa quando `.oculto` sai ou entra, e
- * o menu se ajusta sozinho — sem precisar lembrar de chamá-lo em cada ponto
- * do código que revela uma seção.
- */
-function ligarMenu() {
-  const itens = [...document.querySelectorAll("#menu-itens a")].map((link) => ({
-    link,
-    secao: document.querySelector(link.getAttribute("href")),
-  })).filter((item) => item.secao);
+let fundoGlobo = null;
+let fundoClima = null;
+let mapaJaDesenhado = false;
 
-  const sincronizar = () => {
-    itens.forEach(({ link, secao }) => {
-      link.parentElement.classList.toggle("oculto",
-        secao.classList.contains("oculto"));
-    });
+function ligarPalcos() {
+  fundoGlobo = Cenario.globo($("fundo-globo"));
+  fundoClima = Cenario.clima($("fundo-clima"));
+  fundoClima.pausar();
+
+  $("botao-entrar").addEventListener("click", () => trocarPalco("mapas"));
+  $("botao-encerrar").addEventListener("click", () => trocarPalco("despedida"));
+  $("botao-reiniciar").addEventListener("click", () => trocarPalco("abertura"));
+
+  ligarGaveta();
+}
+
+function trocarPalco(nome) {
+  document.body.dataset.palco = nome;
+
+  // Só um dos dois cenários desenha por vez. O outro continua existindo, com
+  // o estado intacto, mas sem gastar quadro nenhum atrás de uma tela que
+  // ninguém está vendo.
+  if (nome === "mapas") {
+    fundoGlobo?.pausar();
+    fundoClima?.seguir();
+  } else {
+    fundoClima?.pausar();
+    fundoGlobo?.seguir();
+  }
+
+  if (nome === "mapas" && !mapaJaDesenhado) {
+    mapaJaDesenhado = true;
+    // Entrar num mapa vazio e ter de apertar "Desenhar" para ver qualquer
+    // coisa é um passo a mais sem nenhuma informação nova. O país já vem
+    // pintado, e a pessoa começa mexendo, não configurando.
+    desenharMapa($("mapa-tipo").value, Number($("mapa-mes").value));
+  }
+}
+
+function ligarGaveta() {
+  const abrir = () => {
+    $("gaveta").classList.remove("oculto");
+    $("gaveta-fundo").classList.remove("oculto");
+  };
+  const fechar = () => {
+    $("gaveta").classList.add("oculto");
+    $("gaveta-fundo").classList.add("oculto");
   };
 
-  const observador = new MutationObserver(sincronizar);
-  itens.forEach(({ secao }) => {
-    observador.observe(secao, { attributes: true, attributeFilter: ["class"] });
-  });
-  sincronizar();
-
-  // Marca no menu a seção que está sendo lida. A margem superior desconta a
-  // altura do próprio menu, senão a seção "ativa" seria sempre a que está
-  // escondida atrás dele.
-  const espia = new IntersectionObserver((entradas) => {
-    entradas.forEach((entrada) => {
-      if (!entrada.isIntersecting) return;
-      itens.forEach(({ link, secao }) => {
-        link.classList.toggle("ativo", secao === entrada.target);
-      });
-    });
-  }, { rootMargin: "-64px 0px -70% 0px", threshold: 0 });
-
-  itens.forEach(({ secao }) => espia.observe(secao));
+  $("botao-saiba").addEventListener("click", abrir);
+  $("gaveta-fechar").addEventListener("click", fechar);
+  $("gaveta-fundo").addEventListener("click", fechar);
+  addEventListener("keydown", (e) => { if (e.key === "Escape") fechar(); });
 }
+
+// ---------------------------------------------------------------------------
+// Abas: os dois mapas
+// ---------------------------------------------------------------------------
+
+let mapaAtivo = "mapa";
+
+function ligarAbas() {
+  document.querySelectorAll(".aba").forEach((aba) => {
+    aba.addEventListener("click", () => mostrarMapa(aba.dataset.mapa));
+  });
+}
+
+function mostrarMapa(prefixo) {
+  mapaAtivo = prefixo;
+
+  document.querySelectorAll(".aba").forEach((aba) => {
+    const ativa = aba.dataset.mapa === prefixo;
+    aba.classList.toggle("ativa", ativa);
+    aba.setAttribute("aria-selected", String(ativa));
+  });
+
+  $("teatro-mapa").classList.toggle("ativo", prefixo === "mapa");
+  $("teatro-ano").classList.toggle("ativo", prefixo === "ano");
+  $("controles-mapa").classList.toggle("oculto", prefixo !== "mapa");
+  $("controles-ano").classList.toggle("oculto", prefixo !== "ano");
+
+  // O teatro escondido tinha largura zero enquanto estava fora de cena, e o
+  // enquadramento calculado ali não valeria nada. Refazê-lo ao aparecer é o
+  // que evita o mapa entrar cortado ou minúsculo.
+  requestAnimationFrame(() => reenquadrar(prefixo));
+
+  // O histórico só é desenhado quando alguém pede para vê-lo: são 35 anos de
+  // opções, e adivinhar qual interessa custaria uma chamada à toa.
+  if (prefixo === "ano" && !$("ano-svg").innerHTML && !$("ano-botao").disabled) {
+    desenharMapaDoAno(Number($("ano-escolhido").value), $("ano-tipo").value);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Câmera: o voo do Brasil até o município
+// ---------------------------------------------------------------------------
+// Os dois mapas grandes são desenhados sempre com o país inteiro, num sistema
+// de coordenadas fixo de 1000x820. Aproximar um estado ou uma cidade não
+// redesenha nada: move-se a câmera, que é uma transformação CSS aplicada ao
+// elemento que contém as três camadas (mapa, chuva e capitais) de uma vez.
+//
+// Redesenhar por recorte, como era antes, obrigava a refazer 5.570 polígonos
+// a cada mudança e fazia o enquadramento saltar. Movendo a câmera, o mesmo
+// desenho é reaproveitado e o caminho entre os dois enquadramentos fica
+// visível — que é justamente o que conta a história de onde fica a cidade.
+
+const CAMERA_LARGURA = 1000;
+const CAMERA_ALTURA = 820;
+const CAIXA_LOGICA = [0, 0, CAMERA_LARGURA, CAMERA_ALTURA];
+
+// Estado corrente de cada câmera, e a caixa que ela está enquadrando.
+// `caixa: null` significa "o país inteiro", resolvido na hora — o desenho
+// pode ainda nem existir quando a câmera é ligada.
+const cameras = {
+  mapa: { escala: 1, x: 0, y: 0, caixa: null, animacao: null, concluir: null },
+  ano: { escala: 1, x: 0, y: 0, caixa: null, animacao: null, concluir: null },
+};
+
+/** A caixa que contém o país inteiro naquele mapa. */
+function caixaDoPais(prefixo) {
+  const projecao = projecaoDoMapa[`${prefixo}-svg`];
+  return (projecao && projecao.caixaTudo) || CAIXA_LOGICA;
+}
+
+function ligarCamera() {
+  $("mapa-voltar").addEventListener("click", () => voar("mapa", null));
+  $("ano-voltar").addEventListener("click", () => voar("ano", null));
+
+  // Aba escondida não recebe quadro nenhum, e um voo em curso ficaria parado
+  // no meio do caminho sem nunca terminar. Ele é concluído no destino.
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) return;
+    Object.values(cameras).forEach((estado) => estado.concluir?.());
+  });
+
+  // Mudar o tamanho da janela muda o tamanho do teatro, e o enquadramento
+  // guardado deixa de caber. Refazê-lo mantém exatamente a mesma vista.
+  let espera = null;
+  addEventListener("resize", () => {
+    clearTimeout(espera);
+    espera = setTimeout(() => {
+      reenquadrar("mapa");
+      reenquadrar("ano");
+    }, 120);
+  });
+}
+
+/** Escala e centro que fazem `caixa` preencher o teatro de `prefixo`. */
+function enquadramento(prefixo, caixa) {
+  const teatro = $(`teatro-${prefixo}`);
+  const largura = teatro.clientWidth || 1;
+  const altura = teatro.clientHeight || 1;
+
+  const [x0, y0, x1, y1] = caixa;
+  const larguraCaixa = Math.max(x1 - x0, 0.5);
+  const alturaCaixa = Math.max(y1 - y0, 0.5);
+
+  // A folga de 12% impede que o município encoste nas bordas do teatro, e o
+  // teto de 45x é onde a malha simplificada do IBGE começa a mostrar os
+  // próprios vértices — passar disso amplia o erro do dado, não o dado.
+  const escala = Math.min(largura / larguraCaixa, altura / alturaCaixa) * 0.88;
+
+  return {
+    escala: Math.min(escala, 45),
+    x: (x0 + x1) / 2,
+    y: (y0 + y1) / 2,
+  };
+}
+
+function aplicarCamera(prefixo, escala, x, y) {
+  const teatro = $(`teatro-${prefixo}`);
+  const camera = $(`camera-${prefixo}`);
+  const deslocaX = teatro.clientWidth / 2 - escala * x;
+  const deslocaY = teatro.clientHeight / 2 - escala * y;
+  camera.style.transform =
+    `translate(${deslocaX.toFixed(2)}px, ${deslocaY.toFixed(2)}px) `
+    + `scale(${escala.toFixed(5)})`;
+  // O CSS divide a espessura dos traços por esta escala, para que fronteiras e
+  // contorno de foco tenham sempre a mesma grossura na tela, em qualquer zoom.
+  camera.style.setProperty("--zoom", escala.toFixed(5));
+
+  const estado = cameras[prefixo];
+  estado.escala = escala;
+  estado.x = x;
+  estado.y = y;
+
+  // Ampliado, o nome da capital vira um letreiro atravessado na tela e cobre
+  // justamente o município que a câmera foi buscar.
+  const base = enquadramento(prefixo, caixaDoPais(prefixo)).escala;
+  teatro.classList.toggle("ampliado", escala > base * 2.2);
+  $(`${prefixo}-voltar`).classList.toggle("oculto", escala <= base * 1.05);
+}
+
+/** Põe o enquadramento guardado de volta, sem animação. */
+function reenquadrar(prefixo) {
+  const estado = cameras[prefixo];
+  // Um voo em curso já sabe para onde está indo. Reenquadrar por baixo dele —
+  // é o que o fim de um redesenho faria — daria um salto no meio do caminho.
+  if (estado.animacao) return;
+
+  const alvo = enquadramento(prefixo, estado.caixa || caixaDoPais(prefixo));
+  aplicarCamera(prefixo, alvo.escala, alvo.x, alvo.y);
+}
+
+const esperar = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * Leva a câmera até `caixa`, animando.
+ *
+ * O centro caminha em linha reta, mas a escala cresce em progressão
+ * geométrica: dobrar de 1 para 2 e dobrar de 40 para 80 têm de parecer o
+ * mesmo movimento, e é o que acontece quando se interpola o logaritmo. Com
+ * interpolação linear, um voo até uma cidade pequena passaria quase todo o
+ * tempo parado no começo e terminaria num salto.
+ */
+function voar(prefixo, caixa, duracao = 1200) {
+  const estado = cameras[prefixo];
+  estado.caixa = caixa;
+
+  if (estado.animacao) cancelAnimationFrame(estado.animacao);
+
+  const partida = { escala: estado.escala, x: estado.x, y: estado.y };
+  const destino = enquadramento(prefixo, caixa || caixaDoPais(prefixo));
+
+  // Sem animação a pedido do sistema, ou com a página escondida, a câmera vai
+  // direto ao destino. O caso da página escondida não é detalhe: em aba
+  // oculta o navegador não entrega quadro nenhum, e um voo que esperasse por
+  // eles nunca terminaria — deixando a previsão pendurada em "Calculando..."
+  // até alguém voltar para a aba.
+  if (Cenario.reduzido || document.hidden) {
+    aplicarCamera(prefixo, destino.escala, destino.x, destino.y);
+    estado.animacao = null;
+    return Promise.resolve();
+  }
+
+  return new Promise((pronto) => {
+    const inicio = performance.now();
+
+    // Encerrar o voo no destino, agora. Fica guardado no estado porque quem
+    // precisa chamá-lo pode estar fora daqui: em aba oculta o navegador para
+    // de entregar quadros, e o voo em curso não teria como saber disso
+    // sozinho — ficaria pendurado, e com ele a previsão inteira, presa em
+    // "Calculando..." até alguém voltar para a aba.
+    estado.concluir = () => {
+      if (estado.animacao) cancelAnimationFrame(estado.animacao);
+      estado.animacao = null;
+      estado.concluir = null;
+      $(`teatro-${prefixo}`).classList.remove("voando");
+      aplicarCamera(prefixo, destino.escala, destino.x, destino.y);
+      pronto();
+    };
+
+    $(`teatro-${prefixo}`).classList.add("voando");
+
+    const passo = (agora) => {
+      const t = Math.min((agora - inicio) / duracao, 1);
+      // Suavização nas duas pontas: sai devagar, ganha velocidade no meio,
+      // pousa devagar. É o que faz o movimento parecer uma câmera, e não um
+      // corte.
+      const s = t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+
+      const escala = partida.escala
+        * Math.pow(destino.escala / partida.escala, s);
+      aplicarCamera(
+        prefixo,
+        escala,
+        partida.x + (destino.x - partida.x) * s,
+        partida.y + (destino.y - partida.y) * s,
+      );
+
+      if (t < 1) {
+        estado.animacao = requestAnimationFrame(passo);
+      } else {
+        estado.animacao = null;
+        estado.concluir = null;
+        $(`teatro-${prefixo}`).classList.remove("voando");
+        pronto();
+      }
+    };
+
+    estado.animacao = requestAnimationFrame(passo);
+  });
+}
+
+/**
+ * O voo completo: do país ao estado, uma pausa, e do estado ao município.
+ *
+ * A parada no estado é o ponto da animação. Sem ela o Brasil vira um borrão e
+ * quem assiste perde a referência de onde a cidade fica; com ela, a escala
+ * intermediária dá tempo de reconhecer o estado antes de a câmera fechar.
+ */
+async function voarAteOMunicipio(prefixo, codigoIbge) {
+  const projecao = projecaoDoMapa[`${prefixo}-svg`];
+  if (!projecao || !projecao.caixas) return;
+
+  const doMunicipio = projecao.caixas.get(codigoIbge);
+  if (!doMunicipio) return;
+
+  const uf = ufDoCodigo(codigoIbge);
+  const doEstado = projecao.caixasUf.get(uf);
+
+  if (doEstado) {
+    await voar(prefixo, doEstado, 1100);
+    await esperar(420);
+  }
+  await voar(prefixo, folgar(doMunicipio, 2.6), 1300);
+}
+
+/**
+ * Afasta a caixa de um município, para ele não chegar sozinho na tela.
+ *
+ * Um município enquadrado justo perde o contexto: sem nenhum vizinho em volta,
+ * o polígono podia estar em qualquer lugar do país. A folga traz o entorno
+ * junto, que é o que localiza a cidade.
+ */
+function folgar([x0, y0, x1, y1], fator) {
+  const meioX = (x0 + x1) / 2;
+  const meioY = (y0 + y1) / 2;
+  // Um piso de meio ponto evita que município minúsculo seja ampliado ao
+  // ponto de a malha virar um borrão de vértices.
+  const metadeLargura = Math.max((x1 - x0) / 2, 0.5) * fator;
+  const metadeAltura = Math.max((y1 - y0) / 2, 0.5) * fator;
+  return [
+    meioX - metadeLargura, meioY - metadeAltura,
+    meioX + metadeLargura, meioY + metadeAltura,
+  ];
+}
+
+/** Marca um município como o que está em foco no mapa grande. */
+function destacarNoMapa(prefixo, codigoIbge) {
+  const svg = $(`${prefixo}-svg`);
+  svg.querySelectorAll("path.foco").forEach((p) => p.classList.remove("foco"));
+  const alvo = svg.querySelector(`path[data-ibge="${codigoIbge}"]`);
+  if (alvo) alvo.classList.add("foco");
+}
+
+// ---------------------------------------------------------------------------
+// Tema
+// ---------------------------------------------------------------------------
 
 /**
  * Liga o botão de tema.

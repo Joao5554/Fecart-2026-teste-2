@@ -7,27 +7,40 @@
   <link rel="stylesheet" href="estilo.css">
   <script>
     /* Aplica o tema salvo ANTES de a página pintar. Se isto fosse para o
-       app.js, quem escolheu o modo escuro veria um lampejo branco a cada
+       app.js, quem escolheu o modo claro veria um lampejo escuro a cada
        carregamento, enquanto o resto do script baixa. */
     (function () {
       try {
         var salvo = localStorage.getItem("fecart-tema");
-        var escuro = salvo
-          ? salvo === "escuro"
-          : matchMedia("(prefers-color-scheme: dark)").matches;
+        var escuro = salvo ? salvo === "escuro" : true;
         document.documentElement.dataset.tema = escuro ? "escuro" : "claro";
       } catch (e) {
-        /* navegador sem localStorage (janela anônima): fica no tema claro */
+        document.documentElement.dataset.tema = "escuro";
       }
     })();
   </script>
 </head>
-<body>
+<body data-palco="abertura">
 
-<header class="cabecalho">
-  <div class="conteudo">
-    <p class="marca">Fecart 2026</p>
-    <h1>Previsão de risco de desastres naturais</h1>
+<!-- Os dois planos de fundo animados. Só um fica visível por vez, e o outro
+     tem a animação pausada — ver `trocarPalco()` no app.js. -->
+<canvas id="fundo-globo" class="fundo" aria-hidden="true"></canvas>
+<canvas id="fundo-clima" class="fundo" aria-hidden="true"></canvas>
+
+<div id="aviso-modelo" class="aviso oculto" role="status"></div>
+
+
+<!-- ===================================================================== -->
+<!-- Palco 1 — abertura                                                     -->
+<!-- ===================================================================== -->
+<section class="palco palco-abertura" id="palco-abertura">
+  <div class="abertura-interno">
+    <p class="marca">— Fecart 2026</p>
+
+    <h1 class="titulo-grande">
+      Previsão de risco de<br><span class="destaque">desastres naturais</span>
+    </h1>
+
     <p class="subtitulo">
       Um modelo treinado com o Atlas Digital de Desastres, da Defesa Civil,
       estima o risco de enchente, deslizamento, seca e outros eventos em
@@ -40,296 +53,393 @@
       <div class="numero"><strong>1991–2025</strong><span>período coberto</span></div>
       <div class="numero"><strong id="numero-modelo">—</strong><span>linhas de treino</span></div>
     </div>
+
+    <button type="button" id="botao-entrar" class="botao-principal">
+      Abrir os mapas
+      <span class="seta" aria-hidden="true">→</span>
+    </button>
+
+    <p class="nota-rodape">
+      Tudo roda no seu computador · nenhum dado sai daqui
+    </p>
   </div>
-</header>
+</section>
 
-<!-- Menu de navegação. Os itens que apontam para seções ainda escondidas
-     ficam ocultos e aparecem sozinhos quando a seção surge — ver
-     `ligarMenu()` no app.js. -->
-<nav class="menu" id="menu" aria-label="Seções da página">
-  <div class="menu-interno conteudo">
-    <ul class="menu-itens" id="menu-itens">
-      <li><a href="#secao-consulta">Consultar</a></li>
-      <li><a href="#resultado">Resultado</a></li>
-      <li><a href="#secao-cidade">Cidade e região</a></li>
-      <li><a href="#secao-ano">O ano inteiro</a></li>
-      <li><a href="#secao-historico">Histórico</a></li>
-      <li><a href="#secao-mapa">Mapa do Brasil</a></li>
-      <li><a href="#secao-mapa-ano">Mapa por ano</a></li>
-      <li><a href="#secao-odds">O que pesa</a></li>
-      <li><a href="#secao-nota">Como ler</a></li>
-    </ul>
 
-    <button type="button" id="botao-tema" class="botao-tema"
-            aria-pressed="false" title="Alternar entre tema claro e escuro">
-      <span class="botao-tema-icone" aria-hidden="true"></span>
-      <span class="botao-tema-texto">Modo escuro</span>
+<!-- ===================================================================== -->
+<!-- Palco 2 — os mapas                                                     -->
+<!-- ===================================================================== -->
+<section class="palco palco-mapas" id="palco-mapas">
+
+  <header class="barra">
+    <p class="barra-marca">Fecart 2026</p>
+
+    <div class="abas" id="abas" role="tablist" aria-label="Qual mapa mostrar">
+      <button type="button" class="aba ativa" role="tab" data-mapa="mapa"
+              id="aba-mapa" aria-selected="true">
+        <strong>Previsão</strong><span>o que pode acontecer</span>
+      </button>
+      <button type="button" class="aba" role="tab" data-mapa="ano"
+              id="aba-ano" aria-selected="false">
+        <strong>Histórico</strong><span>o que já aconteceu</span>
+      </button>
+    </div>
+
+    <div class="barra-acoes">
+      <button type="button" id="botao-saiba" class="botao-fino">Saiba mais</button>
+      <button type="button" id="botao-tema" class="botao-tema"
+              aria-pressed="false" title="Alternar entre tema claro e escuro">
+        <span class="botao-tema-icone" aria-hidden="true"></span>
+        <span class="botao-tema-texto">Modo claro</span>
+      </button>
+      <button type="button" id="botao-encerrar" class="botao-fino">Encerrar</button>
+    </div>
+  </header>
+
+  <div class="oficina">
+
+    <!-- ------------------------------------------------------------- -->
+    <!-- Coluna da esquerda: consulta e controles                        -->
+    <!-- ------------------------------------------------------------- -->
+    <aside class="controles">
+
+      <div class="bloco">
+        <h2>Consultar um município</h2>
+        <p class="ajuda">
+          Escolha a cidade, o tipo e o mês. O mapa voa do Brasil até o
+          estado e pousa no município.
+        </p>
+
+        <form id="formulario" class="formulario">
+          <div class="campo campo-busca">
+            <label for="busca">Município</label>
+            <input type="text" id="busca" placeholder="ex.: Petropolis"
+                   autocomplete="off" required>
+            <ul id="sugestoes" class="sugestoes oculto"></ul>
+            <p id="municipio-escolhido" class="escolhido oculto"></p>
+          </div>
+
+          <div class="campo">
+            <label for="tipo">Tipo de desastre</label>
+            <select id="tipo" required></select>
+          </div>
+
+          <div class="campo">
+            <label for="mes">Mês</label>
+            <select id="mes" required></select>
+          </div>
+
+          <button type="submit" id="botao" class="botao-principal pequeno" disabled>
+            Prever risco
+          </button>
+        </form>
+      </div>
+
+      <!-- Controles do mapa de previsão -->
+      <div class="bloco painel-mapa" id="controles-mapa">
+        <h2>Mapa da previsão</h2>
+        <form id="form-mapa" class="mapa-filtros">
+          <div class="campo">
+            <label for="mapa-tipo">Tipo de desastre</label>
+            <select id="mapa-tipo"></select>
+          </div>
+          <div class="campo">
+            <label for="mapa-mes">Mês</label>
+            <select id="mapa-mes"></select>
+          </div>
+          <div class="campo">
+            <label for="mapa-uf">Voar até o estado</label>
+            <select id="mapa-uf"></select>
+          </div>
+          <button type="submit" id="mapa-botao" class="botao-secundario">Desenhar</button>
+        </form>
+
+        <label class="camada-opcao" for="mapa-capitais">
+          <input type="checkbox" id="mapa-capitais" checked>
+          <span>Destacar as capitais</span>
+        </label>
+        <label class="camada-opcao" for="mapa-chuva">
+          <input type="checkbox" id="mapa-chuva">
+          <span>Camada: chuva medida (INMET)</span>
+        </label>
+      </div>
+
+      <!-- Controles do mapa histórico -->
+      <div class="bloco painel-mapa oculto" id="controles-ano">
+        <h2>Mapa do histórico</h2>
+        <p class="ajuda">
+          Aqui não há previsão nenhuma: é o registro do que aconteceu, direto
+          do Atlas da Defesa Civil.
+        </p>
+        <form id="form-ano" class="mapa-filtros">
+          <div class="campo">
+            <label for="ano-escolhido">Ano</label>
+            <select id="ano-escolhido"></select>
+          </div>
+          <div class="campo">
+            <label for="ano-tipo">Tipo de desastre</label>
+            <select id="ano-tipo"></select>
+          </div>
+          <div class="campo">
+            <label for="ano-uf">Voar até o estado</label>
+            <select id="ano-uf"></select>
+          </div>
+          <button type="submit" id="ano-botao" class="botao-secundario">Mostrar</button>
+        </form>
+
+        <label class="camada-opcao" for="ano-capitais">
+          <input type="checkbox" id="ano-capitais" checked>
+          <span>Destacar as capitais</span>
+        </label>
+        <label class="camada-opcao" for="ano-chuva">
+          <input type="checkbox" id="ano-chuva">
+          <span>Camada: chuva medida (acumulado do ano)</span>
+        </label>
+
+        <div id="ano-numeros" class="numeros-ano oculto"></div>
+      </div>
+    </aside>
+
+    <!-- ------------------------------------------------------------- -->
+    <!-- Centro: os dois mapas                                          -->
+    <!-- ------------------------------------------------------------- -->
+    <div class="teatros">
+
+      <!-- Mapa da previsão -->
+      <div class="teatro mapa-area ativo" id="teatro-mapa">
+        <div class="camera" id="camera-mapa">
+          <svg id="mapa-svg" viewBox="0 0 1000 820" role="img"
+               aria-label="Mapa de risco por município"></svg>
+          <canvas id="mapa-chuva-canvas" class="camada-chuva"
+                  width="1000" height="820" aria-hidden="true"></canvas>
+          <svg id="mapa-capitais-svg" class="camada-capitais"
+               viewBox="0 0 1000 820" aria-hidden="true"></svg>
+        </div>
+        <div id="mapa-dica" class="mapa-dica oculto"></div>
+
+        <div class="teatro-topo">
+          <p id="mapa-estado" class="linha-estado"></p>
+        </div>
+        <div class="teatro-base">
+          <div id="mapa-legenda" class="mapa-legenda oculto"></div>
+          <div id="mapa-chuva-legenda" class="mapa-legenda legenda-chuva oculto"></div>
+          <p id="mapa-chuva-nota" class="nota-chuva oculto"></p>
+        </div>
+
+        <button type="button" class="botao-voltar-brasil oculto"
+                id="mapa-voltar">↺ Ver o Brasil inteiro</button>
+      </div>
+
+      <!-- Mapa do histórico -->
+      <div class="teatro mapa-area" id="teatro-ano">
+        <div class="camera" id="camera-ano">
+          <svg id="ano-svg" viewBox="0 0 1000 820" role="img"
+               aria-label="Mapa das ocorrências registradas no ano"></svg>
+          <canvas id="ano-chuva-canvas" class="camada-chuva"
+                  width="1000" height="820" aria-hidden="true"></canvas>
+          <svg id="ano-capitais-svg" class="camada-capitais"
+               viewBox="0 0 1000 820" aria-hidden="true"></svg>
+        </div>
+        <div id="ano-dica" class="mapa-dica oculto"></div>
+
+        <div class="teatro-topo">
+          <p id="ano-estado" class="linha-estado"></p>
+        </div>
+        <div class="teatro-base">
+          <div id="ano-legenda" class="mapa-legenda oculto"></div>
+          <div id="ano-chuva-legenda" class="mapa-legenda legenda-chuva oculto"></div>
+          <p id="ano-chuva-nota" class="nota-chuva oculto"></p>
+        </div>
+
+        <button type="button" class="botao-voltar-brasil oculto"
+                id="ano-voltar">↺ Ver o Brasil inteiro</button>
+      </div>
+    </div>
+
+    <!-- ------------------------------------------------------------- -->
+    <!-- Coluna da direita: o resultado da consulta                      -->
+    <!-- ------------------------------------------------------------- -->
+    <aside class="painel" id="painel">
+
+      <div class="painel-vazio" id="painel-vazio">
+        <p>Escolha um município à esquerda.</p>
+        <p class="ajuda">
+          O resultado da previsão, a sazonalidade do ano inteiro e o histórico
+          registrado aparecem aqui.
+        </p>
+      </div>
+
+      <!-- Resultado -->
+      <section id="resultado" class="bloco oculto">
+        <h2>Resultado</h2>
+        <div class="resultado-topo">
+          <div id="selo" class="selo">—</div>
+          <div class="resultado-texto">
+            <p id="resultado-titulo" class="resultado-titulo"></p>
+            <p id="resultado-detalhe" class="ajuda"></p>
+          </div>
+        </div>
+
+        <h3>Probabilidade de cada nível</h3>
+        <div id="barras" class="barras"></div>
+
+        <details class="detalhes">
+          <summary>Como o modelo chegou a isso</summary>
+          <p class="ajuda">
+            Variáveis calculadas a partir do histórico do município, contando
+            apenas o que aconteceu <strong>antes</strong> do mês consultado.
+          </p>
+          <table id="tabela-features" class="tabela"></table>
+        </details>
+      </section>
+
+      <!-- O município ampliado -->
+      <section id="consulta-mapa" class="bloco oculto">
+        <h2>O município</h2>
+        <p class="ajuda">
+          O contorno real do município consultado, pintado com o risco previsto
+          para o mês escolhido.
+        </p>
+
+        <label class="camada-opcao" for="consulta-capitais">
+          <input type="checkbox" id="consulta-capitais" checked>
+          <span>Destacar as capitais</span>
+        </label>
+        <label class="camada-opcao" for="consulta-chuva">
+          <input type="checkbox" id="consulta-chuva">
+          <span>Camada: chuva medida (INMET)</span>
+        </label>
+
+        <div class="mapa-area">
+          <svg id="consulta-svg" viewBox="0 0 640 460" role="img"
+               aria-label="Mapa do município consultado"></svg>
+          <canvas id="consulta-chuva-canvas" class="camada-chuva"
+                  width="640" height="460" aria-hidden="true"></canvas>
+          <svg id="consulta-capitais-svg" class="camada-capitais"
+               viewBox="0 0 640 460" aria-hidden="true"></svg>
+          <div id="consulta-dica" class="mapa-dica oculto"></div>
+        </div>
+
+        <div id="consulta-legenda" class="mapa-legenda oculto"></div>
+        <div id="consulta-chuva-legenda" class="mapa-legenda legenda-chuva oculto"></div>
+        <p id="consulta-chuva-nota" class="nota-chuva oculto"></p>
+      </section>
+
+      <!-- O ano inteiro -->
+      <section id="secao-ano" class="bloco oculto">
+        <h2>O ano inteiro</h2>
+        <p class="ajuda">
+          Probabilidade de risco <strong>alto</strong> em cada mês, para o mesmo
+          município e tipo. É aqui que a sazonalidade aparece.
+        </p>
+        <div id="grafico" class="grafico"></div>
+      </section>
+
+      <!-- A cidade e a região -->
+      <section id="secao-cidade" class="bloco oculto">
+        <h2>A cidade e a região</h2>
+        <p class="ajuda">
+          O município e os vizinhos da mesma região imediata do IBGE. Desastre
+          raramente respeita divisa municipal: ver o entorno mostra se a cidade
+          é um ponto isolado ou parte de uma área inteira sob pressão.
+        </p>
+
+        <label class="camada-opcao" for="cidade-capitais">
+          <input type="checkbox" id="cidade-capitais" checked>
+          <span>Destacar as capitais</span>
+        </label>
+        <label class="camada-opcao" for="cidade-chuva">
+          <input type="checkbox" id="cidade-chuva">
+          <span>Camada: chuva medida (INMET)</span>
+        </label>
+
+        <div class="mapa-area">
+          <svg id="cidade-svg" viewBox="0 0 640 460" role="img"
+               aria-label="Mapa da cidade e da região"></svg>
+          <canvas id="cidade-chuva-canvas" class="camada-chuva"
+                  width="640" height="460" aria-hidden="true"></canvas>
+          <svg id="cidade-capitais-svg" class="camada-capitais"
+               viewBox="0 0 640 460" aria-hidden="true"></svg>
+          <div id="cidade-dica" class="mapa-dica oculto"></div>
+        </div>
+
+        <div id="cidade-legenda" class="mapa-legenda oculto"></div>
+        <div id="cidade-chuva-legenda" class="mapa-legenda legenda-chuva oculto"></div>
+        <p id="cidade-chuva-nota" class="nota-chuva oculto"></p>
+        <p id="cidade-setores" class="ajuda"></p>
+      </section>
+
+      <!-- Histórico registrado -->
+      <section id="secao-historico" class="bloco oculto">
+        <h2>Histórico registrado</h2>
+        <p id="historico-resumo" class="ajuda"></p>
+        <table id="tabela-historico" class="tabela"></table>
+      </section>
+
+      <!-- Meses e tipos do ano escolhido (mapa histórico) -->
+      <section id="ano-meses" class="bloco oculto">
+        <h2>Em que meses aconteceram</h2>
+        <div id="ano-grafico" class="grafico"></div>
+      </section>
+
+      <section id="ano-tipos" class="bloco oculto">
+        <h2>Por tipo de desastre</h2>
+        <table id="ano-tabela-tipos" class="tabela"></table>
+      </section>
+    </aside>
+  </div>
+</section>
+
+
+<!-- ===================================================================== -->
+<!-- Palco 3 — despedida                                                    -->
+<!-- ===================================================================== -->
+<section class="palco palco-despedida" id="palco-despedida">
+  <div class="despedida-interno">
+    <p class="marca">— Fim da apresentação</p>
+
+    <h1 class="titulo-grande">
+      Obrigado por<br><span class="destaque">acompanhar</span>
+    </h1>
+
+    <p class="subtitulo">
+      76 mil ocorrências reais, registradas em 5.256 municípios entre 1991 e
+      2025, transformadas em uma estimativa de risco que roda inteiramente
+      no seu computador — sem nuvem, sem custo e sem enviar nada para fora.
+    </p>
+
+    <div class="creditos">
+      <div class="credito">
+        <strong>Dados</strong>
+        <span>Atlas Digital de Desastres (S2iD / Defesa Civil), INMET e IBGE</span>
+      </div>
+      <div class="credito">
+        <strong>Modelo</strong>
+        <span>Classificação em três níveis de risco, treinada localmente</span>
+      </div>
+      <div class="credito">
+        <strong>Execução</strong>
+        <span>FastAPI e JavaScript puro, sem nenhuma biblioteca externa</span>
+      </div>
+    </div>
+
+    <button type="button" id="botao-reiniciar" class="botao-principal">
+      <span class="seta" aria-hidden="true">↺</span>
+      Começar de novo
     </button>
   </div>
-</nav>
+</section>
 
-<main class="conteudo">
 
-  <div id="aviso-modelo" class="aviso oculto"></div>
+<!-- ===================================================================== -->
+<!-- Gaveta "saiba mais"                                                    -->
+<!-- ===================================================================== -->
+<div class="gaveta-fundo oculto" id="gaveta-fundo"></div>
+<aside class="gaveta oculto" id="gaveta" aria-label="Saiba mais">
+  <button type="button" class="gaveta-fechar" id="gaveta-fechar"
+          aria-label="Fechar">×</button>
 
-  <!-- ------------------------------------------------------------------ -->
-  <section id="secao-consulta" class="cartao">
-    <h2>Consultar um município</h2>
-    <p class="ajuda">
-      Escolha a cidade, o tipo de desastre e o mês. O histórico é buscado
-      automaticamente no Atlas — não é preciso preencher mais nada.
-    </p>
-
-    <form id="formulario" class="formulario">
-      <div class="campo campo-busca">
-        <label for="busca">Município</label>
-        <input type="text" id="busca" placeholder="Digite o nome (ex.: Petropolis)"
-               autocomplete="off" required>
-        <ul id="sugestoes" class="sugestoes oculto"></ul>
-        <p id="municipio-escolhido" class="escolhido oculto"></p>
-      </div>
-
-      <div class="campo">
-        <label for="tipo">Tipo de desastre</label>
-        <select id="tipo" required></select>
-      </div>
-
-      <div class="campo">
-        <label for="mes">Mês</label>
-        <select id="mes" required></select>
-      </div>
-
-      <button type="submit" id="botao" disabled>Prever risco</button>
-    </form>
-
-    <!-- Só aparece depois da primeira previsão: antes dela não há município
-         nem risco para desenhar. -->
-    <div id="consulta-mapa" class="oculto">
-      <h3>O município no mapa</h3>
-      <p class="ajuda">
-        O contorno real do município consultado, pintado com o risco previsto
-        para o mês escolhido. É o mesmo resultado do selo acima, no lugar em
-        que ele acontece — e onde dá para ligar a chuva medida por cima.
-      </p>
-
-      <label class="camada-opcao" for="consulta-capitais">
-        <input type="checkbox" id="consulta-capitais" checked>
-        <span>Destacar as capitais</span>
-      </label>
-      <label class="camada-opcao" for="consulta-chuva">
-        <input type="checkbox" id="consulta-chuva">
-        <span>Camada: chuva medida (INMET)</span>
-      </label>
-
-      <div class="mapa-area">
-        <svg id="consulta-svg" viewBox="0 0 640 460" role="img"
-             aria-label="Mapa do município consultado"></svg>
-        <canvas id="consulta-chuva-canvas" class="camada-chuva"
-                width="640" height="460" aria-hidden="true"></canvas>
-        <svg id="consulta-capitais-svg" class="camada-capitais"
-             viewBox="0 0 640 460" aria-hidden="true"></svg>
-        <div id="consulta-dica" class="mapa-dica oculto"></div>
-      </div>
-
-      <div id="consulta-legenda" class="mapa-legenda oculto"></div>
-      <div id="consulta-chuva-legenda" class="mapa-legenda legenda-chuva oculto"></div>
-      <p id="consulta-chuva-nota" class="nota-chuva oculto"></p>
-    </div>
-  </section>
-
-  <!-- ------------------------------------------------------------------ -->
-  <section id="resultado" class="cartao oculto">
-    <h2>Resultado</h2>
-
-    <div class="resultado-topo">
-      <div id="selo" class="selo">—</div>
-      <div class="resultado-texto">
-        <p id="resultado-titulo" class="resultado-titulo"></p>
-        <p id="resultado-detalhe" class="ajuda"></p>
-      </div>
-    </div>
-
-    <h3>Probabilidade de cada nível</h3>
-    <div id="barras" class="barras"></div>
-
-    <details class="detalhes">
-      <summary>Como o modelo chegou a isso</summary>
-      <p class="ajuda">
-        Variáveis calculadas a partir do histórico do município, contando
-        apenas o que aconteceu <strong>antes</strong> do mês consultado.
-      </p>
-      <table id="tabela-features" class="tabela"></table>
-    </details>
-  </section>
-
-  <!-- ------------------------------------------------------------------ -->
-  <section id="secao-cidade" class="cartao oculto">
-    <h2>A cidade e a região</h2>
-    <p class="ajuda">
-      O município consultado, em destaque, e os vizinhos da mesma região
-      imediata do IBGE, cada um com o risco previsto para este mês e este tipo.
-      Desastre raramente respeita divisa municipal: ver o entorno mostra se a
-      cidade é um ponto isolado ou parte de uma área inteira sob pressão. A
-      capital do estado aparece marcada quando cai dentro do recorte.
-    </p>
-
-    <label class="camada-opcao" for="cidade-capitais">
-      <input type="checkbox" id="cidade-capitais" checked>
-      <span>Destacar as capitais</span>
-    </label>
-    <label class="camada-opcao" for="cidade-chuva">
-      <input type="checkbox" id="cidade-chuva">
-      <span>Camada: chuva medida (INMET)</span>
-    </label>
-    <div class="mapa-area">
-      <svg id="cidade-svg" viewBox="0 0 640 460" role="img"
-           aria-label="Mapa da cidade e da região"></svg>
-      <canvas id="cidade-chuva-canvas" class="camada-chuva"
-              width="640" height="460" aria-hidden="true"></canvas>
-      <svg id="cidade-capitais-svg" class="camada-capitais"
-           viewBox="0 0 640 460" aria-hidden="true"></svg>
-      <div id="cidade-dica" class="mapa-dica oculto"></div>
-    </div>
-
-    <div id="cidade-legenda" class="mapa-legenda oculto"></div>
-    <div id="cidade-chuva-legenda" class="mapa-legenda legenda-chuva oculto"></div>
-    <p id="cidade-chuva-nota" class="nota-chuva oculto"></p>
-    <p id="cidade-setores" class="ajuda" style="margin-top:16px"></p>
-  </section>
-
-  <!-- ------------------------------------------------------------------ -->
-  <section id="secao-ano" class="cartao oculto">
-    <h2>O ano inteiro</h2>
-    <p class="ajuda">
-      Probabilidade de risco <strong>alto</strong> em cada mês, para o mesmo
-      município e tipo de desastre. É aqui que a sazonalidade aparece.
-    </p>
-    <div id="grafico" class="grafico"></div>
-  </section>
-
-  <!-- ------------------------------------------------------------------ -->
-  <section id="secao-historico" class="cartao oculto">
-    <h2>Histórico registrado</h2>
-    <p id="historico-resumo" class="ajuda"></p>
-    <table id="tabela-historico" class="tabela"></table>
-  </section>
-
-  <!-- ------------------------------------------------------------------ -->
-  <section id="secao-mapa" class="cartao">
-    <h2>Mapa do Brasil</h2>
-    <p class="ajuda">
-      Risco previsto para cada município. Escolha um estado para ampliar.
-      Só aparecem municípios com histórico daquele tipo no Atlas — sobre os
-      demais o modelo não tem o que dizer.
-    </p>
-
-    <form id="form-mapa" class="mapa-filtros">
-      <div class="campo">
-        <label for="mapa-tipo">Tipo de desastre</label>
-        <select id="mapa-tipo"></select>
-      </div>
-      <div class="campo">
-        <label for="mapa-mes">Mês</label>
-        <select id="mapa-mes"></select>
-      </div>
-      <div class="campo">
-        <label for="mapa-uf">Estado</label>
-        <select id="mapa-uf"></select>
-      </div>
-      <button type="submit" id="mapa-botao">Desenhar</button>
-    </form>
-
-    <label class="camada-opcao" for="mapa-capitais">
-      <input type="checkbox" id="mapa-capitais" checked>
-      <span>Destacar as capitais</span>
-    </label>
-    <label class="camada-opcao" for="mapa-chuva">
-      <input type="checkbox" id="mapa-chuva">
-      <span>Camada: chuva medida (INMET)</span>
-    </label>
-    <p id="mapa-estado" class="ajuda"></p>
-
-    <div class="mapa-area">
-      <svg id="mapa-svg" viewBox="0 0 640 640" role="img"
-           aria-label="Mapa de risco por município"></svg>
-      <canvas id="mapa-chuva-canvas" class="camada-chuva"
-              width="640" height="640" aria-hidden="true"></canvas>
-      <svg id="mapa-capitais-svg" class="camada-capitais"
-           viewBox="0 0 640 640" aria-hidden="true"></svg>
-      <div id="mapa-dica" class="mapa-dica oculto"></div>
-    </div>
-
-    <div id="mapa-legenda" class="mapa-legenda oculto"></div>
-    <div id="mapa-chuva-legenda" class="mapa-legenda legenda-chuva oculto"></div>
-    <p id="mapa-chuva-nota" class="nota-chuva oculto"></p>
-  </section>
-
-  <!-- ------------------------------------------------------------------ -->
-  <section id="secao-mapa-ano" class="cartao">
-    <h2>O que já aconteceu, ano a ano</h2>
-    <p class="ajuda">
-      Escolha um ano entre 1991 e 2025 e veja onde os desastres foram
-      registrados. Diferente do mapa acima, aqui não há previsão nenhuma:
-      é o <strong>registro do que aconteceu</strong>, direto do Atlas da
-      Defesa Civil. A cor indica quantas ocorrências cada município teve
-      naquele ano.
-    </p>
-
-    <form id="form-ano" class="mapa-filtros">
-      <div class="campo">
-        <label for="ano-escolhido">Ano</label>
-        <select id="ano-escolhido"></select>
-      </div>
-      <div class="campo">
-        <label for="ano-tipo">Tipo de desastre</label>
-        <select id="ano-tipo"></select>
-      </div>
-      <div class="campo">
-        <label for="ano-uf">Estado</label>
-        <select id="ano-uf"></select>
-      </div>
-      <button type="submit" id="ano-botao">Mostrar</button>
-    </form>
-
-    <div id="ano-numeros" class="numeros-ano oculto"></div>
-
-    <label class="camada-opcao" for="ano-capitais">
-      <input type="checkbox" id="ano-capitais" checked>
-      <span>Destacar as capitais</span>
-    </label>
-    <label class="camada-opcao" for="ano-chuva">
-      <input type="checkbox" id="ano-chuva">
-      <span>Camada: chuva medida (acumulado do ano)</span>
-    </label>
-    <p id="ano-estado" class="ajuda"></p>
-
-    <div class="mapa-area">
-      <svg id="ano-svg" viewBox="0 0 640 640" role="img"
-           aria-label="Mapa das ocorrências registradas no ano"></svg>
-      <canvas id="ano-chuva-canvas" class="camada-chuva"
-              width="640" height="640" aria-hidden="true"></canvas>
-      <svg id="ano-capitais-svg" class="camada-capitais"
-           viewBox="0 0 640 640" aria-hidden="true"></svg>
-      <div id="ano-dica" class="mapa-dica oculto"></div>
-    </div>
-
-    <div id="ano-legenda" class="mapa-legenda oculto"></div>
-    <div id="ano-chuva-legenda" class="mapa-legenda legenda-chuva oculto"></div>
-    <p id="ano-chuva-nota" class="nota-chuva oculto"></p>
-
-    <div id="ano-meses" class="meses-ano oculto">
-      <h3>Em que meses aconteceram</h3>
-      <div id="ano-grafico" class="grafico"></div>
-    </div>
-
-    <div id="ano-tipos" class="oculto">
-      <h3>Por tipo de desastre</h3>
-      <table id="ano-tabela-tipos" class="tabela"></table>
-    </div>
-  </section>
-
-  <!-- ------------------------------------------------------------------ -->
-  <section id="secao-odds" class="cartao oculto">
+  <section id="secao-odds" class="bloco oculto">
     <h2>O que mais pesa no risco</h2>
     <p class="ajuda">
       Cada barra mostra a <strong>razão de chances</strong>: quanto aquela
@@ -341,8 +451,7 @@
     <p id="odds-rodape" class="ajuda"></p>
   </section>
 
-  <!-- ------------------------------------------------------------------ -->
-  <section id="secao-nota" class="cartao cartao-nota">
+  <section id="secao-nota" class="bloco">
     <h2>Como ler estes números</h2>
     <p>
       O modelo estima o risco <strong>relativo</strong> de um município em
@@ -356,16 +465,11 @@
       acontecer", porque os meses sem desastre foram amostrados para o treino
       caber na memória. Use como ferramenta de comparação e priorização.
     </p>
-    <p id="rodape-modelo" class="ajuda" style="margin:0"></p>
+    <p id="rodape-modelo" class="ajuda"></p>
   </section>
+</aside>
 
-</main>
-
-<footer class="rodape conteudo">
-  Fecart 2026 · dados do Atlas Digital de Desastres (S2iD / Defesa Civil),
-  INMET e IBGE · roda inteiramente no seu computador
-</footer>
-
+<script src="cenario.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

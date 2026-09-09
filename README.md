@@ -101,10 +101,12 @@ arquivo novo; se foi só um teste, desfaça com `git checkout modelo/`.
 | `src/validacao_temporal.py`        | Janela expansiva, divisão em três partes e escolha de parâmetros |
 | `analise/avaliacao_modelo.py`      | Avaliação passo a passo, comentada — para estudar e apresentar  |
 | `dados/preparar_dados.py`          | Gera `dados.csv` a partir da base bruta                         |
+| `dados/preparar_silhueta.py`       | Reduz a malha do IBGE ao contorno do país, para o globo         |
 | `dados/README.md`                  | **Metodologia dos dados** e limitações — leitura obrigatória    |
 | `treinamento/treinar_modelo.py`    | Treina, avalia e salva o modelo                                 |
 | `backend/app.py`                   | API que serve as previsões                                      |
 | `frontend/`                        | Interface web (HTML/CSS/JS puro, sem bibliotecas)               |
+| `frontend/cenario.js`              | Globo e campo de vento animados, em canvas 2D                   |
 | `testes/`                          | Testes automatizados (`pytest`)                                 |
 | `modelo/`                          | Saída do treino: `modelo.pkl` e `metadados.json`                |
 
@@ -454,18 +456,52 @@ Servida pela própria API em **http://127.0.0.1:8000/app**, em HTML, CSS e
 JavaScript puros — sem framework e sem CDN, para o projeto inteiro rodar
 offline.
 
-**Menu fixo no topo.** Leva direto a qualquer seção. Boa parte delas só
-aparece depois de uma consulta, e um link para uma seção invisível não levaria
-a lugar nenhum: um `MutationObserver` acompanha as seções e liga ou desliga
-cada item sozinho, sem que o resto do código precise avisar o menu de nada.
+**Três palcos, não uma página que rola.** A interface é uma sequência de telas
+cheias — abertura, mapas e despedida —, e só uma fica visível por vez. Quem
+manda é o atributo `data-palco` no `<body>`; o CSS cuida das transições. Os
+botões "Abrir os mapas", "Encerrar" e "Começar de novo" percorrem o caminho,
+que é o mesmo de uma apresentação: abre, mostra, encerra, recomeça.
 
-**Modo claro e escuro.** O botão do menu alterna, e a escolha fica guardada no
-navegador. O tema é aplicado por um script no `<head>`, antes da primeira
-pintura — se ficasse no `app.js`, quem escolheu o escuro veria um lampejo
-branco a cada carregamento. Só as variáveis do CSS mudam; nenhuma regra sabe
+**Cenário animado, sem biblioteca.** A abertura e a despedida têm um globo
+girando ao fundo; o palco dos mapas, um campo de vento com ciclones. Os dois
+são canvas 2D escritos à mão em `frontend/cenario.js`: o globo é uma projeção
+ortográfica com meridianos, atmosfera e as capitais pulsando sobre o país; o
+vento é um sistema de partículas seguindo um campo de velocidade, com alguns
+vórtices somados por cima — girando no sentido horário, que é o do hemisfério
+sul. Uma biblioteca 3D custaria centenas de KB baixados de fora só para o
+plano de fundo, e o projeto inteiro roda offline. O contorno do Brasil que o
+globo desenha sai de `dados/preparar_silhueta.py`, que reduz uma vez os 5.570
+municípios da malha do IBGE a algumas centenas de pontos. Só um dos dois
+cenários desenha por vez: o que está atrás de um palco invisível fica pausado.
+
+**Dois mapas, um em cada aba.** "Previsão" mostra o risco estimado para cada
+município; "Histórico" mostra o que o Atlas registrou, ano a ano. As escalas
+de cor são diferentes de propósito — uma conta risco, a outra conta
+ocorrências, e duas escalas iguais para coisas diferentes seriam o jeito mais
+fácil de alguém confundir uma previsão com um fato.
+
+**O voo até o município.** Consultar uma cidade não troca o mapa: move a
+câmera. Os dois mapas grandes são sempre desenhados com o país inteiro, num
+sistema de coordenadas fixo, e aproximar é uma transformação CSS aplicada ao
+elemento que contém as três camadas (mapa, chuva e capitais) de uma vez — uma
+só matriz move as três, e elas nunca saem de registro. A câmera passa pelo
+estado antes de fechar no município: sem essa parada o Brasil vira um borrão e
+quem assiste perde a referência de onde a cidade fica. A escala cresce em
+progressão geométrica, e não linear, porque dobrar de 1 para 2 e dobrar de 40
+para 80 têm de parecer o mesmo movimento. O primeiro cálculo de cada tipo e
+mês leva alguns segundos no servidor, mas o voo não espera por ele: onde fica
+o município é a malha que diz, e ela não muda com a pergunta — a cor do risco
+chega por baixo quando ficar pronta.
+
+**Modo claro e escuro.** O botão do topo alterna, e a escolha fica guardada no
+navegador. O padrão é o escuro, porque os palcos têm um céu estrelado e um
+campo de vento por trás e a interface clara sobre eles apagaria a animação
+inteira. O tema é aplicado por um script no `<head>`, antes da primeira
+pintura — se ficasse no `app.js`, quem escolheu o claro veria um lampejo
+escuro a cada carregamento. Só as variáveis do CSS mudam; nenhuma regra sabe
 que existe tema. As cores dos dados (verde, amarelo, vermelho) **não** mudam:
-significam nível de risco, e quem aprendeu "vermelho = alto" no claro não
-pode ter de reaprender no escuro.
+significam nível de risco, e quem aprendeu "vermelho = alto" num tema não
+pode ter de reaprender no outro.
 
 **Capitais em destaque.** O mapa pinta 5.570 municípios e não escreve nenhum
 nome: sem referência nenhuma, quem olha vê manchas de cor e não sabe onde está
