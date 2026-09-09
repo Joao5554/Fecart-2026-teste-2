@@ -73,6 +73,8 @@ async function iniciar() {
   ligarTema();
   ligarMenu();
   ligarCamadasDeChuva();
+  ligarCapitais();
+  carregarCapitais();
 
   // O mapa por ano lê o Atlas direto, sem passar pelo modelo. Por isso é
   // carregado aqui, fora da verificação de modelo treinado logo abaixo: se o
@@ -159,6 +161,7 @@ $("busca").addEventListener("input", (evento) => {
   municipioEscolhido = null;
   $("botao").disabled = true;
   $("municipio-escolhido").classList.add("oculto");
+  $("consulta-mapa").classList.add("oculto");
 
   clearTimeout(temporizadorBusca);
   if (termo.length < 3) {
@@ -232,8 +235,16 @@ $("formulario").addEventListener("submit", async (evento) => {
       grupo_desastre: tipo, mes, ano,
     });
     mostrarResultado(previsao);
-    await mostrarAno(municipioEscolhido.codigo_ibge, tipo, ano, mes);
-    await mostrarMapaDaCidade(municipioEscolhido.codigo_ibge, tipo, mes);
+
+    // Os dois em paralelo, e não um depois do outro. O gráfico do ano custa
+    // doze previsões; enfileirado atrás dele, o mapa da cidade demorava quase
+    // um minuto para aparecer — tempo suficiente para quem consultou concluir
+    // que ele não existe mais. Cada um revela a sua seção quando termina.
+    await Promise.all([
+      mostrarMapaDaConsulta(previsao),
+      mostrarMapaDaCidade(municipioEscolhido.codigo_ibge, tipo, mes),
+      mostrarAno(municipioEscolhido.codigo_ibge, tipo, ano, mes),
+    ]);
   } catch (erro) {
     mostrarAviso(`Não foi possível prever: ${erro.message}`, true);
   } finally {
@@ -356,6 +367,7 @@ async function desenharMapa(tipo, mes, ufEscolhida = "") {
 
   try {
     if (!malhaCache) malhaCache = await pedir("/mapa/malha");
+    await carregarCapitais();
     const dados = await pedir(
       `/mapa/brasil?grupo_desastre=${tipo}&mes=${mes}&ano=${new Date().getFullYear()}`
     );
@@ -371,7 +383,6 @@ async function desenharMapa(tipo, mes, ufEscolhida = "") {
     const porMunicipio = new Map(doMapa.map((m) => [m.codigo_ibge, m]));
 
     renderizarSvg("mapa-svg", "mapa-dica", feicoes, porMunicipio);
-    aplicarAnimacao("mapa-animacao", tipo);
     atualizarChuva("mapa");
 
     const resumo = { baixo: 0, medio: 0, alto: 0 };
@@ -393,12 +404,78 @@ async function desenharMapa(tipo, mes, ufEscolhida = "") {
 }
 
 // ---------------------------------------------------------------------------
+// Mapa do município consultado
+// ---------------------------------------------------------------------------
+
+/**
+ * Desenha só o município consultado, ampliado, com a cor do risco previsto.
+ *
+ * Não custa previsão nenhuma: a cor e a probabilidade já vieram na resposta
+ * que preencheu o selo do resultado. O único download é o da malha, e ela é
+ * a mesma dos outros mapas — quem já desenhou qualquer um deles não baixa
+ * nada aqui.
+ *
+ * É diferente do mapa "A cidade e a região": lá o enquadramento é o do
+ * entorno, e o município consultado é um polígono no meio de dezenas. Aqui
+ * ele ocupa a tela inteira, que é o que faz a camada de chuva render alguma
+ * coisa na escala da cidade.
+ */
+async function mostrarMapaDaConsulta(previsao) {
+  try {
+    if (!malhaCache) malhaCache = await pedir("/mapa/malha");
+    await carregarCapitais();
+
+    const feicao = malhaCache.features.find(
+      (f) => f.properties.codigo_ibge === previsao.codigo_ibge
+    );
+    if (!feicao) {
+      // Município sem polígono na malha (fusão, criação recente): o resto da
+      // página continua, só este mapa não tem o que mostrar.
+      $("consulta-mapa").classList.add("oculto");
+      return;
+    }
+
+    const info = {
+      municipio: previsao.municipio,
+      uf: previsao.uf,
+      nivel_risco: previsao.nivel_risco,
+      probabilidade_alto: previsao.probabilidades.alto || 0,
+      cor: previsao.cor,
+    };
+
+    renderizarSvg("consulta-svg", "consulta-dica", [feicao],
+                  new Map([[previsao.codigo_ibge, info]]), previsao.codigo_ibge);
+
+    // O contorno leva a cor do risco, e não o azul-marinho dos outros mapas.
+    // Com a chuva ligada, o preenchimento clareia e o município ficaria sem
+    // dizer nada — aqui ele é o único polígono da tela, e o risco dele é a
+    // resposta inteira. No traço, a cor não some.
+    const desenhado = $("consulta-svg").querySelector("path.foco");
+    if (desenhado) desenhado.style.stroke = info.cor;
+
+    atualizarChuva("consulta");
+
+    $("consulta-legenda").innerHTML =
+      `<span><i style="background:${info.cor}"></i>risco ${info.nivel_risco}</span>`
+      + `<span>${formatarTipo(previsao.grupo_desastre)} em `
+      + `${MESES[previsao.mes - 1]}</span>`
+      + `<span>chance de ser grave: ${porcento(info.probabilidade_alto)}</span>`;
+    $("consulta-legenda").classList.remove("oculto");
+
+    $("consulta-mapa").classList.remove("oculto");
+  } catch (erro) {
+    $("consulta-mapa").classList.add("oculto");
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Mapa da cidade e da região
 // ---------------------------------------------------------------------------
 
 async function mostrarMapaDaCidade(codigoIbge, tipo, mes) {
   try {
     if (!malhaCache) malhaCache = await pedir("/mapa/malha");
+    await carregarCapitais();
     const dados = await pedir(
       `/mapa/municipio/${codigoIbge}?grupo_desastre=${tipo}&mes=${mes}`
       + `&ano=${new Date().getFullYear()}`
@@ -412,7 +489,6 @@ async function mostrarMapaDaCidade(codigoIbge, tipo, mes) {
 
     const porMunicipio = new Map(dados.municipios.map((m) => [m.codigo_ibge, m]));
     renderizarSvg("cidade-svg", "cidade-dica", feicoes, porMunicipio, codigoIbge);
-    aplicarAnimacao("cidade-animacao", tipo);
     atualizarChuva("cidade");
 
     const resumo = { baixo: 0, medio: 0, alto: 0 };
@@ -454,12 +530,13 @@ function textoDosSetores(dados) {
 // reais (é o que o Windy faz entre os pontos da grade dele) e desenha os
 // marcadores por cima. Quem olha vê a mancha e vê de onde ela veio.
 
-const GRADE_CHUVA = 72;   // resolução do cálculo, antes de o navegador suavizar
+const GRADE_CHUVA = 120;  // resolução do cálculo, antes de o navegador suavizar
 const RAIO_CHUVA = 3.2;   // graus: além disso, nenhuma estação influencia
 const POTENCIA_IDW = 2.4; // quanto o peso cai com a distância
 
 // Cada mapa e o que ele pede à API.
 const MAPAS_COM_CHUVA = {
+  consulta: { svg: "consulta-svg", periodo: () => ({ mes: Number($("mes").value) }) },
   mapa: { svg: "mapa-svg", periodo: () => ({ mes: Number($("mapa-mes").value) }) },
   cidade: { svg: "cidade-svg", periodo: () => ({ mes: Number($("mes").value) }) },
   ano: {
@@ -488,9 +565,12 @@ async function atualizarChuva(prefixo) {
   contexto.clearRect(0, 0, tela.width, tela.height);
 
   if (!caixa.checked) {
-    // Sem a camada, o mapa volta a ser o dono da cor.
+    // Sem a camada, o mapa volta a ser o dono da cor. A legenda sai junto:
+    // uma escala de chuva embaixo de um mapa sem chuva explica o que não
+    // está desenhado.
     area.classList.remove("com-chuva");
     rodape.classList.add("oculto");
+    $(`${prefixo}-chuva-legenda`).classList.add("oculto");
     return;
   }
 
@@ -521,8 +601,9 @@ async function atualizarChuva(prefixo) {
     rodape.textContent =
       `Chuva medida em ${dados.periodo}, por ${dados.total_estacoes} estações `
       + `automáticas do INMET · média ${dados.chuva_media_mm} mm, máxima `
-      + `${dados.chuva_maxima_mm} mm. Os pontos brancos são as estações; entre `
-      + `elas o valor é interpolado.`;
+      + `${dados.chuva_maxima_mm} mm. Cada ponto é uma estação; entre elas o `
+      + `valor é interpolado, e a mancha para na fronteira do que está `
+      + `desenhado. Quanto mais forte a cor, mais choveu.`;
   } catch (erro) {
     caixa.checked = false;
     area.classList.remove("com-chuva");
@@ -534,15 +615,18 @@ async function atualizarChuva(prefixo) {
 /**
  * Interpola a chuva entre as estações e pinta no canvas.
  *
- * O cálculo roda numa grade pequena (72×72) e o resultado é ampliado pelo
+ * O cálculo roda numa grade pequena (120×120) e o resultado é ampliado pelo
  * navegador, que suaviza de graça. Calcular direto nos 640×640 pixels seriam
- * 400 mil células × 600 estações — a página congelaria. Assim são 5 mil
+ * 400 mil células × 600 estações — a página congelaria. Assim são 14 mil
  * células, e o degradê fica igual.
  */
 function pintarChuva(tela, projecao, dados) {
   const pontos = dados.estacoes.map((e) => ({
     x: projecao.px(e.lon), y: projecao.py(e.lat), valor: e.chuva_mm,
   }));
+
+  const rampa = rampaDeChuva(dados.escala);
+  const topo = rampa[rampa.length - 1].valor || 1;
 
   const passoX = projecao.largura / GRADE_CHUVA;
   const passoY = projecao.altura / GRADE_CHUVA;
@@ -578,14 +662,28 @@ function pintarChuva(tela, projecao, dados) {
       const posicao = (linha * GRADE_CHUVA + coluna) * 4;
       if (!pesos) continue;  // longe de tudo: fica transparente
 
-      const cor = corDaChuva(soma / pesos, dados.escala);
-      // Some suavemente na borda da área coberta, em vez de cortar reto numa
-      // circunferência — aresta dura pareceria fronteira de dado, e não é.
+      const milimetros = soma / pesos;
+      const cor = corDaChuva(milimetros, rampa);
+
+      // Duas coisas apagam a cor, por motivos diferentes.
+      //
+      // A primeira é a própria chuva: onde choveu pouco a camada quase some e
+      // deixa o mapa aparecer. Antes toda célula vinha com a mesma opacidade,
+      // e o "quase não choveu" cobria o mapa com a mesma força do "choveu
+      // 400 mm" — o olho lia área coberta, e não intensidade.
+      //
+      // A segunda é a borda da área coberta: some suavemente, em vez de
+      // cortar reto numa circunferência, porque aresta dura pareceria
+      // fronteira de dado, e não é.
+      const intensidade = Math.min(milimetros / topo, 1);
       const proximidade = 1 - Math.min(Math.sqrt(maisPerto) / raio, 1);
+      const opacidade = (0.38 + 0.58 * Math.sqrt(intensidade))
+                      * Math.min(proximidade * 2.4, 1);
+
       imagem.data[posicao] = cor[0];
       imagem.data[posicao + 1] = cor[1];
       imagem.data[posicao + 2] = cor[2];
-      imagem.data[posicao + 3] = Math.round(235 * Math.min(proximidade * 2.2, 1));
+      imagem.data[posicao + 3] = Math.round(255 * opacidade);
     }
   }
 
@@ -595,137 +693,258 @@ function pintarChuva(tela, projecao, dados) {
   contexto.clearRect(0, 0, tela.width, tela.height);
   contexto.imageSmoothingEnabled = true;
   contexto.imageSmoothingQuality = "high";
-  contexto.drawImage(grade, 0, 0, tela.width, tela.height);
 
+  contexto.save();
+  // Recortada no contorno do próprio mapa, a mancha para de vazar para o mar
+  // e para fora do estado escolhido. Sem isso a camada pintava chuva onde não
+  // há nem terra nem estação — era o que mais estragava o desenho.
+  //
+  // As estações entram no mesmo recorte: num mapa de um estado só, os pontos
+  // do país inteiro apareciam boiando em volta do desenho.
+  const mascara = mascaraDoMapa(projecao);
+  if (mascara) contexto.clip(mascara);
+  contexto.drawImage(grade, 0, 0, tela.width, tela.height);
   desenharEstacoes(contexto, pontos);
+  contexto.restore();
+}
+
+/**
+ * Caminho do mapa inteiro, para recortar a chuva.
+ *
+ * Fica guardado na projeção porque montá-lo custa — são milhares de
+ * polígonos — e o interruptor da chuva pode ser ligado e desligado várias
+ * vezes sobre o mesmo desenho.
+ */
+function mascaraDoMapa(projecao) {
+  if (projecao.mascara !== undefined) return projecao.mascara;
+
+  try {
+    projecao.mascara = projecao.contorno ? new Path2D(projecao.contorno) : null;
+  } catch (erro) {
+    projecao.mascara = null;  // sem Path2D, a chuva só deixa de recortar
+  }
+  return projecao.mascara;
 }
 
 /** Marca onde cada estação fica: é o que separa medição de interpolação. */
 function desenharEstacoes(contexto, pontos) {
   contexto.save();
-  contexto.fillStyle = "rgba(255,255,255,.9)";
-  contexto.strokeStyle = "rgba(20,30,45,.65)";
-  contexto.lineWidth = 0.8;
   for (const ponto of pontos) {
+    // Anel escuro por fora, miolo branco por dentro. O ponto branco sozinho
+    // sumia sobre o azul-claro do "quase não choveu"; um ponto escuro sozinho
+    // sumiria sobre o vinho do "choveu muito". Os dois juntos aparecem em
+    // qualquer lugar da escala.
     contexto.beginPath();
-    contexto.arc(ponto.x, ponto.y, 2.1, 0, Math.PI * 2);
+    contexto.arc(ponto.x, ponto.y, 2.6, 0, Math.PI * 2);
+    contexto.fillStyle = "rgba(12,22,38,.55)";
     contexto.fill();
-    contexto.stroke();
+
+    contexto.beginPath();
+    contexto.arc(ponto.x, ponto.y, 1.4, 0, Math.PI * 2);
+    contexto.fillStyle = "rgba(255,255,255,.95)";
+    contexto.fill();
   }
   contexto.restore();
 }
 
-function corDaChuva(milimetros, escala) {
-  const faixa = escala.find(
-    (f) => milimetros >= f.de && (f.ate === null || milimetros < f.ate)
-  ) || escala[escala.length - 1];
-  const hex = faixa.cor;
-  return [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+const paraRgb = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+
+/**
+ * Transforma as faixas da API numa rampa contínua de cor.
+ *
+ * A API manda faixas ("60 a 120 mm"), que é como a legenda se lê e como se
+ * fala de chuva. Pintar o mapa faixa a faixa, porém, desenha degraus onde a
+ * chuva é contínua, e degrau no meio da mancha parece fronteira de dado. A
+ * rampa mantém exatamente as mesmas cores, ancoradas no início de cada
+ * faixa, e interpola entre elas — a legenda continua verdadeira.
+ */
+function rampaDeChuva(escala) {
+  return escala.map((faixa) => ({ valor: faixa.de, cor: paraRgb(faixa.cor) }));
 }
 
+function corDaChuva(milimetros, rampa) {
+  if (milimetros <= rampa[0].valor) return rampa[0].cor;
+
+  for (let i = 1; i < rampa.length; i++) {
+    if (milimetros >= rampa[i].valor) continue;
+    const antes = rampa[i - 1], depois = rampa[i];
+    const t = (milimetros - antes.valor) / (depois.valor - antes.valor);
+    return [0, 1, 2].map(
+      (c) => Math.round(antes.cor[c] + (depois.cor[c] - antes.cor[c]) * t)
+    );
+  }
+  return rampa[rampa.length - 1].cor;
+}
+
+/**
+ * Legenda da chuva: uma barra contínua, com marca em cada mudança de faixa.
+ *
+ * Era uma fileira de quadradinhos, um por faixa, todos do mesmo tamanho — e
+ * isso dizia que "0 a 25 mm" ocupa tanto da escala quanto "300 a 450 mm". Na
+ * barra, a posição de cada marca é o próprio valor: a legenda passa a ter a
+ * mesma geometria do mapa que ela explica.
+ */
 function montarLegendaDeChuva(idLegenda, dados) {
+  const escala = dados.escala;
+  const topo = escala[escala.length - 1].de || 1;
+  const posicao = (valor) => ((valor / topo) * 100).toFixed(1);
+
+  const degrade = escala.map((f) => `${f.cor} ${posicao(f.de)}%`).join(", ");
+
+  // A primeira marca seria o zero, que é o começo da barra e não precisa de
+  // número; a última leva "+" porque a faixa não tem fim.
+  const marcas = escala.slice(1).map((f, i) => {
+    const numero = f.de.toLocaleString("pt-BR");
+    const rotulo = i === escala.length - 2 ? `${numero}+` : numero;
+    return `<span style="left:${posicao(f.de)}%">${rotulo}</span>`;
+  }).join("");
+
   const legenda = $(idLegenda);
   legenda.innerHTML =
-    `<span class="legenda-titulo">chuva (${dados.unidade})</span>`
-    + dados.escala.map(
-        (f) => `<span><i style="background:${f.cor}"></i>${f.rotulo}</span>`
-      ).join("");
+    `<span class="legenda-titulo">chuva medida (${dados.unidade})</span>
+     <div class="escala-chuva">
+       <div class="escala-barra" style="background:linear-gradient(90deg,${degrade})"></div>
+       <div class="escala-marcas">${marcas}</div>
+     </div>
+     <span class="legenda-estacao"><i></i>estação do INMET</span>`;
   legenda.classList.remove("oculto");
 }
 
 // ---------------------------------------------------------------------------
-// Animação do fenômeno escolhido
+// Capitais estaduais
 // ---------------------------------------------------------------------------
-// Os dez tipos de desastre viram seis fenômenos: quatro deles são chuva com
-// nomes diferentes (o que muda entre inundação e enxurrada é para onde a água
-// vai, não o que cai do céu), e deslizamento e erosão são o mesmo material
-// descendo. Seis animações cobrem os dez tipos sem inventar diferença visual
-// onde não há diferença física.
+// O mapa pinta milhares de municípios e não escreve nenhum nome. Sem
+// referência nenhuma, quem olha vê manchas de cor e não sabe onde está
+// olhando — e a primeira pergunta de quem vê o mapa é sempre "onde fica a
+// minha cidade?". As capitais dão o ponto de apoio: achou São Paulo, achou o
+// Sudeste; achou Manaus, achou o Amazonas.
+//
+// São só 27 marcadores, e eles não carregam dado nenhum: o risco continua
+// sendo a cor do município. Por isso podem ser desligados no interruptor —
+// no mapa de um estado só, o nome da capital às vezes cobre justamente o
+// município que se quer olhar.
 
-const FENOMENO_POR_TIPO = {
-  INUNDACAO: "chuva",
-  ENXURRADA: "chuva",
-  ALAGAMENTO: "chuva",
-  CHUVAS_INTENSAS: "chuva",
-  DESLIZAMENTO: "terra",
-  EROSAO: "terra",
-  ESTIAGEM_SECA: "seca",
-  INCENDIO_FLORESTAL: "fogo",
-  VENDAVAL_CICLONE: "vento",
-  GRANIZO: "granizo",
-};
+const MAPAS_COM_CAPITAIS = ["consulta", "mapa", "cidade", "ano"];
 
-// Quantas partículas cada fenômeno usa. Chuva precisa de muitas para virar
-// chuva; rajada de vento, de poucas, senão vira listra.
-const PARTICULAS = {
-  chuva: 30, granizo: 20, terra: 18, fogo: 22, vento: 8, seca: 10,
-};
-
-const NOTA_ANIMACAO =
-  "A animação ilustra o tipo de desastre escolhido. É decoração: não indica "
-  + "onde está chovendo, nem onde vai chover.";
+const capitalPorCodigo = new Map();      // codigo_ibge -> capital
+let promessaCapitais = null;
 
 /**
- * Põe (ou tira) a animação de um mapa, conforme o tipo de desastre.
+ * Busca as capitais uma vez e guarda.
  *
- * É chamada no momento em que o mapa é desenhado, e não quando o seletor
- * muda: assim a animação sempre combina com os dados que estão na tela. Se
- * seguisse o seletor, apareceria chuva sobre um mapa que ainda mostra seca.
+ * Devolve sempre a mesma promessa: os três mapas esperam por ela antes de
+ * desenhar, e sem isso o primeiro deles poderia sair sem marcador nenhum,
+ * só porque a lista ainda estava a caminho.
+ *
+ * Falhar aqui não derruba o mapa — sem a lista, os marcadores simplesmente
+ * não aparecem e o resto continua igual.
  */
-function aplicarAnimacao(idCamada, tipo) {
-  const camada = $(idCamada);
-  if (!camada) return;
+function carregarCapitais() {
+  if (promessaCapitais) return promessaCapitais;
 
-  const fenomeno = FENOMENO_POR_TIPO[tipo] || "";
-  // Refazer as partículas a cada desenho reiniciaria a animação do zero e
-  // custaria DOM à toa. Se o fenômeno é o mesmo, não há o que trocar.
-  if (camada.dataset.fenomeno === fenomeno) return;
+  promessaCapitais = (async () => {
+    try {
+      const dados = await pedir("/mapa/capitais");
+      (dados.capitais || []).forEach((c) => capitalPorCodigo.set(c.codigo_ibge, c));
+    } catch (erro) {
+      /* sem capitais: o mapa continua de pé, só sem os pontos de referência */
+    }
+  })();
 
-  camada.dataset.fenomeno = fenomeno;
-  camada.innerHTML = fenomeno
-    ? Array.from({ length: PARTICULAS[fenomeno] },
-                 () => `<i style="${estiloDaParticula(fenomeno)}"></i>`).join("")
-    : "";
+  return promessaCapitais;
+}
 
-  const nota = $(`${idCamada}-nota`);
-  if (nota) {
-    nota.textContent = fenomeno ? NOTA_ANIMACAO : "";
-    nota.classList.toggle("oculto", !fenomeno);
+/** Liga os interruptores "destacar as capitais" dos três mapas. */
+function ligarCapitais() {
+  for (const prefixo of MAPAS_COM_CAPITAIS) {
+    const caixa = $(`${prefixo}-capitais`);
+    const area = $(`${prefixo}-svg`).closest(".mapa-area");
+    if (!caixa || !area) continue;
+
+    const aplicar = () => area.classList.toggle("mostrar-capitais", caixa.checked);
+    caixa.addEventListener("change", aplicar);
+    aplicar();
   }
 }
 
-/** Sorteia posição, tamanho e ritmo de uma partícula. */
-function estiloDaParticula(fenomeno) {
-  // Sem variação, as trinta gotas cairiam em fila e no mesmo compasso — o
-  // olho lê isso como listra, não como chuva.
-  const n = (minimo, maximo) => (minimo + Math.random() * (maximo - minimo)).toFixed(2);
+/**
+ * Desenha os marcadores das capitais que aparecem no recorte atual.
+ *
+ * O contorno do município vem redesenhado por cima de tudo, e não como
+ * classe no `path` original: com 5.570 polígonos vizinhos empilhados, o
+ * traço do que foi desenhado primeiro some sob os que vieram depois.
+ */
+function camadaDeCapitais(contornos, presentes, px, py, largura) {
+  if (!presentes.length) return "";
 
-  switch (fenomeno) {
-    case "chuva":
-      return `left:${n(-5, 100)}%;height:${n(14, 30)}px;`
-           + `animation-duration:${n(0.65, 1.25)}s;animation-delay:${n(0, 1.6)}s`;
-    case "granizo":
-      return `left:${n(-5, 100)}%;width:${n(3, 6)}px;height:${n(3, 6)}px;`
-           + `animation-duration:${n(0.5, 0.9)}s;animation-delay:${n(0, 1.2)}s`;
-    case "terra":
-      return `left:${n(-5, 100)}%;width:${n(3, 7)}px;height:${n(3, 7)}px;`
-           + `animation-duration:${n(2.2, 4)}s;animation-delay:${n(0, 3)}s`;
-    case "fogo":
-      return `left:${n(0, 100)}%;width:${n(3, 6)}px;height:${n(3, 6)}px;`
-           + `--desvio:${n(-45, 45)}px;`
-           + `animation-duration:${n(2.4, 4.2)}s;animation-delay:${n(0, 3.5)}s`;
-    case "vento":
-      return `top:${n(4, 94)}%;width:${n(90, 230)}px;`
-           + `animation-duration:${n(1.8, 3.2)}s;animation-delay:${n(0, 2.6)}s`;
-    case "seca":
-      // Sobem do chão: começam na metade de baixo do mapa.
-      return `left:${n(4, 96)}%;top:${n(35, 88)}%;height:${n(30, 60)}px;`
-           + `--desvio:${n(-20, 20)}px;`
-           + `animation-duration:${n(3.2, 5)}s;animation-delay:${n(0, 4)}s`;
-    default:
-      return "";
-  }
+  const colocados = [];
+  const marcas = presentes.map((c) => {
+    const x = px(c.lon);
+    const y = py(c.lat);
+    const posicao = posicaoDoRotulo(c.nome, x, y, largura, colocados);
+    colocados.push(posicao.caixa);
+
+    return `<g transform="translate(${x.toFixed(1)},${y.toFixed(1)})">`
+         + `<circle class="capital-halo" r="5.6"></circle>`
+         + `<circle class="capital-ponto" r="2.4"></circle>`
+         + `<text class="capital-nome" x="${posicao.dx}" y="${posicao.dy}"`
+         + ` text-anchor="${posicao.ancora}">${c.nome}</text></g>`;
+  });
+
+  return contornos.map((d) => `<path class="capital-contorno" d="${d}"></path>`).join("")
+       + marcas.join("");
 }
+
+// Onde o rótulo pode ir, em ordem de preferência: à direita do ponto, à
+// esquerda, e depois acima e abaixo. Os valores estão nas unidades do
+// viewBox, as mesmas em que o mapa é desenhado.
+const LADOS_DO_ROTULO = [
+  { dx: 9, dy: 3.6, ancora: "start" },
+  { dx: -9, dy: 3.6, ancora: "end" },
+  { dx: 9, dy: -6, ancora: "start" },
+  { dx: -9, dy: -6, ancora: "end" },
+  { dx: 0, dy: -9, ancora: "middle" },
+  { dx: 0, dy: 16, ancora: "middle" },
+];
+
+/**
+ * Escolhe de que lado do ponto o nome da capital fica.
+ *
+ * No Brasil inteiro, as capitais do Nordeste ficam a poucos graus umas das
+ * outras: escritas todas do mesmo lado, "Recife", "Maceió" e "Aracaju" saem
+ * empilhadas e nenhuma das três se lê. Cada nome tenta os lados em ordem e
+ * pega o primeiro que não bate em nome já escrito nem sai do quadro.
+ *
+ * Quando todos batem — e num mapa cheio isso acontece — vale o último lado
+ * tentado. Um nome torto ainda é melhor do que uma capital sem nome, que é o
+ * que a pessoa está justamente procurando no mapa.
+ */
+function posicaoDoRotulo(nome, x, y, largura, colocados) {
+  // Sem medir texto de verdade (custaria um canvas por rótulo), a largura sai
+  // da contagem de letras. O peso 5.9 foi ajustado para a fonte em negrito de
+  // 10,5 px do `.capital-nome`.
+  const comprimento = nome.length * 5.9;
+  const bate = (a, b) => a.x1 < b.x2 && a.x2 > b.x1 && a.y1 < b.y2 && a.y2 > b.y1;
+
+  let ultima = null;
+  for (const lado of LADOS_DO_ROTULO) {
+    const inicio = lado.ancora === "start" ? x + lado.dx
+                 : lado.ancora === "end" ? x + lado.dx - comprimento
+                 : x + lado.dx - comprimento / 2;
+
+    const caixa = {
+      x1: inicio, x2: inicio + comprimento,
+      y1: y + lado.dy - 9, y2: y + lado.dy + 3,
+    };
+    ultima = { ...lado, caixa };
+
+    if (caixa.x1 < 2 || caixa.x2 > largura - 2) continue;
+    if (colocados.some((posto) => bate(caixa, posto))) continue;
+    return ultima;
+  }
+  return ultima;
+}
+
 
 /** Texto da dica no mapa de risco: uma previsão do modelo. */
 function dicaDeRisco(info) {
@@ -776,6 +995,10 @@ function renderizarSvg(idSvg, idDica, feicoes, porMunicipio, codigoEmFoco = null
               .join("L") + "Z";
 
   const partes = [];
+  const contorno = [];              // tudo que foi desenhado, para a chuva
+  const contornosCapitais = [];
+  const capitaisNoRecorte = [];
+
   feicoes.forEach((f) => {
     const codigo = f.properties.codigo_ibge;
     const info = porMunicipio.get(codigo);
@@ -784,6 +1007,14 @@ function renderizarSvg(idSvg, idDica, feicoes, porMunicipio, codigoEmFoco = null
 
     const d = poligonos.map((p) => p.map(anelParaPath).join("")).join("");
     if (!d) return;
+
+    contorno.push(d);
+
+    const capital = capitalPorCodigo.get(codigo);
+    if (capital) {
+      contornosCapitais.push(d);
+      capitaisNoRecorte.push(capital);
+    }
 
     if (info) {
       const foco = codigo === codigoEmFoco ? " foco" : "";
@@ -796,6 +1027,15 @@ function renderizarSvg(idSvg, idDica, feicoes, porMunicipio, codigoEmFoco = null
   });
 
   svg.innerHTML = partes.join("");
+
+  // As capitais vão para um <svg> próprio, sobreposto ao do mapa. Dentro do
+  // mapa elas ficariam por baixo da camada de chuva, e o nome da capital
+  // sumiria justamente quando a chuva está ligada.
+  const camadaCapitais = $(idSvg.replace("-svg", "-capitais-svg"));
+  if (camadaCapitais) {
+    camadaCapitais.innerHTML =
+      camadaDeCapitais(contornosCapitais, capitaisNoRecorte, px, py, LARGURA);
+  }
 
   // Um único listener no SVG, em vez de um por município — com 5.570
   // elementos, a diferença de desempenho trava a página.
@@ -816,7 +1056,12 @@ function renderizarSvg(idSvg, idDica, feicoes, porMunicipio, codigoEmFoco = null
   // A projeção fica guardada para a camada de chuva poder desenhar sobre
   // exatamente o mesmo enquadramento. Recalculá-la por fora daria um mapa
   // deslocado toda vez que o recorte mudasse (um estado, uma região).
-  projecaoDoMapa[idSvg] = { px, py, largura: LARGURA, altura: ALTURA };
+  // `contorno` é o desenho inteiro num só caminho: a camada de chuva recorta
+  // a mancha interpolada por ele, para a chuva não vazar para o mar nem para
+  // fora do estado escolhido.
+  projecaoDoMapa[idSvg] = {
+    px, py, largura: LARGURA, altura: ALTURA, contorno: contorno.join(""),
+  };
   return projecaoDoMapa[idSvg];
 }
 
@@ -893,6 +1138,7 @@ async function desenharMapaDoAno(ano, tipo = "", ufEscolhida = "") {
 
   try {
     if (!malhaCache) malhaCache = await pedir("/mapa/malha");
+    await carregarCapitais();
 
     const filtro = tipo ? `?grupo_desastre=${tipo}` : "";
     const dados = await pedir(`/historico/ano/${ano}${filtro}`);
@@ -906,9 +1152,6 @@ async function desenharMapaDoAno(ano, tipo = "", ufEscolhida = "") {
 
     renderizarSvg("ano-svg", "ano-dica", feicoes, porMunicipio, null,
                   dicaDeOcorrencias);
-    // Com "todos os tipos" não há um fenômeno só para ilustrar, e a camada
-    // fica vazia — misturar chuva com fogo não descreveria nada.
-    aplicarAnimacao("ano-animacao", tipo);
     atualizarChuva("ano");
 
     mostrarNumerosDoAno(dados, doMapa, ufEscolhida);
@@ -926,9 +1169,6 @@ async function desenharMapaDoAno(ano, tipo = "", ufEscolhida = "") {
     ["ano-numeros", "ano-legenda", "ano-meses", "ano-tipos"]
       .forEach((id) => $(id).classList.add("oculto"));
     $("ano-svg").innerHTML = "";
-    // Sem isto, a chuva continuaria caindo sobre um mapa vazio e uma
-    // mensagem de erro.
-    aplicarAnimacao("ano-animacao", "");
   } finally {
     botao.disabled = false;
     botao.textContent = "Mostrar";

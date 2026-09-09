@@ -218,74 +218,64 @@ def test_toda_variavel_usada_existe_no_tema_claro():
 
 
 # --------------------------------------------------------------------------
-# Animação do fenômeno escolhido
+# Capitais
 # --------------------------------------------------------------------------
 
 
-def _fenomeno_por_tipo() -> dict[str, str]:
-    """Lê o de-para tipo -> fenômeno declarado no app.js."""
-    trecho = re.search(r"const FENOMENO_POR_TIPO = \{(.*?)\};", _js(), re.DOTALL)
-    assert trecho, "FENOMENO_POR_TIPO não encontrado em app.js"
-    return dict(re.findall(r"(\w+):\s*\"(\w+)\"", trecho.group(1)))
+MAPAS = ("consulta", "mapa", "cidade", "ano")
 
 
-def test_todo_tipo_de_desastre_tem_uma_animacao():
-    """
-    Um tipo fora do de-para não quebra nada — simplesmente não anima. É o tipo
-    de falha que ninguém nota até alguém perguntar por que só a seca não tem
-    efeito nenhum.
-    """
-    from src import esquema
-
-    sem_animacao = set(esquema.GRUPOS_COBRADE) - set(_fenomeno_por_tipo())
-    assert not sem_animacao, f"tipos sem animação: {sorted(sem_animacao)}"
-
-
-def test_a_animacao_nao_inventa_tipo_que_nao_existe():
-    from src import esquema
-
-    inventados = set(_fenomeno_por_tipo()) - set(esquema.GRUPOS_COBRADE)
-    assert not inventados, f"tipos que não existem no esquema: {sorted(inventados)}"
-
-
-def test_todo_fenomeno_tem_regra_no_css_e_contagem_no_js():
-    js, css = _js(), _css()
-    fenomenos = set(_fenomeno_por_tipo().values())
-
-    particulas = re.search(r"const PARTICULAS = \{(.*?)\};", js, re.DOTALL)
-    assert particulas
-    contados = set(re.findall(r"(\w+):", particulas.group(1)))
-
-    for fenomeno in fenomenos:
-        assert f'[data-fenomeno="{fenomeno}"]' in css, (
-            f"o fenômeno '{fenomeno}' não tem regra de estilo"
+def test_todos_os_mapas_marcam_as_capitais():
+    html, js = _html(), _js()
+    for mapa in MAPAS:
+        assert f'id="{mapa}-capitais-svg"' in html, (
+            f"o mapa '{mapa}' não tem camada de capitais"
         )
-        assert fenomeno in contados, (
-            f"o fenômeno '{fenomeno}' não diz quantas partículas usa"
+        assert f'id="{mapa}-capitais"' in html, (
+            f"o mapa '{mapa}' não tem o interruptor das capitais"
+        )
+    assert "camadaDeCapitais(" in js
+
+
+def test_a_camada_das_capitais_acompanha_o_viewbox_do_mapa():
+    """
+    A camada é posicionada sobre o mapa e recebe a projeção dele. Com
+    dimensões diferentes, os marcadores aparecem deslocados das cidades que
+    nomeiam — e um marcador deslocado é pior do que marcador nenhum.
+    """
+    html = _html()
+    for mapa in MAPAS:
+        svg_id, capitais_id = f"{mapa}-svg", f"{mapa}-capitais-svg"
+        mapa = re.search(rf'id="{svg_id}" viewBox="0 0 (\d+) (\d+)"', html)
+        assert mapa, f"viewBox de {svg_id} não encontrado"
+
+        camada = re.search(
+            rf'id="{capitais_id}"[^>]*?viewBox="0 0 (\d+) (\d+)"', html, re.DOTALL
+        )
+        assert camada, f"viewBox de {capitais_id} não encontrado"
+        assert mapa.groups() == camada.groups(), (
+            f"{capitais_id} ({camada.groups()}) não casa com "
+            f"{svg_id} ({mapa.groups()})"
         )
 
 
-def test_toda_animacao_declarada_e_usada():
-    """Regra de fenômeno no CSS sem tipo que a acione é código morto."""
-    usados = set(_fenomeno_por_tipo().values())
-    no_css = set(re.findall(r'\[data-fenomeno="(\w+)"\]', _css()))
-    assert no_css == usados, f"sobrando no CSS: {sorted(no_css - usados)}"
-
-
-def test_a_camada_de_animacao_nao_rouba_o_mouse():
+def test_a_camada_das_capitais_nao_rouba_o_mouse():
     """
-    Sem `pointer-events: none`, a camada fica na frente do mapa e a dica de
-    cada município para de aparecer — o efeito visual quebraria a parte
-    informativa da tela.
+    A dica de cada município vem de um listener no <svg> de baixo, que procura
+    o `path` sob o mouse. Sem `pointer-events: none`, a camada de cima captura
+    o evento e a dica some justamente em cima das capitais.
     """
     css = _css()
-    bloco = css[css.index(".animacao-mapa {"):]
+    bloco = css[css.index(".camada-capitais {"):]
     bloco = bloco[:bloco.index("}")]
     assert "pointer-events: none" in bloco
 
 
-def test_a_animacao_fica_atras_da_dica():
-    """A dica precisa continuar legível por cima das partículas."""
+def test_as_capitais_ficam_acima_da_chuva_e_abaixo_da_dica():
+    """
+    Dentro do mapa as capitais ficariam sob a camada de chuva, e o nome sumiria
+    justamente quando a chuva está ligada. Acima da dica, cobririam o texto.
+    """
     css = _css()
 
     def z_index(seletor):
@@ -293,33 +283,36 @@ def test_a_animacao_fica_atras_da_dica():
         bloco = bloco[:bloco.index("}")]
         return int(re.search(r"z-index:\s*(\d+)", bloco).group(1))
 
-    assert z_index(".animacao-mapa {") < z_index(".mapa-dica {")
+    assert z_index(".camada-chuva {") < z_index(".camada-capitais {")
+    assert z_index(".camada-capitais {") < z_index(".mapa-dica {")
 
 
-def test_os_tres_mapas_recebem_a_animacao():
-    html, js = _html(), _js()
-    for mapa in ("mapa", "cidade", "ano"):
-        assert f'id="{mapa}-animacao"' in html, f"falta a camada no mapa '{mapa}'"
-        assert f'aplicarAnimacao("{mapa}-animacao"' in js, (
-            f"o mapa '{mapa}' nunca liga a animação"
+def test_o_interruptor_das_capitais_comeca_ligado():
+    """
+    O marcador é referência geográfica: quem abre o mapa pela primeira vez
+    precisa dele para achar onde está olhando. Desligar é a exceção.
+    """
+    html = _html()
+    for mapa in MAPAS:
+        marcacao = re.search(rf'<input type="checkbox" id="{mapa}-capitais"([^>]*)>',
+                             html)
+        assert marcacao, f"interruptor de {mapa} não encontrado"
+        assert "checked" in marcacao.group(1), (
+            f"o interruptor das capitais de '{mapa}' começa desligado"
         )
 
 
-def test_a_animacao_avisa_que_e_ilustracao():
+def test_a_pagina_nao_tem_mais_a_animacao_decorativa():
     """
-    O site afirma não ser previsão meteorológica. Chuva sobre o mapa do Brasil
-    se parece com uma, então o aviso ao lado da legenda precisa existir.
+    Chuva animada sobre o mapa parecia previsão do tempo, e disputava a
+    leitura com a camada de chuva medida — que é dado. Saiu; este teste
+    existe para não voltar por descuido.
     """
-    js, html = _js(), _html()
-    assert "NOTA_ANIMACAO" in js
-    for mapa in ("mapa", "cidade", "ano"):
-        assert f'id="{mapa}-animacao-nota"' in html
-
-
-def test_a_animacao_e_desligada_por_quem_pede_menos_movimento():
-    css = _css()
-    reduzido = css[css.index("@media (prefers-reduced-motion: reduce)"):]
-    assert "animation: none !important" in reduzido[:200]
+    js, css, html = _js(), _css(), _html()
+    assert "aplicarAnimacao" not in js
+    assert "FENOMENO_POR_TIPO" not in js
+    assert "data-fenomeno" not in css
+    assert "animacao-mapa" not in html
 
 
 # --------------------------------------------------------------------------
@@ -327,9 +320,9 @@ def test_a_animacao_e_desligada_por_quem_pede_menos_movimento():
 # --------------------------------------------------------------------------
 
 
-def test_os_tres_mapas_tem_a_camada_de_chuva():
+def test_todos_os_mapas_tem_a_camada_de_chuva():
     html, js = _html(), _js()
-    for mapa in ("mapa", "cidade", "ano"):
+    for mapa in MAPAS:
         for parte in ("chuva", "chuva-canvas", "chuva-legenda", "chuva-nota"):
             assert f'id="{mapa}-{parte}"' in html, f"falta {mapa}-{parte}"
         assert f'atualizarChuva("{mapa}")' in js, (
@@ -345,9 +338,8 @@ def test_o_canvas_da_chuva_acompanha_o_viewbox_do_mapa():
     certas separadamente.
     """
     html = _html()
-    for svg_id, canvas_id in [("mapa-svg", "mapa-chuva-canvas"),
-                              ("cidade-svg", "cidade-chuva-canvas"),
-                              ("ano-svg", "ano-chuva-canvas")]:
+    for mapa in MAPAS:
+        svg_id, canvas_id = f"{mapa}-svg", f"{mapa}-chuva-canvas"
         svg = re.search(rf'id="{svg_id}" viewBox="0 0 (\d+) (\d+)"', html)
         assert svg, f"viewBox de {svg_id} não encontrado"
 
@@ -368,8 +360,8 @@ def test_a_camada_de_chuva_nao_intercepta_o_mouse():
     assert "pointer-events: none" in bloco
 
 
-def test_a_chuva_fica_entre_o_mapa_e_a_animacao():
-    """Sobre o mapa, mas sob a animação e a dica — nesta ordem."""
+def test_a_chuva_fica_entre_o_mapa_e_a_dica():
+    """Sobre o mapa, mas sob a dica — que precisa continuar legível."""
     css = _css()
 
     def z_index(seletor):
@@ -377,8 +369,7 @@ def test_a_chuva_fica_entre_o_mapa_e_a_animacao():
         bloco = bloco[:bloco.index("}")]
         return int(re.search(r"z-index:\s*(\d+)", bloco).group(1))
 
-    assert z_index(".camada-chuva {") < z_index(".animacao-mapa {")
-    assert z_index(".animacao-mapa {") < z_index(".mapa-dica {")
+    assert z_index(".camada-chuva {") < z_index(".mapa-dica {")
 
 
 def test_o_mapa_e_atenuado_quando_a_chuva_entra():
@@ -411,3 +402,72 @@ def test_a_interpolacao_roda_numa_grade_pequena():
     assert grade, "GRADE_CHUVA não encontrada"
     assert int(grade.group(1)) <= 128, "grade grande demais para calcular no navegador"
     assert "imageSmoothingEnabled = true" in js
+
+
+def test_a_chuva_e_recortada_no_contorno_do_mapa():
+    """
+    Interpolar entre estações espalha valor por todo o retângulo do desenho,
+    inclusive sobre o mar e sobre os estados que ficaram de fora do recorte.
+    A máscara é o que impede a camada de afirmar chuva onde não há nem terra
+    nem estação.
+    """
+    js = _js()
+    assert "mascaraDoMapa" in js
+    assert "new Path2D" in js
+    assert "contexto.clip(" in js
+
+
+def test_a_escala_de_chuva_e_continua():
+    """
+    Pintar faixa a faixa desenha degraus onde a chuva é contínua, e degrau no
+    meio da mancha parece fronteira de dado. As cores são as mesmas da
+    legenda; o que muda é que o valor entre duas faixas é interpolado.
+    """
+    js = _js()
+    assert "rampaDeChuva" in js
+    corpo = _corpo_da_funcao("function corDaChuva(")
+    assert "depois.cor[c] - antes.cor[c]" in corpo, (
+        "corDaChuva voltou a escolher uma faixa em vez de interpolar"
+    )
+
+
+# --------------------------------------------------------------------------
+# Mapa dentro da seção de consulta
+# --------------------------------------------------------------------------
+
+
+def test_o_mapa_da_consulta_fica_dentro_da_secao_de_consulta():
+    """
+    O mapa responde à pergunta que acabou de ser feita, no lugar em que ela
+    foi feita. Fora da seção ele vira mais um mapa perdido na página.
+    """
+    html = _html()
+    secao = html[html.index('id="secao-consulta"'):html.index('id="resultado"')]
+    for identificador in ("consulta-mapa", "consulta-svg", "consulta-dica",
+                          "consulta-legenda", "consulta-capitais-svg",
+                          "consulta-chuva-canvas"):
+        assert f'id="{identificador}"' in secao, (
+            f"{identificador} não está dentro da seção de consulta"
+        )
+
+
+def test_o_mapa_da_consulta_nao_pede_previsao_de_novo():
+    """
+    A cor e a probabilidade já vieram na resposta que preencheu o selo do
+    resultado. Pedir tudo outra vez custaria alguns segundos para desenhar
+    exatamente o mesmo número.
+    """
+    corpo = _corpo_da_funcao("async function mostrarMapaDaConsulta(")
+    assert "/prever" not in corpo, (
+        "mostrarMapaDaConsulta refaz a previsão em vez de usar a que já tem"
+    )
+    assert "previsao.cor" in corpo and "previsao.probabilidades" in corpo
+
+
+def test_trocar_de_municipio_apaga_o_mapa_da_consulta():
+    """
+    O contorno de Petrópolis embaixo do nome de Blumenau é pior do que mapa
+    nenhum: mostra a cidade errada com cara de resposta certa.
+    """
+    corpo = _corpo_da_funcao('$("busca").addEventListener("input"')
+    assert 'consulta-mapa").classList.add("oculto")' in corpo

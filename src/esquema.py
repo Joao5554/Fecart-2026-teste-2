@@ -89,6 +89,47 @@ GRUPOS_COBRADE = {
 
 REGIOES = ["Norte", "Nordeste", "Centro-Oeste", "Sudeste", "Sul"]
 
+# --------------------------------------------------------------------------
+# Capitais estaduais
+# --------------------------------------------------------------------------
+# O mapa pinta 5.570 municípios e não escreve nenhum nome: quem olha vê
+# manchas de cor e não sabe onde está olhando. As capitais são o ponto de
+# apoio que o olho procura primeiro — achou São Paulo, achou o Sudeste.
+#
+# São os códigos do IBGE, os mesmos da malha municipal, para o desenho casar
+# o marcador com o polígono certo. O teste testes/test_mapa.py confere que
+# todos os 27 existem na malha.
+
+CAPITAIS = {
+    "AC": (1200401, "Rio Branco"),
+    "AL": (2704302, "Maceió"),
+    "AM": (1302603, "Manaus"),
+    "AP": (1600303, "Macapá"),
+    "BA": (2927408, "Salvador"),
+    "CE": (2304400, "Fortaleza"),
+    "DF": (5300108, "Brasília"),
+    "ES": (3205309, "Vitória"),
+    "GO": (5208707, "Goiânia"),
+    "MA": (2111300, "São Luís"),
+    "MG": (3106200, "Belo Horizonte"),
+    "MS": (5002704, "Campo Grande"),
+    "MT": (5103403, "Cuiabá"),
+    "PA": (1501402, "Belém"),
+    "PB": (2507507, "João Pessoa"),
+    "PE": (2611606, "Recife"),
+    "PI": (2211001, "Teresina"),
+    "PR": (4106902, "Curitiba"),
+    "RJ": (3304557, "Rio de Janeiro"),
+    "RN": (2408102, "Natal"),
+    "RO": (1100205, "Porto Velho"),
+    "RR": (1400100, "Boa Vista"),
+    "RS": (4314902, "Porto Alegre"),
+    "SC": (4205407, "Florianópolis"),
+    "SE": (2800308, "Aracaju"),
+    "SP": (3550308, "São Paulo"),
+    "TO": (1721000, "Palmas"),
+}
+
 UFS = [
     "AC", "AL", "AM", "AP", "BA", "CE", "DF", "ES", "GO", "MA", "MG", "MS",
     "MT", "PA", "PB", "PE", "PI", "PR", "RJ", "RN", "RO", "RR", "RS", "SC",

@@ -101,6 +101,40 @@
 
       <button type="submit" id="botao" disabled>Prever risco</button>
     </form>
+
+    <!-- Só aparece depois da primeira previsão: antes dela não há município
+         nem risco para desenhar. -->
+    <div id="consulta-mapa" class="oculto">
+      <h3>O município no mapa</h3>
+      <p class="ajuda">
+        O contorno real do município consultado, pintado com o risco previsto
+        para o mês escolhido. É o mesmo resultado do selo acima, no lugar em
+        que ele acontece — e onde dá para ligar a chuva medida por cima.
+      </p>
+
+      <label class="camada-opcao" for="consulta-capitais">
+        <input type="checkbox" id="consulta-capitais" checked>
+        <span>Destacar as capitais</span>
+      </label>
+      <label class="camada-opcao" for="consulta-chuva">
+        <input type="checkbox" id="consulta-chuva">
+        <span>Camada: chuva medida (INMET)</span>
+      </label>
+
+      <div class="mapa-area">
+        <svg id="consulta-svg" viewBox="0 0 640 460" role="img"
+             aria-label="Mapa do município consultado"></svg>
+        <canvas id="consulta-chuva-canvas" class="camada-chuva"
+                width="640" height="460" aria-hidden="true"></canvas>
+        <svg id="consulta-capitais-svg" class="camada-capitais"
+             viewBox="0 0 640 460" aria-hidden="true"></svg>
+        <div id="consulta-dica" class="mapa-dica oculto"></div>
+      </div>
+
+      <div id="consulta-legenda" class="mapa-legenda oculto"></div>
+      <div id="consulta-chuva-legenda" class="mapa-legenda legenda-chuva oculto"></div>
+      <p id="consulta-chuva-nota" class="nota-chuva oculto"></p>
+    </div>
   </section>
 
   <!-- ------------------------------------------------------------------ -->
@@ -133,11 +167,16 @@
     <h2>A cidade e a região</h2>
     <p class="ajuda">
       O município consultado, em destaque, e os vizinhos da mesma região
-      imediata do IBGE. Desastre raramente respeita divisa municipal: ver o
-      entorno mostra se a cidade é um ponto isolado ou parte de uma área
-      inteira sob pressão.
+      imediata do IBGE, cada um com o risco previsto para este mês e este tipo.
+      Desastre raramente respeita divisa municipal: ver o entorno mostra se a
+      cidade é um ponto isolado ou parte de uma área inteira sob pressão. A
+      capital do estado aparece marcada quando cai dentro do recorte.
     </p>
 
+    <label class="camada-opcao" for="cidade-capitais">
+      <input type="checkbox" id="cidade-capitais" checked>
+      <span>Destacar as capitais</span>
+    </label>
     <label class="camada-opcao" for="cidade-chuva">
       <input type="checkbox" id="cidade-chuva">
       <span>Camada: chuva medida (INMET)</span>
@@ -147,14 +186,14 @@
            aria-label="Mapa da cidade e da região"></svg>
       <canvas id="cidade-chuva-canvas" class="camada-chuva"
               width="640" height="460" aria-hidden="true"></canvas>
-      <div id="cidade-animacao" class="animacao-mapa" aria-hidden="true"></div>
+      <svg id="cidade-capitais-svg" class="camada-capitais"
+           viewBox="0 0 640 460" aria-hidden="true"></svg>
       <div id="cidade-dica" class="mapa-dica oculto"></div>
     </div>
 
     <div id="cidade-legenda" class="mapa-legenda oculto"></div>
     <div id="cidade-chuva-legenda" class="mapa-legenda legenda-chuva oculto"></div>
     <p id="cidade-chuva-nota" class="nota-chuva oculto"></p>
-    <p id="cidade-animacao-nota" class="nota-animacao oculto"></p>
     <p id="cidade-setores" class="ajuda" style="margin-top:16px"></p>
   </section>
 
@@ -200,6 +239,10 @@
       <button type="submit" id="mapa-botao">Desenhar</button>
     </form>
 
+    <label class="camada-opcao" for="mapa-capitais">
+      <input type="checkbox" id="mapa-capitais" checked>
+      <span>Destacar as capitais</span>
+    </label>
     <label class="camada-opcao" for="mapa-chuva">
       <input type="checkbox" id="mapa-chuva">
       <span>Camada: chuva medida (INMET)</span>
@@ -211,14 +254,14 @@
            aria-label="Mapa de risco por município"></svg>
       <canvas id="mapa-chuva-canvas" class="camada-chuva"
               width="640" height="640" aria-hidden="true"></canvas>
-      <div id="mapa-animacao" class="animacao-mapa" aria-hidden="true"></div>
+      <svg id="mapa-capitais-svg" class="camada-capitais"
+           viewBox="0 0 640 640" aria-hidden="true"></svg>
       <div id="mapa-dica" class="mapa-dica oculto"></div>
     </div>
 
     <div id="mapa-legenda" class="mapa-legenda oculto"></div>
     <div id="mapa-chuva-legenda" class="mapa-legenda legenda-chuva oculto"></div>
     <p id="mapa-chuva-nota" class="nota-chuva oculto"></p>
-    <p id="mapa-animacao-nota" class="nota-animacao oculto"></p>
   </section>
 
   <!-- ------------------------------------------------------------------ -->
@@ -250,6 +293,10 @@
 
     <div id="ano-numeros" class="numeros-ano oculto"></div>
 
+    <label class="camada-opcao" for="ano-capitais">
+      <input type="checkbox" id="ano-capitais" checked>
+      <span>Destacar as capitais</span>
+    </label>
     <label class="camada-opcao" for="ano-chuva">
       <input type="checkbox" id="ano-chuva">
       <span>Camada: chuva medida (acumulado do ano)</span>
@@ -261,14 +308,14 @@
            aria-label="Mapa das ocorrências registradas no ano"></svg>
       <canvas id="ano-chuva-canvas" class="camada-chuva"
               width="640" height="640" aria-hidden="true"></canvas>
-      <div id="ano-animacao" class="animacao-mapa" aria-hidden="true"></div>
+      <svg id="ano-capitais-svg" class="camada-capitais"
+           viewBox="0 0 640 640" aria-hidden="true"></svg>
       <div id="ano-dica" class="mapa-dica oculto"></div>
     </div>
 
     <div id="ano-legenda" class="mapa-legenda oculto"></div>
     <div id="ano-chuva-legenda" class="mapa-legenda legenda-chuva oculto"></div>
     <p id="ano-chuva-nota" class="nota-chuva oculto"></p>
-    <p id="ano-animacao-nota" class="nota-animacao oculto"></p>
 
     <div id="ano-meses" class="meses-ano oculto">
       <h3>Em que meses aconteceram</h3>

@@ -178,6 +178,63 @@ def test_segunda_chamada_usa_o_cache():
 
 
 # --------------------------------------------------------------------------
+# Capitais
+# --------------------------------------------------------------------------
+
+
+def test_o_esquema_traz_as_27_capitais():
+    """Uma UF sem capital deixaria um estado inteiro sem ponto de referência."""
+    assert set(esquema.CAPITAIS) == set(esquema.UFS)
+
+
+@precisa_de_malha
+def test_toda_capital_existe_na_malha():
+    """
+    O marcador é posicionado a partir do polígono do município. Código que
+    não existe na malha vira capital sem lugar no mapa — some sem erro
+    nenhum, que é o tipo de falha que ninguém percebe.
+    """
+    geo = cliente.get("/mapa/malha").json()
+    codigos = {f["properties"]["codigo_ibge"] for f in geo["features"]}
+
+    faltando = [uf for uf, (codigo, _) in esquema.CAPITAIS.items()
+                if codigo not in codigos]
+    assert not faltando, f"capitais fora da malha: {faltando}"
+
+
+@precisa_de_malha
+def test_capitais_devolvem_ponto_dentro_do_brasil():
+    resposta = cliente.get("/mapa/capitais")
+    assert resposta.status_code == 200
+
+    dados = resposta.json()
+    assert dados["total"] == 27
+
+    for capital in dados["capitais"]:
+        assert -34 <= capital["lat"] <= 6, capital
+        assert -74 <= capital["lon"] <= -34, capital
+        assert capital["nome"]
+        assert capital["uf"] in esquema.UFS
+
+
+@precisa_de_malha
+def test_o_ponto_da_capital_cai_perto_da_cidade():
+    """
+    O centroide do maior polígono precisa cair sobre o município, e não sobre
+    a média dos vértices de um contorno recortado. Duas capitais de posição
+    conhecida bastam para pegar uma troca de latitude por longitude, que é o
+    erro que mais aparece em código de mapa.
+    """
+    por_uf = {c["uf"]: c for c in cliente.get("/mapa/capitais").json()["capitais"]}
+
+    # Brasília fica em torno de -15,8 / -47,9; Manaus, de -3,1 / -60,0.
+    assert abs(por_uf["DF"]["lat"] - (-15.8)) < 1
+    assert abs(por_uf["DF"]["lon"] - (-47.9)) < 1
+    assert abs(por_uf["AM"]["lat"] - (-3.1)) < 1.5
+    assert abs(por_uf["AM"]["lon"] - (-60.0)) < 1.5
+
+
+# --------------------------------------------------------------------------
 # Interface
 # --------------------------------------------------------------------------
 

@@ -14,6 +14,7 @@ Endpoints:
     POST /prever               previsão para um município
     POST /prever/lote          previsão para vários municípios de uma vez
     POST /mapa/risco           GeoJSON pronto para o mapa interativo
+    GET  /mapa/capitais        as 27 capitais, para marcar no mapa
 """
 
 import json
@@ -869,6 +870,93 @@ def malha_municipios():
     from fastapi.responses import FileResponse
 
     return FileResponse(ARQUIVO_MALHA, media_type="application/geo+json")
+
+
+# As capitais são calculadas uma vez e ficam em memória: a malha tem 3 MB e
+# abrir o arquivo a cada clique no interruptor não se justifica para 27 pontos.
+_cache_capitais: list[dict] | None = None
+
+
+def _centro_do_poligono(anel: list) -> tuple[float, float]:
+    """
+    Centro geométrico de um anel de coordenadas (fórmula do centroide de
+    polígono, não a média dos vértices).
+
+    A diferença aparece em município de contorno recortado, onde um trecho de
+    litoral concentra dezenas de vértices: a média puxaria o ponto para lá, e
+    o marcador da capital sairia de cima da mancha urbana.
+    """
+    area = cx = cy = 0.0
+    for i in range(len(anel) - 1):
+        x1, y1 = anel[i][0], anel[i][1]
+        x2, y2 = anel[i + 1][0], anel[i + 1][1]
+        cruzado = x1 * y2 - x2 * y1
+        area += cruzado
+        cx += (x1 + x2) * cruzado
+        cy += (y1 + y2) * cruzado
+
+    if area == 0:  # anel degenerado: cai para a média simples
+        return (sum(c[0] for c in anel) / len(anel),
+                sum(c[1] for c in anel) / len(anel))
+
+    return cx / (3 * area), cy / (3 * area)
+
+
+@app.get("/mapa/capitais", tags=["mapa"])
+def capitais_no_mapa():
+    """
+    As 27 capitais estaduais, com o ponto onde marcá-las no mapa.
+
+    O mapa pinta 5.570 municípios e não escreve nenhum nome. Sem referência
+    nenhuma, quem olha vê manchas de cor e não sabe onde está olhando — as
+    capitais dão o ponto de apoio que o olho procura primeiro.
+
+    A coordenada é o centroide do maior polígono do município, calculado a
+    partir da mesma malha que desenha o mapa: assim o marcador cai sempre
+    dentro do contorno que ele nomeia.
+    """
+    global _cache_capitais
+
+    if _cache_capitais is not None:
+        return {"total": len(_cache_capitais), "capitais": _cache_capitais}
+
+    if not ARQUIVO_MALHA.exists():
+        raise HTTPException(
+            status_code=404,
+            detail=("Malha municipal não encontrada.\n"
+                    "Rode: python dados/baixar_malha.py"),
+        )
+
+    with open(ARQUIVO_MALHA, encoding="utf-8") as arquivo:
+        malha = json.load(arquivo)
+
+    por_codigo = {f["properties"]["codigo_ibge"]: f for f in malha["features"]}
+
+    capitais = []
+    for uf, (codigo, nome) in esquema.CAPITAIS.items():
+        feicao = por_codigo.get(codigo)
+        if feicao is None:
+            continue
+
+        geometria = feicao["geometry"]
+        poligonos = ([geometria["coordinates"]]
+                     if geometria["type"] == "Polygon"
+                     else geometria["coordinates"])
+        # Ilha isolada não representa a cidade: entre os polígonos do
+        # município vale o maior, que é onde a capital de fato está.
+        maior = max((p[0] for p in poligonos), key=len)
+        lon, lat = _centro_do_poligono(maior)
+
+        capitais.append({
+            "uf": uf,
+            "codigo_ibge": codigo,
+            "nome": nome,
+            "lat": round(lat, 5),
+            "lon": round(lon, 5),
+        })
+
+    _cache_capitais = capitais
+    return {"total": len(capitais), "capitais": capitais}
 
 
 @app.get("/mapa/brasil", tags=["mapa"])

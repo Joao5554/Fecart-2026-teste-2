@@ -38,20 +38,6 @@
   --erro-borda: #e8b5ae;
   --marca-nota: #e6eaf0;
 
-  /* Cores das animações de fenômeno (chuva, fogo...). Ficam separadas das
-     cores de dado porque são ilustração: podem clarear no tema escuro sem
-     mudar o significado de nada. */
-  --anim-chuva: rgba(43, 118, 219, .70);
-  --anim-granizo: rgba(120, 176, 232, .90);
-  --anim-vento: rgba(103, 132, 170, .50);
-  --anim-fogo-claro: #ffcf72;
-  --anim-fogo-escuro: #e2571e;
-  --anim-seca: rgba(206, 140, 12, .55);
-  --anim-terra: rgba(133, 94, 58, .70);
-  /* Deslocamento lateral de cada partícula. Cada uma sobrescreve o seu no
-     atributo style; este é só o valor neutro de quem não sobrescrever. */
-  --desvio: 0px;
-
   /* A seta do <select> é um SVG embutido. Uma variável não pode substituir só
      um pedaço de dentro de url(), então a variável carrega a URL inteira e o
      tema escuro troca a imagem toda, por outra de traço mais claro. */
@@ -108,13 +94,6 @@
   --erro-fundo: #2c1a18;
   --erro-borda: #5c2f2a;
   --marca-nota: #232c38;
-
-  /* No fundo escuro as partículas precisam de mais brilho para existir. */
-  --anim-chuva: rgba(122, 178, 255, .80);
-  --anim-granizo: rgba(200, 228, 255, .95);
-  --anim-vento: rgba(160, 186, 220, .45);
-  --anim-seca: rgba(240, 190, 90, .55);
-  --anim-terra: rgba(186, 142, 96, .70);
 
   --seta-select: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%23a8b6c6' stroke-width='1.8' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
 
@@ -484,12 +463,19 @@ button:disabled { background: var(--desabilitado); cursor: not-allowed; }
   stroke-width: .3;
 }
 
-#cidade-svg path { stroke-width: .6; }
-#cidade-svg path.foco {
+#cidade-svg path,
+#consulta-svg path { stroke-width: .6; }
+
+#cidade-svg path.foco,
+#consulta-svg path.foco {
   stroke: var(--marinho);
   stroke-width: 2.2;
   filter: drop-shadow(0 3px 8px rgba(15,35,64,.35));
 }
+
+/* Um município sozinho na tela: o contorno pode ser mais grosso sem engolir
+   o preenchimento, e é ele que dá a forma que a pessoa reconhece. */
+#consulta-svg path.foco { stroke-width: 2.8; }
 
 .mapa-dica {
   position: absolute;
@@ -731,8 +717,11 @@ main section[id], #resultado { scroll-margin-top: 64px; }
 /* Com a chuva ligada, o mapa embaixo vira referência geográfica. Duas escalas
    de cor cheias disputando a mesma área não se leem — nem a de risco, nem a
    de chuva. */
-.mapa-area.com-chuva svg path { fill-opacity: .22; }
-.mapa-area.com-chuva svg path.sem-dado { fill-opacity: .12; }
+.mapa-area.com-chuva svg path { fill-opacity: .28; }
+.mapa-area.com-chuva svg path.sem-dado { fill-opacity: .14; }
+/* O contorno das capitais é referência geográfica, não dado concorrente:
+   continua inteiro por cima da chuva. */
+.mapa-area.com-chuva .capital-contorno { opacity: 1; }
 
 .camada-opcao {
   display: inline-flex;
@@ -783,148 +772,128 @@ main section[id], #resultado { scroll-margin-top: 64px; }
   max-width: 78ch;
 }
 
-/* ---------- animação do fenômeno escolhido ---------- */
+/* ---------- mapa dentro da consulta ---------- */
+
+#consulta-mapa {
+  margin-top: 26px;
+  padding-top: 22px;
+  border-top: 1px solid var(--borda);
+}
+
+#consulta-mapa h3 { margin-top: 0; }
+
+/* ---------- capitais ---------- */
 /*
-  Camada de ilustração sobre o mapa: chuva quando o tipo é inundação, brasas
-  quando é incêndio, e assim por diante.
+  Vinte e sete marcadores por cima do mapa. Não carregam dado nenhum — o
+  risco continua sendo a cor do município — e por isso ficam num <svg>
+  próprio, sobreposto: dentro do mapa eles seriam cobertos pela camada de
+  chuva, e o nome da capital sumiria justamente quando ela está ligada.
 
-  Três decisões que sustentam o resto:
-
-  1. É uma camada SEPARADA, irmã do <svg>, e não elementos dentro dele. O mapa
-     tem 5.570 <path>; animar qualquer coisa lá dentro obrigaria o navegador a
-     redesenhar todos a cada quadro. Aqui só `transform` e `opacity` mudam, e
-     a composição fica com a placa de vídeo — o mapa nem é tocado.
-
-  2. `pointer-events: none`. Sem isso a camada roubaria o mouse e a dica de
-     cada município pararia de funcionar.
-
-  3. Fica abaixo da dica (z-index 10) e acima do mapa.
-
-  Quem usa "reduzir movimento" no sistema não vê nada disto: a regra geral no
-  fim do arquivo desliga toda animação.
+  `pointer-events: none` é obrigatório: a dica de cada município vem de um
+  listener no <svg> de baixo, que procura o `path` sob o mouse. Um marcador
+  capturando o clique apagaria a dica bem em cima das capitais.
 */
 
-.animacao-mapa {
+.camada-capitais {
   position: absolute;
   inset: 0;
-  z-index: 5;
+  z-index: 4;
+  width: 100%;
+  height: 100%;
   pointer-events: none;
-  overflow: hidden;
 }
 
-.animacao-mapa i {
+.mapa-area:not(.mostrar-capitais) .camada-capitais { display: none; }
+
+/* Contorno do município da capital, redesenhado por cima de tudo. Como
+   classe no `path` original ele sumiria: com milhares de polígonos vizinhos
+   empilhados, o traço de quem foi desenhado antes fica sob quem veio depois. */
+.capital-contorno {
+  fill: none;
+  stroke: var(--tinta);
+  stroke-width: 1.5;
+  stroke-linejoin: round;
+  opacity: .85;
+}
+
+.capital-halo {
+  fill: var(--papel);
+  stroke: var(--tinta);
+  stroke-width: 1.1;
+  opacity: .95;
+}
+
+.capital-ponto { fill: var(--tinta); }
+
+.capital-nome {
+  font-family: var(--fonte);
+  font-size: 10.5px;
+  font-weight: 700;
+  fill: var(--tinta);
+  /* O nome cai sobre verde, vermelho, cinza ou sobre a mancha de chuva. Sem
+     um contorno claro por baixo da letra, some em pelo menos uma delas. */
+  stroke: var(--papel);
+  stroke-width: 2.8;
+  paint-order: stroke fill;
+  stroke-linejoin: round;
+}
+
+/* No mapa da cidade cabe menos coisa na tela, e o recorte é pequeno: o nome
+   pode crescer sem virar tapume. */
+#cidade-capitais-svg .capital-nome,
+#consulta-capitais-svg .capital-nome { font-size: 12px; }
+
+/* ---------- escala da chuva ---------- */
+/*
+  Era uma fileira de quadradinhos, um por faixa, todos do mesmo tamanho — e
+  isso dizia que "0 a 25 mm" ocupa tanto da escala quanto "300 a 450 mm". Na
+  barra contínua a posição de cada marca é o próprio valor, então a legenda
+  passa a ter a mesma geometria do mapa que ela explica.
+*/
+
+.legenda-chuva {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 9px;
+}
+
+.escala-chuva {
+  position: relative;
+  width: 100%;
+  max-width: 520px;
+}
+
+.escala-barra {
+  height: 13px;
+  border-radius: 999px;
+  border: 1px solid var(--borda-forte);
+}
+
+/* Altura zero: as marcas são absolutas e não devem empurrar o que vem
+   depois; o espaço para elas sai do padding de baixo. */
+.escala-marcas { position: relative; height: 0; padding-bottom: 20px; }
+
+.mapa-legenda .escala-marcas span {
   position: absolute;
+  top: 5px;
+  transform: translateX(-50%);
   display: block;
-  will-change: transform, opacity;
-  animation-timing-function: linear;
-  animation-iteration-count: infinite;
-}
-
-/* O percurso é maior que o mapa de propósito: o SVG é quadrado e no máximo
-   ~940 px de lado, então a partícula sempre sai de cena antes de sumir. */
-
-/* --- chuva: inundação, enxurrada, alagamento, chuvas intensas --- */
-[data-fenomeno="chuva"] i {
-  top: -40px;
-  width: 1.5px;
-  border-radius: 1px;
-  background: linear-gradient(to bottom, transparent, var(--anim-chuva));
-  animation-name: cai-chuva;
-}
-
-@keyframes cai-chuva {
-  from { transform: translate3d(0, 0, 0); opacity: 0; }
-  8%   { opacity: 1; }
-  92%  { opacity: 1; }
-  to   { transform: translate3d(-70px, 1100px, 0); opacity: 0; }
-}
-
-/* --- granizo: pedra, não risco. Redonda, mais rápida e mais reta. --- */
-[data-fenomeno="granizo"] i {
-  top: -24px;
-  border-radius: 50%;
-  background: var(--anim-granizo);
-  box-shadow: 0 0 4px var(--anim-granizo);
-  animation-name: cai-granizo;
-}
-
-@keyframes cai-granizo {
-  from { transform: translate3d(0, 0, 0); opacity: 0; }
-  10%  { opacity: 1; }
-  to   { transform: translate3d(-30px, 1100px, 0); opacity: .85; }
-}
-
-/* --- terra: deslizamento e erosão. Cai devagar, girando. --- */
-[data-fenomeno="terra"] i {
-  top: -24px;
-  /* Cantos irregulares: fragmento de terra, não gota. */
-  border-radius: 42% 58% 55% 45%;
-  background: var(--anim-terra);
-  animation-name: cai-terra;
-}
-
-@keyframes cai-terra {
-  from { transform: translate3d(0, 0, 0) rotate(0deg); opacity: 0; }
-  10%  { opacity: .85; }
-  88%  { opacity: .85; }
-  to   { transform: translate3d(-120px, 1100px, 0) rotate(540deg); opacity: 0; }
-}
-
-/* --- fogo: incêndio florestal. Brasas subindo e apagando. --- */
-[data-fenomeno="fogo"] i {
-  bottom: -20px;
-  border-radius: 50%;
-  background: radial-gradient(circle,
-              var(--anim-fogo-claro) 0%, var(--anim-fogo-escuro) 65%, transparent 100%);
-  animation-name: sobe-brasa;
-}
-
-@keyframes sobe-brasa {
-  from { transform: translate3d(0, 0, 0) scale(1); opacity: 0; }
-  14%  { opacity: .95; }
-  to   { transform: translate3d(var(--desvio), -720px, 0) scale(.25); opacity: 0; }
-}
-
-/* --- vento: vendaval e ciclone. Rajadas atravessando o mapa. --- */
-[data-fenomeno="vento"] i {
-  left: -240px;
-  height: 2px;
-  border-radius: 2px;
-  background: linear-gradient(90deg, transparent, var(--anim-vento), transparent);
-  animation-name: passa-rajada;
-  animation-timing-function: ease-in-out;
-}
-
-@keyframes passa-rajada {
-  from { transform: translate3d(0, 0, 0); opacity: 0; }
-  15%  { opacity: 1; }
-  85%  { opacity: 1; }
-  to   { transform: translate3d(1200px, 0, 0); opacity: 0; }
-}
-
-/* --- seca: estiagem. Ondas de calor subindo do chão. --- */
-[data-fenomeno="seca"] i {
-  width: 2px;
-  border-radius: 2px;
-  background: linear-gradient(to top, transparent, var(--anim-seca), transparent);
-  filter: blur(1px);
-  animation-name: sobe-calor;
-  animation-timing-function: ease-out;
-}
-
-@keyframes sobe-calor {
-  from { transform: translate3d(0, 0, 0) scaleY(.5); opacity: 0; }
-  25%  { opacity: .7; }
-  to   { transform: translate3d(var(--desvio), -420px, 0) scaleY(1.5); opacity: 0; }
-}
-
-/* Aviso ao lado da legenda. A animação é ilustração do tipo escolhido, e o
-   mapa é a única parte da tela onde ela poderia ser confundida com dado. */
-.nota-animacao {
-  margin: 10px 0 0;
-  font-size: .8rem;
+  font-size: .68rem;
+  font-variant-numeric: tabular-nums;
   color: var(--tinta-fraca);
-  font-style: italic;
+  white-space: nowrap;
+}
+
+/* A marca da última faixa fica na ponta da barra; puxada para dentro, para
+   não sair do cartão. */
+.mapa-legenda .escala-marcas span:last-child { transform: translateX(-85%); }
+
+.mapa-legenda .legenda-estacao i {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 0 0 2.5px rgba(12, 22, 38, .55);
 }
 
 /* ---------- telas menores ---------- */

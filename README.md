@@ -432,6 +432,7 @@ e o modelo melhorou junto: a detecção de casos graves subiu de 48,9% para
 | `POST` | `/prever/lote` | Várias previsões de uma vez |
 | `GET` | `/mapa/malha` | Fronteiras dos 5.570 municípios (GeoJSON do IBGE) |
 | `GET` | `/mapa/brasil` | Risco de todos os municípios de uma vez — é o que pinta o mapa |
+| `GET` | `/mapa/capitais` | As 27 capitais, com o ponto onde marcá-las no mapa |
 | `POST` | `/mapa/risco` | GeoJSON de pontos, para quem já tem coordenadas |
 | `GET` | `/historico/anos` | Quanto cada ano de 1991 a 2025 registrou |
 | `GET` | `/historico/ano/{ano}` | **O que aconteceu num ano, pronto para o mapa** |
@@ -466,6 +467,17 @@ que existe tema. As cores dos dados (verde, amarelo, vermelho) **não** mudam:
 significam nível de risco, e quem aprendeu "vermelho = alto" no claro não
 pode ter de reaprender no escuro.
 
+**Capitais em destaque.** O mapa pinta 5.570 municípios e não escreve nenhum
+nome: sem referência nenhuma, quem olha vê manchas de cor e não sabe onde está
+olhando. Os três mapas marcam as 27 capitais — ponto, nome e o contorno do
+município reforçado — e isso basta para o olho se situar. O ponto vem do
+centroide do maior polígono do próprio município, calculado a partir da mesma
+malha que desenha o mapa, então cai sempre dentro do contorno que ele nomeia.
+Os nomes se desviam uns dos outros: no Nordeste as capitais ficam a poucos
+graus de distância e, escritas todas do mesmo lado, "Recife", "Maceió" e
+"Aracaju" sairiam empilhadas. Um interruptor desliga a camada, para quando o
+nome cobre justamente o município que se quer olhar.
+
 **Camada de chuva medida.** Um interruptor ao lado de cada mapa sobrepõe a
 chuva registrada pelas estações automáticas do INMET, no estilo dos mapas de
 tempo. O ponto delicado é de onde vem o número: no `clima_mensal.csv`, que
@@ -477,6 +489,42 @@ reais** e desenha os marcadores por cima: quem olha vê a mancha e vê de onde
 ela veio. O rodapé sempre diz de que período é a medição — o mapa de risco
 prevê um ano que ainda não aconteceu, e a chuva ao lado dele é sempre de
 outro momento.
+
+Três decisões fazem essa camada parecer um mapa de tempo, e não uma mancha
+solta sobre o desenho:
+
+- **A mancha é recortada no contorno do mapa.** Interpolar entre estações
+  espalha valor por todo o retângulo, inclusive sobre o mar e sobre os estados
+  fora do recorte. A máscara é o que impede a camada de afirmar chuva onde não
+  há nem terra nem estação.
+- **A cor é contínua.** As faixas da legenda ("60 a 120 mm") continuam sendo
+  as mesmas cores, mas o valor entre duas faixas é interpolado: pintar faixa a
+  faixa desenhava degraus onde a chuva é contínua, e degrau no meio da mancha
+  parece fronteira de dado.
+- **A opacidade acompanha o volume.** Onde choveu pouco a camada quase some e
+  deixa o mapa aparecer. Com opacidade fixa, o "quase não choveu" cobria o
+  mapa com a mesma força do "choveu 400 mm", e o olho lia área coberta em vez
+  de intensidade.
+
+A legenda deixou de ser uma fileira de quadradinhos iguais — que dizia que
+"0 a 5 mm" ocupa tanto da escala quanto "300 a 450 mm" — e virou uma barra
+contínua, em que a posição de cada marca é o próprio valor.
+
+**O município no mapa, dentro da consulta.** Logo abaixo do formulário, o
+contorno real do município consultado, ampliado e pintado com o risco previsto
+para o mês escolhido — a mesma resposta do selo, no lugar em que a pergunta foi
+feita. Não custa previsão nenhuma: a cor e a probabilidade já vieram na resposta
+que preencheu o selo, e o único download é o da malha, compartilhada com os
+outros mapas. Aceita as duas camadas, e o contorno leva a cor do risco em vez do
+azul-marinho dos outros mapas: com a chuva ligada o preenchimento clareia, e
+aqui o município é o único polígono da tela — no traço, a cor não some.
+
+**A cidade e a região.** Depois de uma consulta, um mapa mostra o município
+consultado em destaque e os vizinhos, cada um com o risco previsto para o mesmo
+mês e o mesmo tipo. Ele e o gráfico dos doze meses são pedidos **em paralelo**:
+o gráfico custa doze previsões, e enfileirado atrás dele o mapa da cidade
+demorava quase um minuto para aparecer — tempo suficiente para quem consultou
+concluir que a seção não existe.
 
 **Mapa por ano.** Escolha um ano de 1991 a 2025 e veja onde os desastres foram
 registrados, com filtro por tipo e por estado. A escala de cor conta
@@ -555,8 +603,9 @@ python dados/preparar_dados.py --anos 2015 2025
 pytest
 ```
 
-252 testes cobrindo o ETL, o contrato de dados, o vazamento temporal, o
-modelo, a API, o histórico por ano, a camada de chuva e a interface.
+258 testes cobrindo o ETL, o contrato de dados, o vazamento temporal, o
+modelo, a API, o histórico por ano, a camada de chuva, as capitais e a
+interface.
 
 ---
 
