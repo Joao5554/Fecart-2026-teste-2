@@ -883,7 +883,49 @@ function montarLegendaDeChuva(idLegenda, dados) {
      </div>
      <span class="legenda-estacao"><i></i>estação do INMET</span>`;
   legenda.classList.remove("oculto");
+  esconderMarcasQueColidem(legenda);
+
+  // O container e estavel (tem id); so o miolo e refeito a cada montagem.
+  // Observar duas vezes o mesmo elemento nao acumula.
+  observadorDaLegenda.observe(legenda);
 }
+
+/**
+ * As faixas baixas da escala ficam a poucos milímetros umas das outras, e numa
+ * barra estreita — a legenda do painel tem pouco mais da metade da largura da
+ * legenda do mapa grande — os primeiros rótulos se encavalam.
+ *
+ * A varredura vai da direita para a esquerda: a marca de maior valor é a
+ * âncora e nunca some, e some o rótulo de quem não couber. Só o rótulo: a cor
+ * da faixa continua na barra, que é o que a legenda explica de verdade.
+ */
+function esconderMarcasQueColidem(legenda) {
+  const marcas = [...legenda.querySelectorAll(".escala-marcas span")];
+  let bordaEsquerdaDaVizinha = null;
+
+  for (let i = marcas.length - 1; i >= 0; i--) {
+    const marca = marcas[i];
+    marca.hidden = false;              // pode estar escondida de um passo anterior
+    const caixa = marca.getBoundingClientRect();
+
+    // 6px de respiro: encostar um número no outro já atrapalha a leitura.
+    if (bordaEsquerdaDaVizinha !== null
+        && caixa.right + 6 > bordaEsquerdaDaVizinha) {
+      marca.hidden = true;
+      continue;
+    }
+    bordaEsquerdaDaVizinha = caixa.left;
+  }
+}
+
+// A largura da barra muda por muito mais motivo do que redimensionar a janela:
+// a troca de palco, o painel que abre, a coluna que reflui. Nenhum deles
+// dispara `resize` na window, e um rótulo descartado numa barra estreita
+// continuaria sumido depois que ela crescesse. O observador pega todos, porque
+// escuta o elemento e não a janela.
+const observadorDaLegenda = new ResizeObserver((entradas) => {
+  for (const entrada of entradas) esconderMarcasQueColidem(entrada.target);
+});
 
 // ---------------------------------------------------------------------------
 // Capitais estaduais
@@ -1451,6 +1493,10 @@ function mostrarMapa(prefixo) {
   $("teatro-ano").classList.toggle("ativo", prefixo === "ano");
   $("controles-mapa").classList.toggle("oculto", prefixo !== "mapa");
   $("controles-ano").classList.toggle("oculto", prefixo !== "ano");
+
+  // A coluna da direita acompanha: os blocos da outra aba saem de cena sem
+  // perder o que ja carregaram, e voltam inteiros quando a aba volta.
+  $("painel").dataset.aba = prefixo;
 
   // O teatro escondido tinha largura zero enquanto estava fora de cena, e o
   // enquadramento calculado ali não valeria nada. Refazê-lo ao aparecer é o

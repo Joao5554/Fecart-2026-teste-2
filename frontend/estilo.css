@@ -164,6 +164,12 @@ body[data-palco="mapas"]     #fundo-clima { opacity: 1; }
   z-index: 1;
   opacity: 0;
   visibility: hidden;
+  /* `opacity: 0` esconde, mas nao desliga o clique, e o `visibility: hidden`
+     daqui nao segura tudo: quem esta dentro pode reacender a propria
+     visibilidade (é o caso de `.teatro.ativo`). Como os palcos dividem o
+     mesmo z-index, o de baixo no HTML pinta por cima e engolia o clique do
+     palco em cena. `pointer-events` corta isso na raiz. */
+  pointer-events: none;
   transform: scale(1.04);
   transition: opacity .7s ease, transform .7s cubic-bezier(.16, 1, .3, 1),
               visibility .7s;
@@ -174,6 +180,7 @@ body[data-palco="mapas"]     #palco-mapas,
 body[data-palco="despedida"] #palco-despedida {
   opacity: 1;
   visibility: visible;
+  pointer-events: auto;
   transform: scale(1);
 }
 
@@ -892,6 +899,16 @@ option { background: var(--papel-solido); color: var(--tinta); }
   transition: opacity .3s ease;
 }
 
+/* O painel da direita serve as duas abas, e cada bloco pertence a uma delas.
+   Sao duas perguntas diferentes: `oculto` responde "ja existe dado?", e
+   `data-da-aba` responde "isto e desta aba?". Separadas, elas se compoem — o
+   bloco aparece so quando as duas dizem que sim — e a troca de aba nao precisa
+   saber nada sobre o que ja foi carregado. */
+.painel[data-aba="mapa"] > [data-da-aba="ano"],
+.painel[data-aba="ano"]  > [data-da-aba="mapa"] {
+  display: none;
+}
+
 .painel .camada-chuva {
   position: absolute;
   top: 0;
@@ -913,6 +930,61 @@ option { background: var(--papel-solido); color: var(--tinta); }
   text-transform: uppercase;
   color: var(--tinta-fraca);
   width: 100%;
+}
+
+/* ---------- barra da escala de chuva ---------- */
+
+/* O JS monta a barra (degrade contínuo) e as marcas (uma por faixa, cada uma
+   com `left` em % do proprio valor). Faltava o CSS: sem altura a barra nao
+   aparecia, e as marcas, sem `position: absolute`, ignoravam o `left` e ainda
+   herdavam o `display: flex` de `.mapa-legenda span` — por isso os numeros
+   desciam empilhados em coluna. */
+
+.escala-chuva {
+  flex: 1 1 240px;
+  min-width: 170px;
+}
+
+.escala-barra {
+  height: 9px;
+  border: 1px solid var(--borda);
+  border-radius: 999px;
+}
+
+.escala-marcas {
+  position: relative;
+  height: 1.1em;
+  margin-top: 6px;
+}
+
+.mapa-legenda .escala-marcas span {
+  position: absolute;
+  top: 0;
+  display: block;
+  transform: translateX(-50%);
+  font-size: .72rem;
+  line-height: 1.1;
+  color: var(--tinta-fraca);
+  white-space: nowrap;
+}
+
+/* As duas pontas encostam na borda da barra: centradas, metade de cada uma
+   ficaria cortada para fora da legenda. Elas se alinham pela ponta. */
+.mapa-legenda .escala-marcas span:first-child { transform: none; }
+.mapa-legenda .escala-marcas span:last-child  { transform: translateX(-100%); }
+
+/* `display: block` acima venceria o `display: none` que o navegador da a
+   [hidden], e o rotulo descartado por colisao continuaria na tela. */
+.mapa-legenda .escala-marcas span[hidden] { display: none; }
+
+/* No mapa a estacao e um ponto branco com anel escuro (ver `desenharEstacoes`).
+   A legenda repete os dois, para quem procura o ponto saber o que procurar. */
+.legenda-estacao i {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, .95);
+  border: 2px solid rgba(12, 22, 38, .55);
 }
 
 .nota-chuva {
@@ -1178,6 +1250,28 @@ option { background: var(--papel-solido); color: var(--tinta); }
 .odds-valor { font-size: .82rem; font-variant-numeric: tabular-nums; font-weight: 600; }
 .odds-ic { display: block; font-size: .68rem; color: var(--tinta-fraca); font-weight: 400; }
 
+/* O painel e uma coluna estreita com `overflow-x: hidden`, e uma tabela de
+   cinco colunas nao cabe nele: as ultimas eram cortadas fora e nao havia como
+   chegar nelas. Cada tabela passa a rolar dentro da propria caixa, sem que a
+   coluna inteira role de lado junto. */
+.tabela-rolagem {
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--borda-forte) transparent;
+}
+
+.tabela-rolagem::-webkit-scrollbar { height: 8px; }
+.tabela-rolagem::-webkit-scrollbar-thumb {
+  background: var(--borda-forte);
+  border-radius: 4px;
+}
+
+/* `max-content` e a largura em que nenhuma celula precisa quebrar linha: e ela
+   que troca "Estiagem seca" partido em duas linhas por uma tabela inteira
+   que rola. Onde couber, o `width: 100%` continua mandando. */
+.tabela-rolagem .tabela { min-width: max-content; }
+
 .tabela { width: 100%; border-collapse: collapse; font-size: .84rem; }
 
 .tabela th, .tabela td {
@@ -1350,7 +1444,11 @@ option { background: var(--papel-solido); color: var(--tinta); }
      uma linha de texto. Com as linhas medidas pelo conteúdo, quem rola é o
      palco. */
   .palco-mapas { overflow-y: auto; grid-template-rows: auto auto; align-content: start; }
-  .oficina { grid-template-columns: 1fr; align-content: start; }
+  /* `minmax(0, 1fr)` e nao `1fr`: o minimo automatico de uma faixa `1fr` e o
+     conteudo dela, e bastava uma tabela larga para a pilha inteira ficar mais
+     larga que a tela — em vez de a tabela rolar dentro da propria caixa. E o
+     mesmo `minmax(0, ...)` que a coluna do meio ja usa nas telas largas. */
+  .oficina { grid-template-columns: minmax(0, 1fr); align-content: start; }
   .teatros { height: 62vh; min-height: 360px; }
   .controles, .painel { overflow: visible; min-height: auto; }
   .barra { flex-wrap: wrap; gap: 12px; position: sticky; top: 0; }

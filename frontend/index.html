@@ -259,9 +259,9 @@
     <!-- ------------------------------------------------------------- -->
     <!-- Coluna da direita: o resultado da consulta                      -->
     <!-- ------------------------------------------------------------- -->
-    <aside class="painel" id="painel">
+    <aside class="painel" id="painel" data-aba="mapa">
 
-      <div class="painel-vazio" id="painel-vazio">
+      <div class="painel-vazio" id="painel-vazio" data-da-aba="mapa">
         <p>Escolha um município à esquerda.</p>
         <p class="ajuda">
           O resultado da previsão, a sazonalidade do ano inteiro e o histórico
@@ -270,7 +270,7 @@
       </div>
 
       <!-- Resultado -->
-      <section id="resultado" class="bloco oculto">
+      <section id="resultado" class="bloco oculto" data-da-aba="mapa">
         <h2>Resultado</h2>
         <div class="resultado-topo">
           <div id="selo" class="selo">—</div>
@@ -289,12 +289,12 @@
             Variáveis calculadas a partir do histórico do município, contando
             apenas o que aconteceu <strong>antes</strong> do mês consultado.
           </p>
-          <table id="tabela-features" class="tabela"></table>
+          <div class="tabela-rolagem"><table id="tabela-features" class="tabela"></table></div>
         </details>
       </section>
 
       <!-- O município ampliado -->
-      <section id="consulta-mapa" class="bloco oculto">
+      <section id="consulta-mapa" class="bloco oculto" data-da-aba="mapa">
         <h2>O município</h2>
         <p class="ajuda">
           O contorno real do município consultado, pintado com o risco previsto
@@ -326,7 +326,7 @@
       </section>
 
       <!-- O ano inteiro -->
-      <section id="secao-ano" class="bloco oculto">
+      <section id="secao-ano" class="bloco oculto" data-da-aba="mapa">
         <h2>O ano inteiro</h2>
         <p class="ajuda">
           Probabilidade de risco <strong>alto</strong> em cada mês, para o mesmo
@@ -336,7 +336,7 @@
       </section>
 
       <!-- A cidade e a região -->
-      <section id="secao-cidade" class="bloco oculto">
+      <section id="secao-cidade" class="bloco oculto" data-da-aba="mapa">
         <h2>A cidade e a região</h2>
         <p class="ajuda">
           O município e os vizinhos da mesma região imediata do IBGE. Desastre
@@ -370,21 +370,21 @@
       </section>
 
       <!-- Histórico registrado -->
-      <section id="secao-historico" class="bloco oculto">
+      <section id="secao-historico" class="bloco oculto" data-da-aba="mapa">
         <h2>Histórico registrado</h2>
         <p id="historico-resumo" class="ajuda"></p>
-        <table id="tabela-historico" class="tabela"></table>
+        <div class="tabela-rolagem"><table id="tabela-historico" class="tabela"></table></div>
       </section>
 
       <!-- Meses e tipos do ano escolhido (mapa histórico) -->
-      <section id="ano-meses" class="bloco oculto">
+      <section id="ano-meses" class="bloco oculto" data-da-aba="ano">
         <h2>Em que meses aconteceram</h2>
         <div id="ano-grafico" class="grafico"></div>
       </section>
 
-      <section id="ano-tipos" class="bloco oculto">
+      <section id="ano-tipos" class="bloco oculto" data-da-aba="ano">
         <h2>Por tipo de desastre</h2>
-        <table id="ano-tabela-tipos" class="tabela"></table>
+        <div class="tabela-rolagem"><table id="ano-tabela-tipos" class="tabela"></table></div>
       </section>
     </aside>
   </div>
