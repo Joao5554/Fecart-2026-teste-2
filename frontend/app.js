@@ -224,6 +224,14 @@ $("formulario").addEventListener("submit", async (evento) => {
   evento.preventDefault();
   if (!municipioEscolhido) return;
 
+  // O mesmo formulário serve às duas abas, e a pergunta de cada uma é outra.
+  // No Histórico ninguém quer saber do risco de um mês que ainda não chegou:
+  // quer ver o que o Atlas já registrou naquela cidade.
+  if (mapaAtivo === "ano") {
+    await consultarHistorico();
+    return;
+  }
+
   const tipo = $("tipo").value;
   const mes = Number($("mes").value);
   const ano = new Date().getFullYear();
@@ -259,6 +267,74 @@ $("formulario").addEventListener("submit", async (evento) => {
     $("botao").textContent = "Prever risco";
   }
 });
+
+/**
+ * Consulta por município na aba Histórico.
+ *
+ * Não passa pelo modelo em momento nenhum: o mapa do ano voa até a cidade e o
+ * painel mostra o que o Atlas registrou ali. Enquanto este formulário servia
+ * só à Previsão, usá-lo daqui disparava treze chamadas a /prever/municipio e
+ * ainda arrastava quem consultava de volta para a outra aba — uma resposta
+ * sobre o futuro para uma pergunta sobre o passado.
+ */
+async function consultarHistorico() {
+  const tipo = $("tipo").value;
+  const botao = $("botao");
+
+  botao.disabled = true;
+  botao.textContent = "Buscando...";
+
+  try {
+    // O tipo escolhido aqui é o mesmo filtro do mapa do histórico. Deixar os
+    // dois em desacordo pousaria a câmera sobre um mapa pintado por outra
+    // pergunta — o mesmo cuidado que `prepararEVoar` toma na Previsão.
+    if (!projecaoDoMapa["ano-svg"] || $("ano-tipo").value !== tipo) {
+      $("ano-tipo").value = tipo;
+      await desenharAno(Number($("ano-escolhido").value), tipo);
+    } else if (desenhoDoAno) {
+      // Entrar na aba já dispara um desenho. Voar antes de ele terminar não
+      // encontraria geometria nenhuma e a câmera ficaria parada.
+      await desenhoDoAno;
+    }
+
+    await carregarHistorico(municipioEscolhido.codigo_ibge);
+
+    // O seletor de estado passa a mostrar onde a câmera está de fato.
+    $("ano-uf").value = ufDoCodigo(municipioEscolhido.codigo_ibge) || "";
+    destacarNoMapa("ano", municipioEscolhido.codigo_ibge);
+    anunciarCidadeNoAno(municipioEscolhido, tipo);
+    await voarAteOMunicipio("ano", municipioEscolhido.codigo_ibge);
+  } catch (erro) {
+    mostrarAviso(`Não foi possível carregar o histórico: ${erro.message}`, true);
+  } finally {
+    botao.disabled = false;
+    botao.textContent = "Ver histórico";
+  }
+}
+
+/**
+ * Conta, na linha do mapa histórico, o que ele mostra da cidade consultada.
+ *
+ * Voar até um município cinza sem dizer nada deixaria a dúvida no ar: a
+ * consulta falhou, ou não houve ocorrência? A tabela ao lado traz o registro
+ * inteiro do município; esta linha fala só do recorte que está desenhado.
+ */
+function anunciarCidadeNoAno(municipio, tipo) {
+  const ano = $("ano-escolhido").value;
+  const alvo = $("ano-svg").querySelector(`path[data-ibge="${municipio.codigo_ibge}"]`);
+  const semDado = !alvo || alvo.classList.contains("sem-dado");
+  const oQue = formatarTipo(tipo).toLowerCase();
+
+  // As duas frases concordam com "ocorrência", e não com o tipo: os nomes dos
+  // grupos variam em gênero e número ("estiagem seca", "deslizamento",
+  // "chuvas intensas") e nenhuma flexão única serviria para todos.
+  $("ano-estado").textContent = semDado
+    ? `${municipio.municipio} (${municipio.uf}): nenhuma ocorrência de `
+      + `${oQue} registrada em ${ano}. O histórico completo do município `
+      + `está ao lado.`
+    : `${municipio.municipio} (${municipio.uf}) em destaque: com ocorrência `
+      + `de ${oQue} registrada em ${ano}.`;
+}
 
 /**
  * Leva o mapa grande até o município consultado.
@@ -1164,7 +1240,13 @@ function renderizarSvg(idSvg, idDica, feicoes, porMunicipio, codigoEmFoco = null
         `<path d="${d}" fill="${info.cor}" class="${foco.trim()}" data-ibge="${codigo}"></path>`
       );
     } else {
-      partes.push(`<path d="${d}" class="sem-dado"></path>`);
+      // Também leva `data-ibge`: no mapa do histórico, "nenhuma ocorrência
+      // neste ano" é uma resposta legítima, e o município consultado precisa
+      // poder ser destacado mesmo assim. A dica ignora quem não tem info.
+      const foco = codigo === codigoEmFoco ? " foco" : "";
+      partes.push(
+        `<path d="${d}" class="sem-dado${foco}" data-ibge="${codigo}"></path>`
+      );
     }
   });
 
@@ -1263,7 +1345,7 @@ function prepararMapaDoAno() {
 
   $("form-ano").addEventListener("submit", (evento) => {
     evento.preventDefault();
-    desenharMapaDoAno(Number($("ano-escolhido").value), tipo.value);
+    desenharAno(Number($("ano-escolhido").value), tipo.value);
   });
 }
 
@@ -1284,6 +1366,16 @@ async function carregarAnos() {
       `Não foi possível carregar os anos disponíveis: ${erro.message}`;
     $("ano-botao").disabled = true;
   }
+}
+
+// Desenho do mapa histórico em andamento, para quem precisa da geometria
+// esperar por ela. `desenharMapaDoAno` trata os próprios erros, então esta
+// promessa nunca rejeita: pode ser aguardada sem proteção.
+let desenhoDoAno = null;
+
+function desenharAno(ano, tipo = "") {
+  desenhoDoAno = desenharMapaDoAno(ano, tipo);
+  return desenhoDoAno;
 }
 
 async function desenharMapaDoAno(ano, tipo = "") {
@@ -1478,6 +1570,27 @@ function ligarAbas() {
   document.querySelectorAll(".aba").forEach((aba) => {
     aba.addEventListener("click", () => mostrarMapa(aba.dataset.mapa));
   });
+  ajustarConsultaPara(mapaAtivo);
+}
+
+/**
+ * Faz o bloco de consulta dizer o que ele realmente faz na aba atual.
+ *
+ * O rótulo do botão é o que promete o resultado. Um "Prever risco" na aba do
+ * histórico prometia uma previsão e entregava outra coisa; e o mês, que só
+ * existe para a previsão, não tem sentido diante de um registro que cobre o
+ * período inteiro.
+ */
+function ajustarConsultaPara(prefixo) {
+  const historico = prefixo === "ano";
+
+  $("campo-mes").classList.toggle("oculto", historico);
+  $("botao").textContent = historico ? "Ver histórico" : "Prever risco";
+  $("consulta-ajuda").textContent = historico
+    ? "Escolha a cidade e o tipo. O mapa voa até o município e mostra o que "
+      + "já foi registrado ali — nenhuma previsão."
+    : "Escolha a cidade, o tipo e o mês. O mapa voa do Brasil até o estado "
+      + "e pousa no município.";
 }
 
 function mostrarMapa(prefixo) {
@@ -1493,6 +1606,7 @@ function mostrarMapa(prefixo) {
   $("teatro-ano").classList.toggle("ativo", prefixo === "ano");
   $("controles-mapa").classList.toggle("oculto", prefixo !== "mapa");
   $("controles-ano").classList.toggle("oculto", prefixo !== "ano");
+  ajustarConsultaPara(prefixo);
 
   // A coluna da direita acompanha: os blocos da outra aba saem de cena sem
   // perder o que ja carregaram, e voltam inteiros quando a aba volta.
@@ -1506,7 +1620,7 @@ function mostrarMapa(prefixo) {
   // O histórico só é desenhado quando alguém pede para vê-lo: são 35 anos de
   // opções, e adivinhar qual interessa custaria uma chamada à toa.
   if (prefixo === "ano" && !$("ano-svg").innerHTML && !$("ano-botao").disabled) {
-    desenharMapaDoAno(Number($("ano-escolhido").value), $("ano-tipo").value);
+    desenharAno(Number($("ano-escolhido").value), $("ano-tipo").value);
   }
 }
 

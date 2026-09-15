@@ -103,9 +103,9 @@
     <!-- ------------------------------------------------------------- -->
     <aside class="controles">
 
-      <div class="bloco">
+      <div class="bloco" id="bloco-consulta">
         <h2>Consultar um município</h2>
-        <p class="ajuda">
+        <p class="ajuda" id="consulta-ajuda">
           Escolha a cidade, o tipo e o mês. O mapa voa do Brasil até o
           estado e pousa no município.
         </p>
@@ -124,7 +124,7 @@
             <select id="tipo" required></select>
           </div>
 
-          <div class="campo">
+          <div class="campo" id="campo-mes">
             <label for="mes">Mês</label>
             <select id="mes" required></select>
           </div>
@@ -370,7 +370,7 @@
       </section>
 
       <!-- Histórico registrado -->
-      <section id="secao-historico" class="bloco oculto" data-da-aba="mapa">
+      <section id="secao-historico" class="bloco oculto">
         <h2>Histórico registrado</h2>
         <p id="historico-resumo" class="ajuda"></p>
         <div class="tabela-rolagem"><table id="tabela-historico" class="tabela"></table></div>
