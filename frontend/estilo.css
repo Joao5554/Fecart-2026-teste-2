@@ -34,6 +34,16 @@
   --borda-hover: rgba(255, 255, 255, .28);
   --desabilitado: #333c4a;
   --fundo-mapa: rgba(10, 16, 27, .55);
+
+  /* Destaque do que foi escolhido: o contorno do estado e o anel do município.
+     É uma cor só, e de propósito — o mapa já usa verde, amarelo e vermelho
+     para dizer o risco. Uma quarta cor de dado confundiria as duas leituras,
+     então o destaque fala por uma matiz que o dado nunca usa. */
+  --foco: #38bdf8;
+  --foco-halo: rgba(56, 189, 248, .45);
+  /* Apaga o que está fora do estado escolhido sem apagá-lo de vez: o resto do
+     país ainda precisa ser lido como contexto. */
+  --veu-mapa: rgba(7, 13, 27, .72);
   /* Contorno escuro: sobre o fundo animado, um traço branco entre municípios
      vira uma teia que compete com o próprio dado. */
   --traco-mapa: rgba(8, 11, 16, .75);
@@ -75,6 +85,12 @@
 
 [data-tema="claro"] {
   --cinza-dado: #d6dbe3;
+
+  /* Mais escuro que no tema escuro: o mesmo azul-céu que brilha sobre o fundo
+     preto some sobre o papel branco do mapa claro. */
+  --foco: #0284c7;
+  --foco-halo: rgba(2, 132, 199, .38);
+  --veu-mapa: rgba(238, 242, 248, .78);
 
   --tinta: #10151c;
   --tinta-media: #3d4956;
@@ -828,13 +844,38 @@ option { background: var(--papel-solido); color: var(--tinta); }
 .mapa-area svg path.sem-dado { fill: var(--cinza-dado); fill-opacity: .5; }
 .mapa-area svg path.sem-dado:hover { fill-opacity: .7; }
 
+/* O município consultado. O app.js o move para o fim do SVG antes de marcá-lo:
+   em SVG quem vem depois pinta por cima, e no meio da malha o traço do vizinho
+   comia metade do anel. */
 .mapa-area svg path.foco {
-  stroke: var(--tinta);
-  stroke-width: 2;
+  stroke: var(--foco);
+  stroke-width: 2.4;
   paint-order: stroke;
+  filter: drop-shadow(0 0 3px var(--foco-halo));
 }
 
 #consulta-svg path.foco { stroke-width: 2.8; }
+
+/* ---------- estado escolhido ---------- */
+
+/* O destaque do estado é feito por subtração: uma camada cobre o mapa inteiro
+   e tem, recortado nela, o buraco no formato exato do estado.
+
+   O caminho da camada é o retângulo do mapa seguido dos polígonos do estado,
+   com `evenodd`: onde os dois se sobrepõem, o preenchimento se cancela e o
+   estado aparece limpo. A borda do buraco é, por construção, a fronteira real
+   do estado — sem precisar calcular a união de centenas de municípios, que é
+   caro e some com a fronteira interna de qualquer jeito.
+
+   A sombra do próprio véu vira o brilho na borda: ela é desenhada atrás da
+   camada, então só se vê pelo buraco, acompanhando a divisa por dentro. */
+.uf-foco-camada { pointer-events: none; }
+
+.uf-foco-camada .veu-fora {
+  fill: var(--veu-mapa);
+  stroke: none;
+  filter: drop-shadow(0 0 7px var(--foco-halo));
+}
 
 /* Nos teatros o zoom é um `transform` CSS aplicado a um elemento HTML acima do
    SVG, e `vector-effect: non-scaling-stroke` não o enxerga: ele só compensa

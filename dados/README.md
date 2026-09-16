@@ -235,3 +235,10 @@ deslizamento — sem exigir saber a chuva do mês que se quer prever.
 - **MapBiomas**: <https://mapbiomas.org> — cobertura vegetal.
 
 Todas se ligam ao Atlas pelo **código IBGE do município**.
+
+## Fronteiras dos outros países
+
+O globo da tela de abertura desenha o mundo por trás do Brasil. Esse contorno
+não tem nada a ver com o modelo — é cenário — e vem do **Natural Earth**,
+escala 1:110m: <https://www.naturalearthdata.com>. É domínio público (CC0),
+então vai junto com o projeto, reduzido a 53 KB por `dados/baixar_mundo.py`.

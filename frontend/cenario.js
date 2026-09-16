@@ -77,14 +77,32 @@ const Cenario = (() => {
     return promessaSilhueta;
   }
 
+  /* Os demais países vêm de dados/baixar_mundo.py (Natural Earth 1:110m).
+     Eles existem para dar escala ao Brasil: um país sozinho numa esfera azul
+     podia ter qualquer tamanho e estar em qualquer lugar. Por isso são
+     desenhados apagados — o mundo é o contexto, não o assunto. */
+  let promessaMundo = null;
+
+  function carregarMundo() {
+    if (!promessaMundo) {
+      promessaMundo = fetch("silhueta_mundo.json")
+        .then((r) => (r.ok ? r.json() : { paises: [] }))
+        .then((d) => d.paises || [])
+        .catch(() => []);
+    }
+    return promessaMundo;
+  }
+
   function globo(canvas, opcoes = {}) {
     const VELOCIDADE = opcoes.velocidade ?? 7;   // graus por segundo
     const INCLINACAO = -12 * GRAU;               // o Brasil um pouco abaixo do eixo
     let giro = -104 * GRAU;                      // começa com o país fora de vista
 
     let aneis = [];
+    let paises = [];
     let marcadores = [];
     carregarSilhueta().then((a) => { aneis = a; });
+    carregarMundo().then((p) => { paises = p; });
 
     // As capitais viram pontos que pulsam sobre o país. Vêm da API, que é
     // local; se ela ainda não subiu, o globo simplesmente não tem pontos.
@@ -190,22 +208,72 @@ const Cenario = (() => {
       contexto.fill();
     }
 
-    function pais(contexto, centroX, centroY, raio) {
-      if (!aneis.length) return;
+    /* Recorta no disco da esfera.
+
+       Sem isso, um continente que já passou da borda continuaria sendo
+       desenhado sobre o céu — a projeção o esconde de trás, mas o traço de um
+       anel cortado ainda pode escapar alguns pixels para fora do planeta. */
+    function noDisco(contexto, centroX, centroY, raio, desenhar) {
       contexto.save();
       contexto.beginPath();
       contexto.arc(centroX, centroY, raio, 0, Math.PI * 2);
       contexto.clip();
-
-      for (const anel of aneis) {
-        if (!tracarAnel(contexto, anel, centroX, centroY, raio, true)) continue;
-        contexto.fillStyle = "rgba(64, 132, 246, 0.62)";
-        contexto.fill();
-        contexto.lineWidth = 1.4;
-        contexto.strokeStyle = "rgba(147, 213, 255, 0.85)";
-        contexto.stroke();
-      }
+      desenhar();
       contexto.restore();
+    }
+
+    /* O resto do planeta, em dois tons.
+
+       A América do Sul vem um pouco mais clara que os outros continentes: é a
+       vizinhança do Brasil, a parte do mundo que o olho usa para conferir onde
+       o país começa e termina. Mais claro que isso e ela competiria com o
+       próprio Brasil; igual ao resto e a fronteira sumiria. */
+    function mundo(contexto, centroX, centroY, raio) {
+      if (!paises.length) return;
+
+      noDisco(contexto, centroX, centroY, raio, () => {
+        for (const pais of paises) {
+          const vizinho = pais.continente === "South America";
+          contexto.fillStyle = vizinho
+            ? "rgba(34, 66, 112, 0.92)"
+            : "rgba(24, 48, 84, 0.86)";
+          contexto.strokeStyle = vizinho
+            ? "rgba(125, 211, 252, 0.30)"
+            : "rgba(125, 211, 252, 0.17)";
+          contexto.lineWidth = 0.9;
+
+          for (const anel of pais.aneis) {
+            if (!tracarAnel(contexto, anel, centroX, centroY, raio, true)) continue;
+            contexto.fill();
+            contexto.stroke();
+          }
+        }
+      });
+    }
+
+    function pais(contexto, centroX, centroY, raio) {
+      if (!aneis.length) return;
+
+      noDisco(contexto, centroX, centroY, raio, () => {
+        for (const anel of aneis) {
+          if (!tracarAnel(contexto, anel, centroX, centroY, raio, true)) continue;
+
+          // O halo é o que separa o Brasil do resto agora que o resto existe.
+          // Ele sangra para fora da fronteira e levanta o país do mapa, sem
+          // precisar de cor berrante no preenchimento.
+          contexto.save();
+          contexto.shadowColor = "rgba(56, 189, 248, 0.85)";
+          contexto.shadowBlur = raio * 0.09;
+          contexto.fillStyle = "rgba(64, 132, 246, 0.92)";
+          contexto.fill();
+          contexto.fill();
+          contexto.restore();
+
+          contexto.lineWidth = 1.6;
+          contexto.strokeStyle = "rgba(186, 230, 253, 0.95)";
+          contexto.stroke();
+        }
+      });
     }
 
     function pontos(contexto, centroX, centroY, raio, tempo) {
@@ -267,6 +335,7 @@ const Cenario = (() => {
       ceu(contexto, largura, altura, tempo);
       esfera(contexto, centroX, centroY, raio);
       meridianosEParalelos(contexto, centroX, centroY, raio);
+      mundo(contexto, centroX, centroY, raio);
       pais(contexto, centroX, centroY, raio);
       pontos(contexto, centroX, centroY, raio, tempo);
     }
@@ -278,6 +347,7 @@ const Cenario = (() => {
       const repintar = () => desenhar(0);
       repintar();
       carregarSilhueta().then(repintar);
+      carregarMundo().then(repintar);
       addEventListener("resize", repintar);
       return { pausar() {}, seguir() {}, parar() { removeEventListener("resize", repintar); } };
     }

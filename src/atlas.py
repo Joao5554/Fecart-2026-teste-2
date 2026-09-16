@@ -306,9 +306,27 @@ def calcular_features(historico: pd.DataFrame, alvos: pd.DataFrame) -> pd.DataFr
     treinado com uma conta e consultado com outra.
     """
     partes = []
+
+    # Só os pares (município, tipo) que os alvos realmente pedem entram no
+    # índice. Sem esse filtro, uma consulta de UMA cidade ordenava e indexava
+    # os 19 mil pares do histórico inteiro para consultar um — quatro segundos
+    # de trabalho jogado fora em cada clique em "Prever risco".
+    #
+    # O resultado é o mesmo: os grupos de fora nunca eram lidos, porque a busca
+    # logo abaixo é sempre por uma chave vinda de `alvos`. O histórico completo
+    # continua indo inteiro para `_adicionar_contexto`, que precisa dele para
+    # olhar o que aconteceu em volta.
+    pedidos = pd.MultiIndex.from_frame(
+        alvos[["codigo_ibge", "grupo_desastre"]].drop_duplicates()
+    )
+    do_historico = pd.MultiIndex.from_frame(
+        historico[["codigo_ibge", "grupo_desastre"]]
+    )
+    relevante = historico[do_historico.isin(pedidos)]
+
     indice_historico = {
         chave: bloco.sort_values("indice_mes")
-        for chave, bloco in historico.groupby(["codigo_ibge", "grupo_desastre"])
+        for chave, bloco in relevante.groupby(["codigo_ibge", "grupo_desastre"])
     }
 
     for chave, bloco_alvo in alvos.groupby(["codigo_ibge", "grupo_desastre"], sort=False):

@@ -102,6 +102,7 @@ arquivo novo; se foi só um teste, desfaça com `git checkout modelo/`.
 | `analise/avaliacao_modelo.py`      | Avaliação passo a passo, comentada — para estudar e apresentar  |
 | `dados/preparar_dados.py`          | Gera `dados.csv` a partir da base bruta                         |
 | `dados/preparar_silhueta.py`       | Reduz a malha do IBGE ao contorno do país, para o globo         |
+| `dados/baixar_mundo.py`            | Baixa o contorno dos outros países (Natural Earth), para o globo |
 | `dados/README.md`                  | **Metodologia dos dados** e limitações — leitura obrigatória    |
 | `treinamento/treinar_modelo.py`    | Treina, avalia e salva o modelo                                 |
 | `backend/app.py`                   | API que serve as previsões                                      |
@@ -474,6 +475,13 @@ globo desenha sai de `dados/preparar_silhueta.py`, que reduz uma vez os 5.570
 municípios da malha do IBGE a algumas centenas de pontos. Só um dos dois
 cenários desenha por vez: o que está atrás de um palco invisível fica pausado.
 
+O resto do planeta vem de `dados/baixar_mundo.py`, que reduz os países do
+Natural Earth 1:110m a 53 KB. Eles existem para dar escala ao Brasil — um país
+sozinho numa esfera azul podia ter qualquer tamanho e estar em qualquer lugar
+— e por isso são desenhados apagados, em dois tons: a América do Sul um pouco
+mais clara que os outros continentes, porque é a vizinhança contra a qual se
+lê onde o país começa e termina. O Brasil é o único com halo.
+
 **Dois mapas, um em cada aba.** "Previsão" mostra o risco estimado para cada
 município; "Histórico" mostra o que o Atlas registrou, ano a ano. As escalas
 de cor são diferentes de propósito — uma conta risco, a outra conta
@@ -492,6 +500,16 @@ para 80 têm de parecer o mesmo movimento. O primeiro cálculo de cada tipo e
 mês leva alguns segundos no servidor, mas o voo não espera por ele: onde fica
 o município é a malha que diz, e ela não muda com a pergunta — a cor do risco
 chega por baixo quando ficar pronta.
+
+**O destaque de quem foi escolhido.** O estado acende junto com a parada nele,
+e o município ganha um anel ao pousar. O destaque do estado é feito por
+subtração: uma camada cobre o mapa inteiro e tem, recortado nela, o buraco no
+formato exato do estado — o caminho é o retângulo do mapa seguido dos
+polígonos daquela UF, com `fill-rule="evenodd"`. A borda do buraco é, por
+construção, a fronteira real do estado, sem precisar calcular a união de
+centenas de municípios. O anel do município é mais simples, mas precisa que
+ele seja o último `<path>` do SVG: não existe `z-index` em SVG, e no meio da
+malha o traço do vizinho comia metade do anel.
 
 **Modo claro e escuro.** O botão do topo alterna, e a escolha fica guardada no
 navegador. O padrão é o escuro, porque os palcos têm um céu estrelado e um

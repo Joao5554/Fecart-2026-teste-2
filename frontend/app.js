@@ -502,11 +502,18 @@ function voarAteOEstado(prefixo, sigla) {
   if (!projecao) return;
 
   if (!sigla) {
+    destacarEstado(`${prefixo}-svg`, null);
     voar(prefixo, null);
     return;
   }
   const caixa = projecao.caixasUf.get(sigla);
-  if (caixa) voar(prefixo, caixa);
+  if (caixa) {
+    // O destaque vem antes do voo, e não depois: assim o estado já está
+    // marcado enquanto a câmera se aproxima, e quem assiste vê para onde ela
+    // está indo em vez de descobrir só no pouso.
+    destacarEstado(`${prefixo}-svg`, sigla);
+    voar(prefixo, caixa);
+  }
 }
 
 async function desenharMapa(tipo, mes) {
@@ -1188,6 +1195,7 @@ function renderizarSvg(idSvg, idDica, feicoes, porMunicipio, codigoEmFoco = null
               .join("L") + "Z";
 
   const partes = [];
+  const aoFim = [];                 // o município em foco, por cima de todos
   const contorno = [];              // tudo que foi desenhado, para a chuva
   const contornosCapitais = [];
   const capitaisNoRecorte = [];
@@ -1197,6 +1205,11 @@ function renderizarSvg(idSvg, idDica, feicoes, porMunicipio, codigoEmFoco = null
   // a malha de novo a cada consulta.
   const caixas = new Map();
   const caixasUf = new Map();
+
+  // Os caminhos de cada estado, guardados por sigla. É com eles que o destaque
+  // recorta o buraco no véu — juntá-los na hora sairia do mesmo lugar, mas
+  // exigiria varrer a malha inteira a cada troca no seletor.
+  const dPorUf = new Map();
 
   const juntar = (caixa, x, y) => {
     if (x < caixa[0]) caixa[0] = x;
@@ -1224,6 +1237,9 @@ function renderizarSvg(idSvg, idDica, feicoes, porMunicipio, codigoEmFoco = null
         || caixasUf.set(uf, [Infinity, Infinity, -Infinity, -Infinity]).get(uf);
       juntar(doEstado, caixa[0], caixa[1]);
       juntar(doEstado, caixa[2], caixa[3]);
+
+      if (!dPorUf.has(uf)) dPorUf.set(uf, []);
+      dPorUf.get(uf).push(d);
     }
 
     contorno.push(d);
@@ -1234,23 +1250,24 @@ function renderizarSvg(idSvg, idDica, feicoes, porMunicipio, codigoEmFoco = null
       capitaisNoRecorte.push(capital);
     }
 
-    if (info) {
-      const foco = codigo === codigoEmFoco ? " foco" : "";
-      partes.push(
-        `<path d="${d}" fill="${info.cor}" class="${foco.trim()}" data-ibge="${codigo}"></path>`
-      );
-    } else {
-      // Também leva `data-ibge`: no mapa do histórico, "nenhuma ocorrência
-      // neste ano" é uma resposta legítima, e o município consultado precisa
-      // poder ser destacado mesmo assim. A dica ignora quem não tem info.
-      const foco = codigo === codigoEmFoco ? " foco" : "";
-      partes.push(
-        `<path d="${d}" class="sem-dado${foco}" data-ibge="${codigo}"></path>`
-      );
-    }
+    const emFoco = codigo === codigoEmFoco;
+    const atributos = `data-ibge="${codigo}"${uf ? ` data-uf="${uf}"` : ""}`;
+
+    const path = info
+      ? `<path d="${d}" fill="${info.cor}" class="${emFoco ? "foco" : ""}" ${atributos}></path>`
+      // Quem não tem info também leva `data-ibge`: no mapa do histórico,
+      // "nenhuma ocorrência neste ano" é uma resposta legítima, e o município
+      // consultado precisa poder ser destacado mesmo assim. A dica ignora
+      // quem não tem info.
+      : `<path d="${d}" class="sem-dado${emFoco ? " foco" : ""}" ${atributos}></path>`;
+
+    // O município em foco vai para o fim da fila. Em SVG não existe z-index:
+    // quem é desenhado por último fica por cima, e no meio da malha o traço do
+    // vizinho apagava metade do anel de destaque.
+    if (emFoco) aoFim.push(path); else partes.push(path);
   });
 
-  svg.innerHTML = partes.join("");
+  svg.innerHTML = partes.concat(aoFim).join("");
 
   // As capitais vão para um <svg> próprio, sobreposto ao do mapa. Dentro do
   // mapa elas ficariam por baixo da camada de chuva, e o nome da capital
@@ -1299,8 +1316,13 @@ function renderizarSvg(idSvg, idDica, feicoes, porMunicipio, codigoEmFoco = null
 
   projecaoDoMapa[idSvg] = {
     px, py, largura: LARGURA, altura: ALTURA, contorno: contorno.join(""),
-    caixas, caixasUf, caixaTudo,
+    caixas, caixasUf, caixaTudo, dPorUf,
   };
+
+  // O redesenho refez o SVG do zero e levou o véu junto. Se havia um estado em
+  // destaque, ele volta — trocar o mês não é motivo para perder a escolha.
+  aplicarFocoDeEstado(idSvg);
+
   return projecaoDoMapa[idSvg];
 }
 
@@ -1656,8 +1678,16 @@ function caixaDoPais(prefixo) {
 }
 
 function ligarCamera() {
-  $("mapa-voltar").addEventListener("click", () => voar("mapa", null));
-  $("ano-voltar").addEventListener("click", () => voar("ano", null));
+  // Voltar ao país inteiro apaga o destaque junto: um estado marcado num mapa
+  // do Brasil todo diria que o recorte ainda vale, e ele não vale mais.
+  const verOBrasil = (prefixo) => {
+    $(`${prefixo}-uf`).value = "";
+    destacarEstado(`${prefixo}-svg`, null);
+    voar(prefixo, null);
+  };
+
+  $("mapa-voltar").addEventListener("click", () => verOBrasil("mapa"));
+  $("ano-voltar").addEventListener("click", () => verOBrasil("ano"));
 
   // Aba escondida não recebe quadro nenhum, e um voo em curso ficaria parado
   // no meio do caminho sem nunca terminar. Ele é concluído no destino.
@@ -1833,6 +1863,12 @@ async function voarAteOMunicipio(prefixo, codigoIbge) {
   const doEstado = projecao.caixasUf.get(uf);
 
   if (doEstado) {
+    // O estado da cidade consultada acende junto com a parada nele. É o mesmo
+    // destaque do seletor "Voar até o estado", e é o que dá o endereço da
+    // cidade: o município em foco sozinho, no meio da malha, não diz em que
+    // parte do país está.
+    destacarEstado(`${prefixo}-svg`, uf);
+    $(`${prefixo}-uf`).value = uf;
     await voar(prefixo, doEstado, 1100);
     await esperar(420);
   }
@@ -1864,7 +1900,58 @@ function destacarNoMapa(prefixo, codigoIbge) {
   const svg = $(`${prefixo}-svg`);
   svg.querySelectorAll("path.foco").forEach((p) => p.classList.remove("foco"));
   const alvo = svg.querySelector(`path[data-ibge="${codigoIbge}"]`);
-  if (alvo) alvo.classList.add("foco");
+  if (!alvo) return;
+
+  alvo.classList.add("foco");
+  // Por cima de todos, e antes do véu do estado: o anel de destaque é a última
+  // coisa do mapa que ainda pode ser coberta por outro polígono.
+  const veu = svg.querySelector(".uf-foco-camada");
+  if (veu) svg.insertBefore(alvo, veu); else svg.appendChild(alvo);
+}
+
+// Qual estado está em destaque em cada mapa. Fica fora do SVG porque o
+// redesenho o apaga, e a escolha do seletor não deve morrer junto.
+const focoDeEstado = {};
+
+/**
+ * Destaca um estado no mapa — ou tira o destaque, quando a sigla é vazia.
+ *
+ * O desenho é por subtração: uma camada cobre o mapa inteiro com um buraco no
+ * formato do estado. O caminho é o retângulo do mapa seguido dos polígonos do
+ * estado, com `fill-rule="evenodd"`: onde o retângulo e um município se
+ * sobrepõem, o preenchimento se cancela.
+ *
+ * A alternativa seria calcular a união dos polígonos do estado e traçar essa
+ * fronteira. Daria o mesmo contorno, custando um algoritmo de geometria e uma
+ * varredura de centenas de polígonos a cada troca no seletor.
+ */
+function destacarEstado(idSvg, sigla) {
+  focoDeEstado[idSvg] = sigla || null;
+  aplicarFocoDeEstado(idSvg);
+}
+
+function aplicarFocoDeEstado(idSvg) {
+  const svg = $(idSvg);
+  if (!svg) return;
+
+  svg.querySelector(".uf-foco-camada")?.remove();
+
+  const sigla = focoDeEstado[idSvg];
+  const caminhos = sigla && projecaoDoMapa[idSvg]?.dPorUf?.get(sigla);
+  if (!caminhos || !caminhos.length) {
+    delete svg.dataset.ufFoco;
+    return;
+  }
+
+  const [, , largura, altura] = svg.getAttribute("viewBox").split(" ").map(Number);
+  const camada = document.createElementNS("http://www.w3.org/2000/svg", "g");
+  camada.setAttribute("class", "uf-foco-camada");
+  camada.innerHTML =
+    `<path class="veu-fora" fill-rule="evenodd"`
+    + ` d="M0,0H${largura}V${altura}H0Z${caminhos.join("")}"></path>`;
+
+  svg.appendChild(camada);
+  svg.dataset.ufFoco = sigla;
 }
 
 // ---------------------------------------------------------------------------
