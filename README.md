@@ -511,15 +511,14 @@ centenas de municípios. O anel do município é mais simples, mas precisa que
 ele seja o último `<path>` do SVG: não existe `z-index` em SVG, e no meio da
 malha o traço do vizinho comia metade do anel.
 
-**Modo claro e escuro.** O botão do topo alterna, e a escolha fica guardada no
-navegador. O padrão é o escuro, porque os palcos têm um céu estrelado e um
-campo de vento por trás e a interface clara sobre eles apagaria a animação
-inteira. O tema é aplicado por um script no `<head>`, antes da primeira
-pintura — se ficasse no `app.js`, quem escolheu o claro veria um lampejo
-escuro a cada carregamento. Só as variáveis do CSS mudam; nenhuma regra sabe
-que existe tema. As cores dos dados (verde, amarelo, vermelho) **não** mudam:
-significam nível de risco, e quem aprendeu "vermelho = alto" num tema não
-pode ter de reaprender no outro.
+**Um tema só, o escuro.** Os palcos têm um céu estrelado e um campo de vento
+por trás, e a interface clara sobre eles apagava a animação inteira — o modo
+claro existia e foi retirado. Com ele saíram o botão do topo, o script do
+`<head>` que lia a escolha antes da primeira pintura e o bloco de variáveis
+alternativo: a paleta inteira vive no `:root`, e nenhuma regra precisa saber
+que um dia houve tema. As cores dos dados (verde, amarelo, vermelho) sempre
+foram de fora dessa discussão: significam nível de risco, e o `app.js` as lê
+do CSS pelo nome.
 
 **Capitais em destaque.** O mapa pinta 5.570 municípios e não escreve nenhum
 nome: sem referência nenhuma, quem olha vê manchas de cor e não sabe onde está
@@ -563,6 +562,48 @@ solta sobre o desenho:
 A legenda deixou de ser uma fileira de quadradinhos iguais — que dizia que
 "0 a 5 mm" ocupa tanto da escala quanto "300 a 450 mm" — e virou uma barra
 contínua, em que a posição de cada marca é o próprio valor.
+
+**Camada de vento predominante.** Outro interruptor sobrepõe o vento: milhares
+de partículas correndo pelo campo e deixando rastro, do jeito que mapas de
+vento fazem. A direção e a velocidade vêm das mesmas estações automáticas do
+INMET, reduzidas a uma linha por estação e mês em `dados/preparar_vento.py`.
+A cor de cada rastro é a velocidade, na escala da legenda.
+
+A camada está nos **três mapas que escolhem um mês**, e não no mapa do
+histórico, que escolhe um ano. Vento anual não existe como grandeza útil: a
+direção predominante de janeiro e a de julho podem ser opostas, e a média das
+duas não descreve nenhum dos dois.
+
+Três coisas valem ser ditas sobre ela:
+
+- **É climatologia, não previsão de curto prazo.** "Março" devolve o março
+  típico, apurado sobre cinco anos de medição — não os próximos dias. É o que
+  casa com o resto do sistema, que também estima risco por mês: perguntar
+  "vendaval em fevereiro" e receber o vento que fevereiro costuma trazer é a
+  mesma pergunta pelos dois lados. Um campo como o do Windy sai de um modelo
+  global rodado quatro vezes ao dia e exigiria internet a cada abertura.
+- **A média é vetorial, e isso não é detalhe.** Ângulo não se soma: a média
+  aritmética de 350° e 10° dá 180°, o rumo oposto ao de duas medições que
+  quase coincidem. Cada hora vira um vetor antes de qualquer média, e é por
+  isso que a API entrega `u` e `v` prontos — quem anima um campo soma vetores.
+  O erro seria silencioso, e por isso tem teste próprio.
+- **A animação corre mais rápido que o vento.** Na escala do mapa, o ar real
+  levaria horas para cruzar um estado e a tela pareceria parada. O movimento
+  mostra o **rumo**; a magnitude quem carrega é a cor.
+- **As partículas vivem no mapa, mas são desenhadas na tela.** O canvas do
+  vento fica *fora* da câmera: dentro dela ele seria ampliado como bitmap, e um
+  desenho de 1000x820 esticado a 5x é borrão — pedir linha mais fina para
+  compensar só produz linha mais fraca, porque abaixo de um pixel do buffer não
+  existe traço, existe cinza. Fora da câmera, o canvas tem o tamanho da tela em
+  pixels reais e é o desenho que recebe a transformação. O traço sai com um
+  pixel de verdade em qualquer aproximação, e a densidade não muda com o zoom,
+  porque as partículas nascem só dentro do que está à vista.
+
+A legenda traz ainda a **constância média** do mês: perto de 1, o vento soprou
+sempre para o mesmo lado — é o caso dos alísios do Nordeste, acima de 0,90 em
+Fortaleza e Natal. Perto de 0, ele girou tanto que a predominante é quase um
+empate, como no Sul em julho. Sem esse número, um alísio firme e um mês de
+vento caótico desenhariam a mesma seta.
 
 **O município no mapa, dentro da consulta.** Logo abaixo do formulário, o
 contorno real do município consultado, ampliado e pintado com o risco previsto

@@ -222,6 +222,68 @@ passado, acumulado de três meses, anomalia em relação à normal). Isso mede o
 mecanismo real — solo encharcado do mês anterior aumenta o risco de
 deslizamento — sem exigir saber a chuva do mês que se quer prever.
 
+## Vento predominante (camada dos mapas)
+
+`dados/vento_estacoes.csv` — uma linha por estação do INMET e por mês, com o
+vento predominante daquele mês. É o que a camada de vento dos mapas desenha.
+
+```
+python dados/preparar_vento.py
+```
+
+O script baixa sozinho os ZIPs anuais do INMET que faltarem (padrão: 2021 a
+2025, ~470 MB, em `dados/bruto/inmet/`), lê a direção e a velocidade horárias
+de cada estação e reduz tudo a 12 linhas por estação. O CSV final tem 0,6 MB e
+vai versionado, como o de chuva: reconstruí-lo exige o download inteiro.
+
+### É climatologia, não previsão de curto prazo
+
+A resposta de "março" é o **março típico**, apurado sobre todos os anos
+baixados — e não o março de um ano específico, nem os próximos dias.
+
+Isso é deliberado, e é o que casa com o resto do projeto: a previsão de risco
+também é por mês. Perguntar "risco de vendaval em Petrópolis em fevereiro" e
+receber o vento que fevereiro costuma trazer é a mesma pergunta, respondida
+pelos dois lados.
+
+Um campo como o do Windy — as próximas horas, atualizado o dia todo — sai de
+um modelo global (GFS, do NOAA, ou ECMWF) rodado quatro vezes por dia. Exigiria
+internet a cada abertura da página, o que o projeto inteiro evita de propósito.
+
+### Por que a média é vetorial
+
+Direção é ângulo, e ângulo não se soma. A média aritmética de 350° e 10° dá
+**180°** — o rumo exatamente oposto ao de duas medições que quase coincidem.
+
+Cada hora vira um vetor antes de qualquer média:
+
+```
+u = -velocidade * sen(direção)     (componente para leste)
+v = -velocidade * cos(direção)     (componente para norte)
+```
+
+O sinal negativo está aí porque a direção meteorológica diz de onde o vento
+**vem**, e o vetor aponta para onde ele **vai**: vento de norte (0°) sopra
+para o sul. Somadas as componentes, 350° e 10° dão 0°, que é a resposta certa.
+
+A conta está em `src/inmet.py`, na `agregar_mensal`, e o caminho de volta
+(`direcao_do_vetor`) em `dados/preparar_vento.py`. Os testes em
+`testes/test_clima_vento.py` protegem exatamente esse ponto — é um erro que
+não quebra nada, não levanta exceção e só desenha o mapa ao contrário.
+
+### A coluna `constancia`
+
+Vai de 0 a 1: é o módulo do vetor médio dividido pela velocidade média.
+
+Perto de **1**, o vento soprou sempre para o mesmo lado, e a direção
+predominante significa o que parece — é o caso dos alísios do Nordeste, que
+passam de 0,90 em Fortaleza e Natal. Perto de **0**, a direção variou tanto
+que a predominante é quase um empate: o Sul em julho fica abaixo de 0,10,
+porque o vento ali gira a cada frente que passa.
+
+Sem esse número, um alísio firme e um mês de vento caótico desenhariam
+exatamente a mesma seta.
+
 ## Outras fontes, para os próximos passos
 
 - **INMET (BDMEP)**: <https://bdmep.inmet.gov.br> — chuva, temperatura, umidade

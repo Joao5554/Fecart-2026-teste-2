@@ -5,20 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Previsão de Risco de Desastres Naturais — Fecart 2026</title>
   <link rel="stylesheet" href="estilo.css">
-  <script>
-    /* Aplica o tema salvo ANTES de a página pintar. Se isto fosse para o
-       app.js, quem escolheu o modo claro veria um lampejo escuro a cada
-       carregamento, enquanto o resto do script baixa. */
-    (function () {
-      try {
-        var salvo = localStorage.getItem("fecart-tema");
-        var escuro = salvo ? salvo === "escuro" : true;
-        document.documentElement.dataset.tema = escuro ? "escuro" : "claro";
-      } catch (e) {
-        document.documentElement.dataset.tema = "escuro";
-      }
-    })();
-  </script>
 </head>
 <body data-palco="abertura">
 
@@ -87,11 +73,6 @@
 
     <div class="barra-acoes">
       <button type="button" id="botao-saiba" class="botao-fino">Saiba mais</button>
-      <button type="button" id="botao-tema" class="botao-tema"
-              aria-pressed="false" title="Alternar entre tema claro e escuro">
-        <span class="botao-tema-icone" aria-hidden="true"></span>
-        <span class="botao-tema-texto">Modo claro</span>
-      </button>
       <button type="button" id="botao-encerrar" class="botao-fino">Encerrar</button>
     </div>
   </header>
@@ -162,6 +143,10 @@
           <input type="checkbox" id="mapa-chuva">
           <span>Camada: chuva medida (INMET)</span>
         </label>
+        <label class="camada-opcao" for="mapa-vento">
+          <input type="checkbox" id="mapa-vento">
+          <span>Camada: vento predominante (INMET)</span>
+        </label>
       </div>
 
       <!-- Controles do mapa histórico -->
@@ -215,6 +200,16 @@
           <svg id="mapa-capitais-svg" class="camada-capitais"
                viewBox="0 0 1000 820" aria-hidden="true"></svg>
         </div>
+
+        <!-- O vento fica FORA da câmera de propósito. Dentro dela, o canvas
+             seria ampliado junto com o mapa: um bitmap de 1000x820 esticado a
+             2x ou 5x, que é borrão garantido e não tem conserto do lado de
+             dentro. Aqui ele tem o tamanho da tela, em pixels reais, e é o
+             desenho que recebe a transformação da câmera — as partículas
+             saem nítidas em qualquer aproximação. -->
+        <canvas id="mapa-vento-canvas" class="camada-vento"
+                aria-hidden="true"></canvas>
+
         <div id="mapa-dica" class="mapa-dica oculto"></div>
 
         <div class="teatro-topo">
@@ -224,6 +219,8 @@
           <div id="mapa-legenda" class="mapa-legenda oculto"></div>
           <div id="mapa-chuva-legenda" class="mapa-legenda legenda-chuva oculto"></div>
           <p id="mapa-chuva-nota" class="nota-chuva oculto"></p>
+          <div id="mapa-vento-legenda" class="mapa-legenda legenda-chuva oculto"></div>
+          <p id="mapa-vento-nota" class="nota-chuva oculto"></p>
         </div>
 
         <button type="button" class="botao-voltar-brasil oculto"
@@ -309,11 +306,17 @@
           <input type="checkbox" id="consulta-chuva">
           <span>Camada: chuva medida (INMET)</span>
         </label>
+        <label class="camada-opcao" for="consulta-vento">
+          <input type="checkbox" id="consulta-vento">
+          <span>Camada: vento predominante (INMET)</span>
+        </label>
 
         <div class="mapa-area">
           <svg id="consulta-svg" viewBox="0 0 640 460" role="img"
                aria-label="Mapa do município consultado"></svg>
           <canvas id="consulta-chuva-canvas" class="camada-chuva"
+                  width="640" height="460" aria-hidden="true"></canvas>
+          <canvas id="consulta-vento-canvas" class="camada-vento"
                   width="640" height="460" aria-hidden="true"></canvas>
           <svg id="consulta-capitais-svg" class="camada-capitais"
                viewBox="0 0 640 460" aria-hidden="true"></svg>
@@ -323,6 +326,8 @@
         <div id="consulta-legenda" class="mapa-legenda oculto"></div>
         <div id="consulta-chuva-legenda" class="mapa-legenda legenda-chuva oculto"></div>
         <p id="consulta-chuva-nota" class="nota-chuva oculto"></p>
+        <div id="consulta-vento-legenda" class="mapa-legenda legenda-chuva oculto"></div>
+        <p id="consulta-vento-nota" class="nota-chuva oculto"></p>
       </section>
 
       <!-- O ano inteiro -->
@@ -352,11 +357,17 @@
           <input type="checkbox" id="cidade-chuva">
           <span>Camada: chuva medida (INMET)</span>
         </label>
+        <label class="camada-opcao" for="cidade-vento">
+          <input type="checkbox" id="cidade-vento">
+          <span>Camada: vento predominante (INMET)</span>
+        </label>
 
         <div class="mapa-area">
           <svg id="cidade-svg" viewBox="0 0 640 460" role="img"
                aria-label="Mapa da cidade e da região"></svg>
           <canvas id="cidade-chuva-canvas" class="camada-chuva"
+                  width="640" height="460" aria-hidden="true"></canvas>
+          <canvas id="cidade-vento-canvas" class="camada-vento"
                   width="640" height="460" aria-hidden="true"></canvas>
           <svg id="cidade-capitais-svg" class="camada-capitais"
                viewBox="0 0 640 460" aria-hidden="true"></svg>
@@ -366,6 +377,8 @@
         <div id="cidade-legenda" class="mapa-legenda oculto"></div>
         <div id="cidade-chuva-legenda" class="mapa-legenda legenda-chuva oculto"></div>
         <p id="cidade-chuva-nota" class="nota-chuva oculto"></p>
+        <div id="cidade-vento-legenda" class="mapa-legenda legenda-chuva oculto"></div>
+        <p id="cidade-vento-nota" class="nota-chuva oculto"></p>
         <p id="cidade-setores" class="ajuda"></p>
       </section>
 
@@ -470,6 +483,7 @@
 </aside>
 
 <script src="cenario.js"></script>
+<script src="vento.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

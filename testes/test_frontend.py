@@ -178,53 +178,34 @@ def test_as_abas_apontam_para_mapas_que_existem():
 
 
 # --------------------------------------------------------------------------
-# Tema claro e escuro
+# Tema
 # --------------------------------------------------------------------------
 
 
-def test_o_tema_e_aplicado_antes_do_app_js():
+def test_o_site_tem_um_tema_so():
     """
-    Se o tema só fosse aplicado pelo app.js, quem escolheu o modo escuro veria
-    um lampejo branco a cada carregamento, enquanto o script baixa.
+    O tema claro foi retirado: os palcos têm um céu estrelado e um campo de
+    vento por trás, e a interface clara sobre eles apagava a animação inteira.
+    Sobrou o escuro, e com ele some tudo o que existia só para alternar —
+    inclusive o script do <head>, que lia a escolha antes da primeira pintura.
     """
-    html = _html()
-    assert html.index("fecart-tema") < html.index('src="app.js"'), (
-        "o tema precisa ser aplicado por um script no <head>, antes do app.js"
-    )
-    assert 'id="botao-tema"' in html
+    html, css, js = _html(), _css(), _js()
+
+    for marca in ('data-tema', 'botao-tema', 'fecart-tema'):
+        assert marca not in html, f"{marca} ainda está no index.html"
+        assert marca not in css, f"{marca} ainda está no estilo.css"
+        assert marca not in js, f"{marca} ainda está no app.js"
 
 
-def _bloco_do_tema_claro() -> str:
-    """O bloco de variáveis que o tema claro redefine."""
-    css = _css()
-    inicio = css.index('[data-tema="claro"] {')
-    return css[inicio:css.index("}", inicio)]
-
-
-def test_tema_claro_redefine_as_variaveis_da_interface():
+def test_as_cores_do_risco_nao_sao_tema():
     """
-    O padrão passou a ser o escuro, porque os palcos têm um céu estrelado e um
-    campo de vento por trás e a interface clara sobre eles apagaria a animação
-    inteira. O tema claro virou a exceção — e precisa redefinir tudo o que dá
-    contraste, senão sobra texto claro sobre fundo claro.
+    Verde, amarelo e vermelho significam nível de risco, e o app.js as lê do
+    CSS por nome. Elas vivem no `:root` como qualquer outra variável — nunca
+    dependeram de tema, e continuam sem depender.
     """
-    for variavel in ("--tinta", "--papel", "--fundo", "--borda"):
-        assert variavel in _bloco_do_tema_claro(), (
-            f"{variavel} não muda no tema claro"
-        )
-
-
-def test_tema_claro_nao_mexe_nas_cores_do_risco():
-    """
-    Verde, amarelo e vermelho significam nível de risco. Quem aprendeu
-    "vermelho = alto" num tema não pode ter de reaprender no outro — e as
-    barras e legendas recebem essas cores do app.js, que não sabe qual tema
-    está ativo.
-    """
+    raiz = _bloco_raiz()
     for variavel in ("--verde:", "--amarelo:", "--vermelho:"):
-        assert variavel not in _bloco_do_tema_claro(), (
-            f"{variavel} muda no tema claro, mas é cor de dado, não de decoração"
-        )
+        assert variavel in raiz, f"{variavel} sumiu do :root"
 
 
 # Variáveis que existem de propósito fora do `:root`, com um valor por
@@ -234,16 +215,20 @@ def test_tema_claro_nao_mexe_nas_cores_do_risco():
 VARIAVEIS_LOCAIS = {"--zoom"}
 
 
-def test_toda_variavel_usada_existe_no_tema_padrao():
-    """
-    O `:root` é o tema padrão: uma variável só definida no tema claro deixaria
-    a regra sem valor nenhum na abertura normal da página.
-    """
+def _bloco_raiz() -> str:
+    """O `:root`, onde vive toda variável da interface."""
     css = _css()
-    raiz = css[css.index(":root {"):css.index('[data-tema="claro"]')]
+    inicio = css.index(":root {")
+    return css[inicio:css.index(chr(10) + "}", inicio)]
 
-    definidas = set(re.findall(r"(--[\w-]+):", raiz)) | VARIAVEIS_LOCAIS
-    usadas = set(re.findall(r"var\((--[\w-]+)", css))
+
+def test_toda_variavel_usada_existe_no_root():
+    """
+    Com um tema só, o `:root` é a única fonte de variável que existe: uma
+    `var()` sem definição ali fica sem valor nenhum na página inteira.
+    """
+    definidas = set(re.findall(r"(--[\w-]+):", _bloco_raiz())) | VARIAVEIS_LOCAIS
+    usadas = set(re.findall(r"var\((--[\w-]+)", _css()))
 
     assert usadas <= definidas, f"usadas sem definir: {sorted(usadas - definidas)}"
 

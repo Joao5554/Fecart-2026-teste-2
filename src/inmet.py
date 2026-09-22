@@ -86,6 +86,12 @@ PADROES_COLUNA = {
         r"umidade.*instantanea",
     ],
     "rajada": [r"vento.*rajada"],
+    # Direção e velocidade horárias. A rajada acima é o pico de um instante;
+    # estas duas são o vento que soprou durante a hora inteira, e são as
+    # únicas com que se pode desenhar um campo de vento — uma rajada não tem
+    # direção associada no arquivo.
+    "vento_direcao": [r"vento.*direcao"],
+    "vento_velocidade": [r"vento.*velocidade"],
 }
 
 
@@ -272,13 +278,21 @@ def interpretar_estacao(texto: str) -> tuple[dict, pd.DataFrame]:
     renomeadas["data"] = _interpretar_data(renomeadas["data"])
     renomeadas = renomeadas[renomeadas["data"].notna()]
 
-    for grandeza in ("precipitacao", "temperatura", "umidade", "rajada"):
+    for grandeza in ("precipitacao", "temperatura", "umidade", "rajada",
+                     "vento_direcao", "vento_velocidade"):
         if grandeza in renomeadas.columns:
             valores = pd.to_numeric(renomeadas[grandeza], errors="coerce")
             # -9999 é o código de falta; qualquer coisa próxima disso também.
             renomeadas[grandeza] = valores.where(valores > FALTANTE + 1)
         else:
             renomeadas[grandeza] = np.nan
+
+    # Direção fora de 0–360 é registro corrompido, não vento. Velocidade
+    # negativa idem — e a calmaria já é representada pelo zero.
+    direcao = renomeadas["vento_direcao"]
+    renomeadas["vento_direcao"] = direcao.where((direcao >= 0) & (direcao <= 360))
+    velocidade = renomeadas["vento_velocidade"]
+    renomeadas["vento_velocidade"] = velocidade.where(velocidade >= 0)
 
     # Chuva negativa é erro de registro; zero é o mínimo físico.
     renomeadas["precipitacao"] = renomeadas["precipitacao"].clip(lower=0)
@@ -319,6 +333,19 @@ def agregar_mensal(medicoes: pd.DataFrame, metadados: dict) -> pd.DataFrame:
     por_dia = dados.groupby(["ano", "mes", dados["data"].dt.day])["precipitacao"].sum()
     por_dia = por_dia.reset_index(name="chuva_dia")
 
+    # O vento vira vetor ANTES de qualquer média, e é aqui que mora a
+    # sutileza: direção é ângulo, e ângulo não se soma. A média aritmética de
+    # 350° e 10° dá 180° — exatamente o rumo contrário ao de duas medições que
+    # quase coincidem. Decompondo cada hora em componentes e somando as
+    # componentes, 350° e 10° dão 0°, que é a resposta certa.
+    #
+    # A direção do INMET é de onde o vento VEM, em graus horários a partir do
+    # norte. O sinal negativo aponta o vetor para onde ele VAI, que é o que um
+    # mapa de vento desenha: vento de norte (0°) sopra para o sul (v < 0).
+    radianos = np.radians(dados["vento_direcao"])
+    dados["vento_u"] = -dados["vento_velocidade"] * np.sin(radianos)
+    dados["vento_v"] = -dados["vento_velocidade"] * np.cos(radianos)
+
     diario = por_dia.groupby(["ano", "mes"]).agg(
         chuva_max_dia_mm=("chuva_dia", "max"),
         dias_com_chuva=("chuva_dia", lambda s: int((s >= 1.0).sum())),
@@ -329,6 +356,15 @@ def agregar_mensal(medicoes: pd.DataFrame, metadados: dict) -> pd.DataFrame:
         temperatura_media_c=("temperatura", "mean"),
         umidade_media_pct=("umidade", "mean"),
         rajada_max_ms=("rajada", "max"),
+        # As componentes médias descrevem o vento PREDOMINANTE: para onde o ar
+        # foi, no saldo do mês. A velocidade média é outra coisa — o quanto
+        # ventou, independentemente do rumo — e as duas são necessárias: um
+        # mês de vento forte girando em todas as direções tem velocidade média
+        # alta e vetor médio quase nulo.
+        vento_u_ms=("vento_u", "mean"),
+        vento_v_ms=("vento_v", "mean"),
+        vento_velocidade_ms=("vento_velocidade", "mean"),
+        vento_horas=("vento_velocidade", "count"),
         horas_registradas=("precipitacao", "size"),
         horas_validas=("precipitacao", "count"),
     ).join(diario)

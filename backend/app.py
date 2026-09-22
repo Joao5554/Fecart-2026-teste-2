@@ -780,6 +780,117 @@ def chuva_medida(ano: int | None = None, mes: int | None = None):
     }
 
 
+# --------------------------------------------------------------------------
+# Camada de vento
+# --------------------------------------------------------------------------
+# Direção e velocidade do vento predominante de cada mês, medidas pelas
+# estações automáticas do INMET e reduzidas por `dados/preparar_vento.py`.
+#
+# É uma CLIMATOLOGIA, não um boletim: a resposta de "março" é o março típico,
+# apurado sobre vários anos. É de propósito, e é o que casa com o resto do
+# sistema — a previsão de risco também é por mês, não por dia. Um campo de
+# vento das próximas horas, como o do Windy, viria de um modelo global rodado
+# quatro vezes ao dia e exigiria internet a cada abertura da página.
+
+ARQUIVO_VENTO = RAIZ / "dados" / "vento_estacoes.csv"
+
+vento_estacoes: pd.DataFrame | None = None
+
+# Faixas em m/s, na escala Beaufort adaptada ao que as estações brasileiras
+# medem de fato: quase tudo cai abaixo de 8 m/s, e uma escala que fosse até
+# furacão deixaria o país inteiro na primeira cor.
+ESCALA_VENTO = [
+    (0, 1.5, "#D7EAF3", "calmo (até 1,5 m/s)"),
+    (1.5, 3, "#7FC9E0", "brisa leve (1,5 a 3)"),
+    (3, 5, "#3EA8C8", "brisa fraca (3 a 5)"),
+    (5, 7, "#2E8B8B", "brisa moderada (5 a 7)"),
+    (7, 9, "#7DB54A", "brisa forte (7 a 9)"),
+    (9, 12, "#EFB61C", "vento forte (9 a 12)"),
+    (12, None, "#D2451E", "muito forte (mais de 12)"),
+]
+
+
+def carregar_vento() -> bool:
+    """Carrega o vento predominante de cada estação do INMET."""
+    global vento_estacoes
+
+    if not ARQUIVO_VENTO.exists():
+        vento_estacoes = None
+        return False
+
+    vento_estacoes = pd.read_csv(ARQUIVO_VENTO)
+    return True
+
+
+carregar_vento()
+
+
+@app.get("/clima/vento", tags=["clima"])
+def vento_predominante(mes: int | None = None):
+    """
+    Vento predominante de cada estação do INMET, num mês.
+
+    Devolve as componentes `u` (leste) e `v` (norte) em m/s, já prontas para
+    desenhar: quem anima um campo de vento soma vetores, e reconstruí-los a
+    partir do ângulo do outro lado seria refazer trigonometria à toa.
+
+    A `constancia` vai de 0 a 1 e diz o quanto a direção se repetiu. Perto de
+    1, o vento soprou sempre para o mesmo lado e a seta significa o que
+    parece; perto de 0, ele girou tanto que a predominante é quase um empate.
+    Sem esse número no mapa, um alísio e um mês de vento caótico desenhariam
+    a mesma seta.
+    """
+    if vento_estacoes is None:
+        raise HTTPException(
+            status_code=503,
+            detail=("Dados de vento não preparados (dados/vento_estacoes.csv).\n"
+                    "Rode: python dados/preparar_vento.py"),
+        )
+
+    if mes is None:
+        mes = pd.Timestamp.today().month
+
+    if not 1 <= mes <= 12:
+        raise HTTPException(status_code=422, detail="mês precisa estar entre 1 e 12")
+
+    recorte = vento_estacoes[vento_estacoes["mes"] == mes]
+    if recorte.empty:
+        raise HTTPException(
+            status_code=404,
+            detail=(f"Sem medição de vento para {MESES_POR_EXTENSO[mes - 1]}. "
+                    f"Rode dados/preparar_vento.py de novo."),
+        )
+
+    return {
+        "mes": mes,
+        "periodo": f"{MESES_POR_EXTENSO[mes - 1]} (média de vários anos)",
+        "unidade": "m/s",
+        "anos_medidos": int(recorte["anos"].max()),
+        "total_estacoes": int(len(recorte)),
+        "velocidade_media_ms": round(float(recorte["velocidade_ms"].mean()), 2),
+        "velocidade_maxima_ms": round(float(recorte["velocidade_ms"].max()), 2),
+        "constancia_media": round(float(recorte["constancia"].mean()), 2),
+        "escala": [
+            {"de": de, "ate": ate, "cor": cor, "rotulo": rotulo}
+            for de, ate, cor, rotulo in ESCALA_VENTO
+        ],
+        "estacoes": [
+            {
+                "estacao": linha.estacao,
+                "uf": linha.uf,
+                "lat": float(linha.latitude),
+                "lon": float(linha.longitude),
+                "u": float(linha.u),
+                "v": float(linha.v),
+                "velocidade_ms": float(linha.velocidade_ms),
+                "direcao_graus": float(linha.direcao_graus),
+                "constancia": float(linha.constancia),
+            }
+            for linha in recorte.itertuples()
+        ],
+    }
+
+
 @app.post("/prever/municipio", tags=["consulta"])
 def prever_municipio(consulta: ConsultaMunicipio):
     """

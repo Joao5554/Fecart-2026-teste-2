@@ -6,16 +6,16 @@
    das colunas do palco dos mapas. */
 
 :root {
-  /* Cores dos dados. Fixas, porque significam nível de risco — não são
-     decoração e não mudam com o tema. */
+  /* Cores dos dados. Significam nível de risco, não são decoração: o app.js
+     as lê daqui pelo nome, para o mapa e a legenda dizerem o mesmo. */
   --verde: #1b7a3e;
   --amarelo: #d99400;
   --vermelho: #c0392b;
   --cinza-dado: #39434f;
 
-  /* Paleta da interface. O padrão agora é o tema escuro: os palcos têm um
-     céu estrelado e um campo de vento por trás, e a interface clara sobre
-     eles apagaria a animação inteira. */
+  /* Paleta da interface, e a única que existe. O site é escuro de propósito:
+     os palcos têm um céu estrelado e um campo de vento por trás, e uma
+     interface clara sobre eles apagaria a animação inteira. */
   --tinta: #e6ecf3;
   --tinta-media: #a8b6c6;
   --tinta-fraca: #7f8ea0;
@@ -53,8 +53,7 @@
   --erro-borda: #5c2f2a;
 
   /* A seta do <select> é um SVG embutido. Uma variável não pode substituir só
-     um pedaço de dentro de url(), então ela carrega a URL inteira e o tema
-     claro troca a imagem toda, por outra de traço mais escuro. */
+     um pedaço de dentro de url(), então ela carrega a URL inteira. */
   --seta-select: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%23a8b6c6' stroke-width='1.8' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
 
   --sombra: 0 1px 2px rgba(0, 0, 0, .3), 0 8px 28px rgba(0, 0, 0, .34);
@@ -76,59 +75,6 @@
            "Inter", "Helvetica Neue", Arial, sans-serif;
   --fonte-num: "Segoe UI Variable Text", "SF Mono", Consolas, monospace;
 }
-
-/* ---------- tema claro ---------- */
-/* Só as variáveis mudam: nenhuma regra abaixo precisa saber que existe tema.
-   As cores dos dados (verde, amarelo, vermelho) NÃO mudam de matiz: elas
-   significam nível de risco, e quem aprendeu "vermelho = alto" num tema não
-   pode reaprender no outro. */
-
-[data-tema="claro"] {
-  --cinza-dado: #d6dbe3;
-
-  /* Mais escuro que no tema escuro: o mesmo azul-céu que brilha sobre o fundo
-     preto some sobre o papel branco do mapa claro. */
-  --foco: #0284c7;
-  --foco-halo: rgba(2, 132, 199, .38);
-  --veu-mapa: rgba(238, 242, 248, .78);
-
-  --tinta: #10151c;
-  --tinta-media: #3d4956;
-  --tinta-fraca: #6b7784;
-  --papel: rgba(255, 255, 255, .82);
-  --papel-solido: #ffffff;
-  --fundo: #eef2f8;
-  --fundo-suave: rgba(15, 35, 64, .04);
-  --borda: rgba(15, 35, 64, .12);
-  --borda-forte: rgba(15, 35, 64, .22);
-  --azul: #1857b8;
-  --azul-forte: #144a9e;
-  --azul-claro: rgba(24, 87, 184, .12);
-
-  --trilho: rgba(15, 35, 64, .09);
-  --marcador: #9aa5b1;
-  --borda-hover: rgba(15, 35, 64, .32);
-  --desabilitado: #a8b2be;
-  --fundo-mapa: rgba(255, 255, 255, .5);
-  --traco-mapa: rgba(255, 255, 255, .85);
-  --aviso-fundo: #fff8e8;
-  --aviso-borda: #f0d9a8;
-  --erro-fundo: #fdeeec;
-  --erro-borda: #e8b5ae;
-
-  --seta-select: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%236b7784' stroke-width='1.8' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
-
-  --veu: rgba(238, 242, 248, .88);
-  --veu-meio: rgba(238, 242, 248, .62);
-
-  --sombra: 0 1px 2px rgba(16, 21, 28, .05), 0 8px 24px rgba(16, 21, 28, .08);
-  --sombra-alta: 0 2px 6px rgba(16, 21, 28, .07), 0 18px 44px rgba(16, 21, 28, .14);
-}
-
-/* O cenário pinta o próprio fundo escuro a cada quadro. Sobre uma interface
-   clara ele viraria manchas escuras em volta dos painéis, e não um cenário:
-   fica quase apagado, como textura. */
-[data-tema="claro"] .fundo { opacity: .07; }
 
 * { box-sizing: border-box; }
 
@@ -252,6 +198,28 @@ body[data-palco="despedida"] .despedida-interno > * {
 @keyframes subir {
   from { opacity: 0; transform: translateY(26px); }
   to   { opacity: 1; transform: translateY(0); }
+}
+
+/* O mergulho no globo.
+
+   Enquanto a câmera desce até o Brasil, o texto sai da frente: a animação que
+   vale ver é o país crescendo, e o título por cima dela viraria ruído. O véu
+   sai junto — ele existia só para o subtítulo ser legível sobre o planeta, e
+   a essa altura não há mais subtítulo. */
+.palco-abertura::before { transition: opacity .7s ease; }
+body.mergulhando .palco-abertura::before { opacity: 0; }
+
+body.mergulhando .abertura-interno {
+  opacity: 0;
+  /* Sobe de escala junto com o globo, como se o texto ficasse para trás na
+     descida em vez de simplesmente apagar. */
+  transform: scale(1.09);
+  transition: opacity .5s ease, transform 1.9s cubic-bezier(.5, 0, .75, 0);
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body.mergulhando .abertura-interno { transition: none; transform: none; }
 }
 
 .marca {
@@ -500,11 +468,11 @@ button {
 
 .aba.ativa {
   background: var(--azul);
-  color: #fff;
+  /* Tinta escura sobre o azul vivo: é o par que passa no contraste, e o
+     branco que serviria num azul mais fechado aqui esmaeceria. */
+  color: #06101f;
   box-shadow: 0 4px 16px rgba(90, 157, 255, .3);
 }
-
-[data-tema="escuro"] .aba.ativa { color: #06101f; }
 
 
 /* ===================================================================== */
@@ -965,6 +933,40 @@ option { background: var(--papel-solido); color: var(--tinta); }
 
 .legenda-chuva { margin-top: 10px; }
 
+/* ---------- camada de vento ---------- */
+/* Mesma mecânica da chuva: um canvas por cima do SVG, aceso por uma classe na
+   área do mapa.
+
+   O mapa de baixo perde parte da força, mas bem menos que sob a chuva (.55
+   contra .28). São duas exigências opostas, e o meio-termo é o ponto: o risco
+   precisa continuar legível, porque ver os dois juntos é a graça da camada —
+   onde venta forte e o risco de vendaval é alto —, mas o verde cheio dos
+   municípios brigava de igual para igual com os rastros e engolia justamente
+   o traço fino que dá o rumo. */
+
+/* O canvas do vento cobre a área inteira, em pixels de tela — ele não vive
+   dentro da câmera, e por isso não é ampliado por ninguém. O tamanho do buffer
+   quem acerta é o vento.js, na densidade real do monitor. */
+.camada-vento {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 3;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity .3s ease;
+}
+
+.mapa-area.com-vento .camada-vento { opacity: 1; }
+.mapa-area.com-vento svg path { fill-opacity: .55; }
+.mapa-area.com-vento svg path.sem-dado { fill-opacity: .3; }
+
+/* Com as duas camadas ligadas manda a chuva, que já apaga mais: somar os dois
+   apagamentos deixaria o mapa perto do invisível. */
+.mapa-area.com-chuva.com-vento svg path { fill-opacity: .28; }
+
 .legenda-titulo {
   font-size: .74rem;
   letter-spacing: .05em;
@@ -1407,37 +1409,8 @@ option { background: var(--papel-solido); color: var(--tinta); }
 
 
 /* ===================================================================== */
-/* Botão de tema e avisos                                                 */
+/* Avisos                                                                 */
 /* ===================================================================== */
-
-.botao-tema {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 9px 14px;
-  font-size: .85rem;
-  font-weight: 500;
-  color: var(--tinta-media);
-  background: transparent;
-  border: 1px solid var(--borda);
-}
-
-.botao-tema:hover { color: var(--tinta); border-color: var(--borda-forte); }
-
-.botao-tema-icone {
-  width: 15px;
-  height: 15px;
-  border-radius: 50%;
-  background: var(--tinta-media);
-  /* Uma lua é o mesmo círculo com uma mordida: a sombra interna à direita
-     recorta o disco sem precisar de imagem nenhuma. */
-  box-shadow: inset -4px -1px 0 0 var(--papel-solido);
-}
-
-[data-tema="claro"] .botao-tema-icone {
-  box-shadow: 0 0 0 2px var(--papel-solido), 0 0 0 4px var(--tinta-media);
-  transform: scale(.62);
-}
 
 .aviso {
   position: fixed;

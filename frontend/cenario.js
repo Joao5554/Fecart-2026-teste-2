@@ -96,7 +96,18 @@ const Cenario = (() => {
   function globo(canvas, opcoes = {}) {
     const VELOCIDADE = opcoes.velocidade ?? 7;   // graus por segundo
     const INCLINACAO = -12 * GRAU;               // o Brasil um pouco abaixo do eixo
-    let giro = -104 * GRAU;                      // começa com o país fora de vista
+    const GIRO_INICIAL = -104 * GRAU;            // começa com o país fora de vista
+
+    // Estado da câmera. Os três mudam durante o mergulho, e é só por eles que
+    // a aproximação acontece: o desenho em si não sabe que existe um zoom.
+    let giro = GIRO_INICIAL;
+    let inclinacao = INCLINACAO;
+    let zoom = 1;
+    let mergulho = null;
+    // Depois de pousar, o globo fica onde chegou. Sem isto a rotação livre
+    // voltaria a correr por baixo e, na ampliação do mergulho, os 7 graus por
+    // segundo tirariam o Brasil da tela em poucos segundos.
+    let pousado = false;
 
     let aneis = [];
     let paises = [];
@@ -127,7 +138,7 @@ const Cenario = (() => {
       const dl = lon * GRAU - giro;
       const fi = lat * GRAU;
       const senoFi = Math.sin(fi), cossenoFi = Math.cos(fi);
-      const senoIncl = Math.sin(INCLINACAO), cossenoIncl = Math.cos(INCLINACAO);
+      const senoIncl = Math.sin(inclinacao), cossenoIncl = Math.cos(inclinacao);
       const cosseno = senoIncl * senoFi + cossenoIncl * cossenoFi * Math.cos(dl);
       return {
         x: centroX + raio * cossenoFi * Math.sin(dl),
@@ -317,12 +328,94 @@ const Cenario = (() => {
       contexto.globalAlpha = 1;
     }
 
+    /* O mergulho: a câmera desce do espaço até um ponto do globo.
+
+       Não é um zoom de imagem. É a mesma projeção ortográfica com o raio da
+       esfera maior e o eixo girado até o ponto pedido cair no centro do
+       disco — por isso a silhueta continua correta enquanto cresce, e o
+       terminador (a borda onde o planeta vira as costas) acompanha. Ampliar o
+       canvas daria um borrão; reprojetar dá uma aproximação de verdade.
+
+       Devolve uma promessa que termina junto com o movimento, para quem
+       chamou saber a hora de trocar de tela. */
+    function mergulhar(destino = {}) {
+      // A ampliação sai da geometria da projeção, e não do olho: uma distância
+      // angular a do centro do disco cai a R*sen(a) pixels dele. O Brasil tem
+      // ~39 graus de altura, então metade dele projeta R*sen(19,5) = 0,334*R.
+      // Com o raio base em 0,34 da menor dimensão da tela, 3,4 é onde o país
+      // ocupa a altura quase inteira sem o Oiapoque nem o Chuí saírem por
+      // fora — e é perto do enquadramento em que o mapa real entra depois.
+      const { lon = -53, lat = -14, ampliacao = 3.4, duracao = 1.9 } = destino;
+
+      // Um mergulho já em curso é substituído, e a promessa dele fecha agora:
+      // deixá-la pendurada prenderia para sempre quem estivesse esperando.
+      if (mergulho) mergulho.pronto();
+
+      const VOLTA = Math.PI * 2;
+      const alvo = lon * GRAU;
+
+      return new Promise((pronto) => {
+        mergulho = {
+          inicio: null,
+          duracao,
+          deGiro: giro,
+          // O equivalente mais próximo do giro atual. Sem isto o globo daria
+          // quase uma volta inteira para alcançar um ponto que já estava ali
+          // ao lado, só porque o ângulo acumulado passou de 360°.
+          paraGiro: alvo + Math.round((giro - alvo) / VOLTA) * VOLTA,
+          deIncl: inclinacao,
+          paraIncl: lat * GRAU,
+          deZoom: zoom,
+          paraZoom: ampliacao,
+          pronto,
+        };
+      });
+    }
+
+    function avancarMergulho(tempo) {
+      if (mergulho.inicio === null) mergulho.inicio = tempo;
+
+      const t = Math.min((tempo - mergulho.inicio) / mergulho.duracao, 1);
+      // Suavização nas duas pontas: a descida sai devagar, ganha corpo no meio
+      // e pousa sem freada seca.
+      const s = t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+
+      giro = mergulho.deGiro + (mergulho.paraGiro - mergulho.deGiro) * s;
+      inclinacao = mergulho.deIncl + (mergulho.paraIncl - mergulho.deIncl) * s;
+
+      // O raio cresce em progressão geométrica, e não em linha reta: dobrar de
+      // 1 para 2 e dobrar de 4 para 8 precisam parecer o mesmo movimento. É a
+      // mesma razão pela qual a câmera dos mapas interpola o logaritmo da
+      // escala — com interpolação linear a queda inteira aconteceria no fim.
+      zoom = mergulho.deZoom * Math.pow(mergulho.paraZoom / mergulho.deZoom, s);
+
+      if (t >= 1) {
+        const pronto = mergulho.pronto;
+        mergulho = null;
+        pousado = true;
+        pronto();
+      }
+    }
+
+    /* Desfaz o mergulho e devolve o globo ao fundo que ele era. */
+    function restaurar() {
+      if (mergulho) { const pronto = mergulho.pronto; mergulho = null; pronto(); }
+      pousado = false;
+      giro = GIRO_INICIAL;
+      inclinacao = INCLINACAO;
+      zoom = 1;
+    }
+
     let anterior = 0;
 
     function desenhar(tempo) {
       const { contexto, largura, altura } = dimensionar(canvas);
 
-      if (!PARADO) {
+      // Durante o mergulho quem manda no eixo é ele: somar o giro livre por
+      // baixo faria o Brasil passar do ponto e voltar.
+      if (mergulho) {
+        avancarMergulho(tempo);
+      } else if (!PARADO && !pousado) {
         const passo = anterior ? Math.min(tempo - anterior, 0.1) : 0;
         giro += VELOCIDADE * GRAU * passo;
       }
@@ -330,7 +423,7 @@ const Cenario = (() => {
 
       const centroX = largura * (opcoes.centroX ?? 0.5);
       const centroY = altura * (opcoes.centroY ?? 0.5);
-      const raio = Math.min(largura, altura) * (opcoes.raio ?? 0.34);
+      const raio = Math.min(largura, altura) * (opcoes.raio ?? 0.34) * zoom;
 
       ceu(contexto, largura, altura, tempo);
       esfera(contexto, centroX, centroY, raio);
@@ -349,10 +442,16 @@ const Cenario = (() => {
       carregarSilhueta().then(repintar);
       carregarMundo().then(repintar);
       addEventListener("resize", repintar);
-      return { pausar() {}, seguir() {}, parar() { removeEventListener("resize", repintar); } };
+      return {
+        pausar() {}, seguir() {}, restaurar() {},
+        // Quem pediu menos animação não recebe a descida: a entrada nos mapas
+        // é imediata, e a promessa fecha na hora para não segurar o clique.
+        mergulhar() { return Promise.resolve(); },
+        parar() { removeEventListener("resize", repintar); },
+      };
     }
 
-    return laco(desenhar);
+    return Object.assign(laco(desenhar), { mergulhar, restaurar });
   }
 
   // -------------------------------------------------------------------------

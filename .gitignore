@@ -17,6 +17,9 @@ __pycache__/
 #  - clima_estacoes.csv (5 MB) VAI, pela mesma razão: é o que a camada de
 #    chuva dos mapas consulta em execução. Sem ele, quem clonar só teria a
 #    camada depois de baixar 1,7 GB de ZIPs do INMET;
+#  - vento_estacoes.csv (0,6 MB) VAI, pela mesma razão que o anterior: é o que
+#    a camada de vento consulta em execução, e reconstruí-lo custa 470 MB de
+#    download. É pequeno porque já vem reduzido a uma linha por estação e mês;
 #  - clima_mensal.csv (102 MB) fica de fora: passa do limite de 100 MB do
 #    GitHub, só serve para treinar e sai do mesmo comando que o anterior;
 #  - dados.csv (24 MB) fica de fora: só serve para treinar e é regenerável;
@@ -25,6 +28,7 @@ __pycache__/
 dados/*.csv
 !dados/ocorrencias.csv
 !dados/clima_estacoes.csv
+!dados/vento_estacoes.csv
 dados/bruto/
 
 # Registro de procedência do CSV local: descreve o arquivo de dados de cada

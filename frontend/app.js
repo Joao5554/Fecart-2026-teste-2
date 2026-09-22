@@ -67,14 +67,14 @@ async function iniciar() {
   prepararMapa();
   prepararMapaDoAno();
 
-  // Palcos, abas e tema são de interface pura: não dependem da API e precisam
+  // Palcos e abas são de interface pura: não dependem da API e precisam
   // funcionar mesmo com o servidor fora do ar, quando a página vira só um
-  // aviso de erro que a pessoa ainda tem de conseguir ler no tema que escolheu.
-  ligarTema();
+  // aviso de erro que a pessoa ainda tem de conseguir ler.
   ligarPalcos();
   ligarAbas();
   ligarCamera();
   ligarCamadasDeChuva();
+  ligarCamadasDeVento();
   ligarCapitais();
   carregarCapitais();
 
@@ -541,6 +541,7 @@ async function desenharMapa(tipo, mes) {
     // Sempre o país inteiro: o recorte por estado agora é trabalho da câmera.
     renderizarSvg("mapa-svg", "mapa-dica", malhaCache.features, porMunicipio);
     atualizarChuva("mapa");
+    atualizarVento("mapa");
     reenquadrar("mapa");
 
     const resumo = { baixo: 0, medio: 0, alto: 0 };
@@ -769,6 +770,169 @@ async function atualizarChuva(prefixo) {
     rodape.textContent = `Sem camada de chuva: ${erro.message}`;
   }
 }
+
+// ---------------------------------------------------------------------------
+// Camada de vento
+// ---------------------------------------------------------------------------
+// Para onde o vento predominante sopra em cada mês, medido pelas estações do
+// INMET. O desenho fica em vento.js; aqui ficam o interruptor, a busca na API
+// e a legenda.
+//
+// Só os três mapas que escolhem um MÊS têm a camada. O mapa do histórico
+// escolhe um ANO, e um vento anual não existe: a direção predominante de
+// janeiro e a de julho podem ser opostas, e a média das duas não descreve
+// nenhum dos dois.
+
+const MAPAS_COM_VENTO = {
+  consulta: { svg: "consulta-svg", mes: () => Number($("mes").value) },
+  mapa: { svg: "mapa-svg", mes: () => Number($("mapa-mes").value) },
+  cidade: { svg: "cidade-svg", mes: () => Number($("mes").value) },
+};
+
+// Uma camada por mapa, criada na primeira vez que o mapa pede vento.
+const camadasDeVento = {};
+
+function ligarCamadasDeVento() {
+  for (const prefixo of Object.keys(MAPAS_COM_VENTO)) {
+    const caixa = $(`${prefixo}-vento`);
+    if (caixa) caixa.addEventListener("change", () => atualizarVento(prefixo));
+  }
+}
+
+/** Liga, desliga ou redesenha a camada de vento de um mapa. */
+async function atualizarVento(prefixo) {
+  const caixa = $(`${prefixo}-vento`);
+  const tela = $(`${prefixo}-vento-canvas`);
+  const area = tela ? tela.closest(".mapa-area") : null;
+  const rodape = $(`${prefixo}-vento-nota`);
+  if (!caixa || !tela || !area) return;
+
+  const camada = camadasDeVento[prefixo]
+    || (camadasDeVento[prefixo] = Vento.camada(tela));
+
+  if (!caixa.checked) {
+    // Parar é obrigatório, e não zelo: o laço de animação continuaria rodando
+    // atrás de um canvas invisível, gastando bateria para desenhar o que
+    // ninguém vê.
+    camada.limpar();
+    area.classList.remove("com-vento");
+    rodape.classList.add("oculto");
+    $(`${prefixo}-vento-legenda`).classList.add("oculto");
+    return;
+  }
+
+  const projecao = projecaoDoMapa[MAPAS_COM_VENTO[prefixo].svg];
+  if (!projecao) {
+    rodape.textContent = "Desenhe o mapa primeiro para sobrepor o vento.";
+    rodape.classList.remove("oculto");
+    return;
+  }
+
+  rodape.textContent = "Buscando o vento medido pelo INMET...";
+  rodape.classList.remove("oculto");
+
+  try {
+    const mes = MAPAS_COM_VENTO[prefixo].mes();
+    const dados = await pedir(`/clima/vento?mes=${mes}`);
+
+    // O interruptor pode ter sido desligado enquanto a resposta vinha.
+    if (!caixa.checked) return;
+
+    area.classList.add("com-vento");
+    // O enquadramento vai como função, e não como valor: a câmera muda a cada
+    // voo, e a camada precisa do retângulo de agora, não do de quando a
+    // camada foi ligada.
+    camada.desenhar(projecao, dados, mascaraDoMapa(projecao),
+                    () => enquadramentoDoVento(prefixo));
+    montarLegendaDeVento(`${prefixo}-vento-legenda`, dados);
+
+    rodape.textContent =
+      `Vento predominante em ${dados.periodo}, medido por `
+      + `${dados.total_estacoes} estações automáticas do INMET ao longo de `
+      + `${dados.anos_medidos} anos · média ${dados.velocidade_media_ms} m/s, `
+      + `máxima ${dados.velocidade_maxima_ms} m/s. Cada risco segue o rumo do `
+      + `ar; a cor é a velocidade. Entre as estações o valor é interpolado, e `
+      + `a animação corre mais rápido que o vento real, para o rumo aparecer.`;
+  } catch (erro) {
+    caixa.checked = false;
+    camada.limpar();
+    area.classList.remove("com-vento");
+    $(`${prefixo}-vento-legenda`).classList.add("oculto");
+    rodape.textContent = `Sem camada de vento: ${erro.message}`;
+  }
+}
+
+/**
+ * Onde o mapa está na tela: a escala e o deslocamento da câmera.
+ *
+ * Leva um ponto do desenho a um pixel de tela por
+ * `deslocamento + escala * ponto` — exatamente a transformação que o
+ * `aplicarCamera` publica no CSS, e é de propósito que seja a mesma conta: a
+ * camada de vento precisa pousar em cima do mapa, e não ao lado dele.
+ *
+ * O canvas do vento fica FORA da câmera justamente para receber isto: dentro
+ * dela, ele seria ampliado como bitmap e borraria. Fora, ele tem o tamanho da
+ * tela e é o desenho que se move.
+ *
+ * Devolve `null` para os mapas do painel, que não têm câmera nenhuma — lá o
+ * próprio vento.js calcula o ajuste do SVG à caixa.
+ */
+function enquadramentoDoVento(prefixo) {
+  const estado = cameras[prefixo];
+  const teatro = $(`teatro-${prefixo}`);
+  if (!estado || !teatro || !estado.escala) return null;
+
+  return {
+    escala: estado.escala,
+    deslocaX: teatro.clientWidth / 2 - estado.escala * estado.x,
+    deslocaY: teatro.clientHeight / 2 - estado.escala * estado.y,
+    largura: teatro.clientWidth,
+    altura: teatro.clientHeight,
+  };
+}
+
+/**
+ * Suspende ou retoma todas as camadas de vento de uma vez.
+ *
+ * As três vivem no palco dos mapas e na aba da previsão. Fora dali — na aba
+ * do histórico, na abertura, na despedida — elas continuariam animando atrás
+ * de uma tela que ninguém está vendo, gastando bateria para desenhar o
+ * invisível. O campo fica guardado: voltar é imediato, sem refazer a
+ * interpolação nem buscar de novo na API.
+ */
+function ventosEmCena(emCena) {
+  for (const camada of Object.values(camadasDeVento)) {
+    if (emCena) camada.seguir(); else camada.pausar();
+  }
+}
+
+function montarLegendaDeVento(idLegenda, dados) {
+  const escala = dados.escala;
+  const topo = escala[escala.length - 1].de || 1;
+  const posicao = (valor) => ((valor / topo) * 100).toFixed(1);
+
+  const degrade = escala.map((f) => `${f.cor} ${posicao(f.de)}%`).join(", ");
+
+  const marcas = escala.slice(1).map((f, i) => {
+    const numero = f.de.toLocaleString("pt-BR");
+    const rotulo = i === escala.length - 2 ? `${numero}+` : numero;
+    return `<span style="left:${posicao(f.de)}%">${rotulo}</span>`;
+  }).join("");
+
+  const legenda = $(idLegenda);
+  legenda.innerHTML =
+    `<span class="legenda-titulo">vento predominante (${dados.unidade})</span>
+     <div class="escala-chuva">
+       <div class="escala-barra" style="background:linear-gradient(90deg,${degrade})"></div>
+       <div class="escala-marcas">${marcas}</div>
+     </div>
+     <span class="legenda-estacao"><i></i>constância média ${
+       dados.constancia_media.toLocaleString("pt-BR")
+     } — 1 é vento sempre no mesmo rumo</span>`;
+  legenda.classList.remove("oculto");
+  esconderMarcasQueColidem(legenda);
+}
+
 
 /**
  * Interpola a chuva entre as estações e pinta no canvas.
@@ -1536,8 +1700,13 @@ function ligarPalcos() {
   fundoClima = Cenario.clima($("fundo-clima"));
   fundoClima.pausar();
 
-  $("botao-entrar").addEventListener("click", () => trocarPalco("mapas"));
-  $("botao-encerrar").addEventListener("click", () => trocarPalco("despedida"));
+  $("botao-entrar").addEventListener("click", entrarNosMapas);
+  // Reinicia antes de trocar de palco: a limpeza acontece atrás da cortina
+  // que está subindo, e não à vista de quem ainda está olhando os mapas.
+  $("botao-encerrar").addEventListener("click", () => {
+    reiniciarExperiencia();
+    trocarPalco("despedida");
+  });
   $("botao-reiniciar").addEventListener("click", () => trocarPalco("abertura"));
 
   ligarGaveta();
@@ -1549,21 +1718,231 @@ function trocarPalco(nome) {
   // Só um dos dois cenários desenha por vez. O outro continua existindo, com
   // o estado intacto, mas sem gastar quadro nenhum atrás de uma tela que
   // ninguém está vendo.
+  ventosEmCena(nome === "mapas" && mapaAtivo === "mapa");
+
   if (nome === "mapas") {
     fundoGlobo?.pausar();
     fundoClima?.seguir();
   } else {
     fundoClima?.pausar();
     fundoGlobo?.seguir();
+    // Fora dos mapas o globo volta a ser fundo. Sem desfazer o mergulho, a
+    // despedida abriria com o planeta congelado em cima do Brasil, e a
+    // abertura seguinte nunca mais teria um globo para girar.
+    document.body.classList.remove("mergulhando");
+    fundoGlobo?.restaurar();
   }
 
-  if (nome === "mapas" && !mapaJaDesenhado) {
-    mapaJaDesenhado = true;
-    // Entrar num mapa vazio e ter de apertar "Desenhar" para ver qualquer
-    // coisa é um passo a mais sem nenhuma informação nova. O país já vem
-    // pintado, e a pessoa começa mexendo, não configurando.
-    desenharMapa($("mapa-tipo").value, Number($("mapa-mes").value));
+  if (nome === "mapas") garantirMapaDesenhado();
+}
+
+// O ponto do globo onde a câmera pousa. Não é o centroide exato do país: é o
+// enquadramento que deixa o Brasil inteiro dentro do disco, do Oiapoque ao
+// Chuí, sem sobrar oceano de um lado só.
+const BRASIL_NO_GLOBO = { lon: -53, lat: -14 };
+const MERGULHO_S = 1.9;
+
+/**
+ * A entrada nos mapas: o globo desce até o Brasil e entrega a tela ao mapa.
+ *
+ * O desenho do mapa começa junto com o mergulho, e não depois dele. São 3 MB
+ * de fronteiras e alguns segundos de cálculo no servidor — pedir isso só na
+ * troca de palco faria a viagem terminar num teatro vazio, que é exatamente o
+ * contrário do que a animação acabou de prometer. Os dois correm juntos, e a
+ * descida serve de espera.
+ */
+async function entrarNosMapas() {
+  const botao = $("botao-entrar");
+  if (botao.disabled) return;   // a descida já começou; o segundo clique não conta
+  botao.disabled = true;
+
+  garantirMapaDesenhado();
+  document.body.classList.add("mergulhando");
+
+  // Em aba escondida o navegador não entrega quadro nenhum, e o mergulho
+  // ficaria pendurado para sempre — levando junto o clique que espera por ele.
+  // O mesmo problema que o voo da câmera dos mapas resolve com `concluir`.
+  await Promise.race([
+    fundoGlobo?.mergulhar({ ...BRASIL_NO_GLOBO, duracao: MERGULHO_S })
+      ?? Promise.resolve(),
+    esperar(MERGULHO_S * 1000 + 600),
+  ]);
+
+  trocarPalco("mapas");
+  botao.disabled = false;
+}
+
+/** Desenha o mapa da previsão uma vez só, quando ele passa a ser preciso. */
+function garantirMapaDesenhado() {
+  if (mapaJaDesenhado) return;
+  mapaJaDesenhado = true;
+  // Entrar num mapa vazio e ter de apertar "Desenhar" para ver qualquer coisa
+  // é um passo a mais sem nenhuma informação nova. O país já vem pintado, e a
+  // pessoa começa mexendo, não configurando.
+  desenharMapa($("mapa-tipo").value, Number($("mapa-mes").value));
+}
+
+// ---------------------------------------------------------------------------
+// Reinício da experiência
+// ---------------------------------------------------------------------------
+// "Encerrar" termina a apresentação, e a próxima começa do zero: quem assume o
+// computador depois não deveria herdar o município, o tipo, o mês e o zoom de
+// quem estava antes. Sem isto, voltar aos mapas trazia de volta a última
+// consulta — o mapa ainda ampliado em algum estado, o painel da direita cheio
+// e o formulário preenchido.
+//
+// O que NÃO é reiniciado, de propósito: o aviso do modelo, que pode estar
+// dizendo que a API caiu; e os caches de malha e capitais, que são download e
+// não escolha — refazê-los custaria 3 MB a cada reinício.
+
+function reiniciarExperiencia() {
+  reiniciarConsulta();
+  reiniciarPainel();
+  reiniciarMapaDaPrevisao();
+  reiniciarMapaDoHistorico();
+  fecharGaveta();
+  mostrarMapa("mapa");
+}
+
+/** O formulário da esquerda, como ele nasce. */
+function reiniciarConsulta() {
+  clearTimeout(temporizadorBusca);
+  temporizadorBusca = null;
+  municipioEscolhido = null;
+
+  // O campo de busca pode estar desabilitado por `bloquearFormulario`, quando
+  // a API não respondeu. Reabri-lo aqui esconderia um problema que continua de
+  // pé, então só o conteúdo é limpo — nunca o `disabled`.
+  $("busca").value = "";
+  $("sugestoes").innerHTML = "";
+  $("sugestoes").classList.add("oculto");
+  $("municipio-escolhido").textContent = "";
+  $("municipio-escolhido").classList.add("oculto");
+  $("botao").disabled = true;
+
+  $("tipo").selectedIndex = 0;
+  $("mes").value = String(new Date().getMonth() + 1);
+}
+
+/** A coluna da direita volta a ser o convite a escolher um município. */
+function reiniciarPainel() {
+  [
+    "resultado", "consulta-mapa", "secao-ano", "secao-cidade",
+    "secao-historico", "ano-meses", "ano-tipos",
+  ].forEach((id) => $(id).classList.add("oculto"));
+  $("painel-vazio").classList.remove("oculto");
+
+  // Esconder não basta: o conteúdo continuaria ali, e a seção reapareceria com
+  // os dados da consulta anterior no intervalo entre pedir a próxima previsão
+  // e ela chegar.
+  [
+    "barras", "grafico", "tabela-features", "tabela-historico",
+    "ano-grafico", "ano-tabela-tipos",
+    "consulta-svg", "consulta-capitais-svg", "cidade-svg", "cidade-capitais-svg",
+  ].forEach((id) => { $(id).innerHTML = ""; });
+
+  ["resultado-titulo", "resultado-detalhe", "historico-resumo",
+   "cidade-setores"].forEach((id) => { $(id).textContent = ""; });
+
+  $("selo").textContent = "—";
+  $("selo").className = "selo";
+
+  // Os dois mapinhas do painel deixaram de existir: o enquadramento guardado
+  // deles apontaria para um desenho que não está mais lá.
+  delete projecaoDoMapa["consulta-svg"];
+  delete projecaoDoMapa["cidade-svg"];
+
+  ["consulta", "cidade"].forEach(reiniciarCamadas);
+  ["consulta-legenda", "cidade-legenda"].forEach(
+    (id) => $(id).classList.add("oculto")
+  );
+}
+
+/** O mapa grande da previsão: filtros, câmera e desenho, todos do zero. */
+function reiniciarMapaDaPrevisao() {
+  $("mapa-tipo").value = "INUNDACAO";
+  $("mapa-mes").value = "2";
+  $("mapa-uf").value = "";
+  reiniciarCamadas("mapa");
+
+  $("mapa-svg").innerHTML = "";
+  $("mapa-capitais-svg").innerHTML = "";
+  $("mapa-estado").textContent = "";
+  $("mapa-legenda").classList.add("oculto");
+  delete projecaoDoMapa["mapa-svg"];
+
+  reiniciarCamera("mapa");
+
+  // O desenho não é refeito agora: quem encerra pode nunca mais voltar aos
+  // mapas, e redesenhar custa uma chamada à API. Marcar como não desenhado faz
+  // `trocarPalco` refazê-lo na volta — o mesmo caminho da primeira vez, com o
+  // palco já em cena.
+  mapaJaDesenhado = false;
+}
+
+/** O mapa grande do histórico, idem. */
+function reiniciarMapaDoHistorico() {
+  // Os anos vêm do mais recente para o mais antigo, então o primeiro da lista
+  // é o mesmo que `carregarAnos` deixou escolhido.
+  $("ano-escolhido").selectedIndex = 0;
+  $("ano-tipo").value = "";
+  $("ano-uf").value = "";
+  reiniciarCamadas("ano");
+
+  $("ano-svg").innerHTML = "";
+  $("ano-capitais-svg").innerHTML = "";
+  $("ano-estado").textContent = "";
+  $("ano-legenda").classList.add("oculto");
+  $("ano-numeros").classList.add("oculto");
+  $("ano-numeros").innerHTML = "";
+  delete projecaoDoMapa["ano-svg"];
+
+  reiniciarCamera("ano");
+
+  // `mostrarMapa` redesenha o histórico quando o SVG está vazio, na primeira
+  // vez que alguém abrir a aba de novo.
+  desenhoDoAno = null;
+}
+
+/** Capitais ligadas, chuva desligada — e o canvas da chuva limpo junto. */
+function reiniciarCamadas(prefixo) {
+  const capitais = $(`${prefixo}-capitais`);
+  if (capitais) {
+    capitais.checked = true;
+    $(`${prefixo}-svg`).closest(".mapa-area")
+      ?.classList.add("mostrar-capitais");
   }
+
+  const chuva = $(`${prefixo}-chuva`);
+  if (chuva) {
+    chuva.checked = false;
+    // Desmarcar por código não dispara `change`. Chamar `atualizarChuva` é o
+    // que apaga o canvas, tira a legenda e devolve a cor ao mapa de baixo.
+    atualizarChuva(prefixo);
+  }
+
+  const vento = $(`${prefixo}-vento`);
+  if (vento) {
+    vento.checked = false;
+    // Aqui a chamada é ainda mais necessária que na chuva: além de limpar, é
+    // ela que para o laço de animação das partículas.
+    atualizarVento(prefixo);
+  }
+}
+
+/** Devolve a câmera ao país inteiro, sem voo e sem estado marcado. */
+function reiniciarCamera(prefixo) {
+  const estado = cameras[prefixo];
+  // Um voo em curso continuaria animando por cima do reinício e pousaria de
+  // volta no município de onde acabamos de sair.
+  if (estado.animacao) cancelAnimationFrame(estado.animacao);
+  estado.animacao = null;
+  estado.concluir = null;
+  estado.caixa = null;
+
+  destacarEstado(`${prefixo}-svg`, null);
+  $(`${prefixo}-voltar`).classList.add("oculto");
+  $(`teatro-${prefixo}`).classList.remove("ampliado", "voando");
 }
 
 function ligarGaveta() {
@@ -1571,15 +1950,16 @@ function ligarGaveta() {
     $("gaveta").classList.remove("oculto");
     $("gaveta-fundo").classList.remove("oculto");
   };
-  const fechar = () => {
-    $("gaveta").classList.add("oculto");
-    $("gaveta-fundo").classList.add("oculto");
-  };
 
   $("botao-saiba").addEventListener("click", abrir);
-  $("gaveta-fechar").addEventListener("click", fechar);
-  $("gaveta-fundo").addEventListener("click", fechar);
-  addEventListener("keydown", (e) => { if (e.key === "Escape") fechar(); });
+  $("gaveta-fechar").addEventListener("click", fecharGaveta);
+  $("gaveta-fundo").addEventListener("click", fecharGaveta);
+  addEventListener("keydown", (e) => { if (e.key === "Escape") fecharGaveta(); });
+}
+
+function fecharGaveta() {
+  $("gaveta").classList.add("oculto");
+  $("gaveta-fundo").classList.add("oculto");
 }
 
 // ---------------------------------------------------------------------------
@@ -1633,6 +2013,10 @@ function mostrarMapa(prefixo) {
   // A coluna da direita acompanha: os blocos da outra aba saem de cena sem
   // perder o que ja carregaram, e voltam inteiros quando a aba volta.
   $("painel").dataset.aba = prefixo;
+
+  // O vento é só da aba da previsão: os três mapas que o têm escolhem um mês,
+  // e o histórico escolhe um ano.
+  ventosEmCena(prefixo === "mapa");
 
   // O teatro escondido tinha largura zero enquanto estava fora de cena, e o
   // enquadramento calculado ali não valeria nada. Refazê-lo ao aparecer é o
@@ -1952,42 +2336,6 @@ function aplicarFocoDeEstado(idSvg) {
 
   svg.appendChild(camada);
   svg.dataset.ufFoco = sigla;
-}
-
-// ---------------------------------------------------------------------------
-// Tema
-// ---------------------------------------------------------------------------
-
-/**
- * Liga o botão de tema.
- *
- * O tema já foi aplicado pelo script no <head>, antes da primeira pintura.
- * Aqui só ficam o botão e a memória da escolha.
- */
-function ligarTema() {
-  const botao = $("botao-tema");
-
-  const aplicar = (tema, guardar) => {
-    document.documentElement.dataset.tema = tema;
-    const escuro = tema === "escuro";
-    botao.setAttribute("aria-pressed", String(escuro));
-    $("botao-tema").querySelector(".botao-tema-texto").textContent =
-      escuro ? "Modo claro" : "Modo escuro";
-    if (guardar) {
-      try {
-        localStorage.setItem("fecart-tema", tema);
-      } catch (e) {
-        /* sem localStorage: o tema vale só para esta visita */
-      }
-    }
-  };
-
-  aplicar(document.documentElement.dataset.tema || "claro", false);
-
-  botao.addEventListener("click", () => {
-    const atual = document.documentElement.dataset.tema;
-    aplicar(atual === "escuro" ? "claro" : "escuro", true);
-  });
 }
 
 async function mostrarOddsRatio() {
