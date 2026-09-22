@@ -1,0 +1,155 @@
+{
+  "arvores": 30,
+  "escolha_cv_aleatoria": {
+    "profundidade": null,
+    "folha": 2
+  },
+  "escolha_val_temporal": {
+    "profundidade": 26,
+    "folha": 3
+  },
+  "historico_cv": [
+    {
+      "parametros": {
+        "profundidade": 10,
+        "folha": 20
+      },
+      "f1": 0.5529763112629095,
+      "desvio": 0.005803022784361862
+    },
+    {
+      "parametros": {
+        "profundidade": 14,
+        "folha": 10
+      },
+      "f1": 0.5983414897619413,
+      "desvio": 0.00590840428046916
+    },
+    {
+      "parametros": {
+        "profundidade": 16,
+        "folha": 5
+      },
+      "f1": 0.6232165382210654,
+      "desvio": 0.0036821688426878297
+    },
+    {
+      "parametros": {
+        "profundidade": 20,
+        "folha": 5
+      },
+      "f1": 0.6389505563469502,
+      "desvio": 0.004380147851706951
+    },
+    {
+      "parametros": {
+        "profundidade": 26,
+        "folha": 3
+      },
+      "f1": 0.6565524183048121,
+      "desvio": 0.0038804067936987464
+    },
+    {
+      "parametros": {
+        "profundidade": null,
+        "folha": 2
+      },
+      "f1": 0.6651521875239448,
+      "desvio": 0.0018790942108887897
+    }
+  ],
+  "historico_temporal": [
+    {
+      "parametros": {
+        "profundidade": 10,
+        "folha": 20
+      },
+      "f1": 0.5025685343092355,
+      "desvio": null
+    },
+    {
+      "parametros": {
+        "profundidade": 14,
+        "folha": 10
+      },
+      "f1": 0.5107880605756445,
+      "desvio": null
+    },
+    {
+      "parametros": {
+        "profundidade": 16,
+        "folha": 5
+      },
+      "f1": 0.5126655291076,
+      "desvio": null
+    },
+    {
+      "parametros": {
+        "profundidade": 20,
+        "folha": 5
+      },
+      "f1": 0.5142588076792315,
+      "desvio": null
+    },
+    {
+      "parametros": {
+        "profundidade": 26,
+        "folha": 3
+      },
+      "f1": 0.5143665398452898,
+      "desvio": null
+    },
+    {
+      "parametros": {
+        "profundidade": null,
+        "folha": 2
+      },
+      "f1": 0.514272350669568,
+      "desvio": null
+    }
+  ],
+  "teste": {
+    "escolha da CV aleatória": {
+      "balanceada": 0.5256504097960945,
+      "f1_macro": 0.5496325160380356,
+      "recall_alto": 0.46803768615135244
+    },
+    "escolha da val. temporal": {
+      "balanceada": 0.5362333660753508,
+      "f1_macro": 0.5567110447787127,
+      "recall_alto": 0.5044068483436329
+    }
+  },
+  "ganho_selecao_balanceada": -0.010582956279256317,
+  "calibracao": {
+    "antes": {
+      "brier": 0.11854890486076458,
+      "erro_calibracao": 0.05443920371147061,
+      "media_prevista": 0.2424142311881851,
+      "media_observada": 0.1903063486861131,
+      "balanceada": 0.5362333660753508,
+      "f1_macro": 0.5567110447787127,
+      "recall_alto": 0.5044068483436329
+    },
+    "depois": {
+      "isotonic": {
+        "brier": 0.13118416999269916,
+        "erro_calibracao": 0.11114073065887511,
+        "media_prevista": 0.09226263496545078,
+        "media_observada": 0.1903063486861131,
+        "balanceada": 0.5017053862587728,
+        "f1_macro": 0.5336998168035626,
+        "recall_alto": 0.34018843075676225
+      },
+      "sigmoid": {
+        "brier": 0.13317364271844453,
+        "erro_calibracao": 0.11669168405331891,
+        "media_prevista": 0.09163456907926969,
+        "media_observada": 0.1903063486861131,
+        "balanceada": 0.4932380048425,
+        "f1_macro": 0.5250603875324488,
+        "recall_alto": 0.3310708134940735
+      }
+    }
+  }
+}

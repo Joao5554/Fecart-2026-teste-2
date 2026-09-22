@@ -59,18 +59,49 @@ existe na vida real. Os outros ~6 pontos da diferença vêm de a validação
 aleatória tirar média de todos os anos, inclusive os fáceis, enquanto a janela
 expansiva testa ano a ano, cada um com menos histórico.
 
-### A recomendação
+### A recomendação (corrigida por medição)
 
-As duas estratégias respondem a perguntas diferentes, e as duas têm uso:
+A primeira versão deste documento recomendava usar a validação aleatória para
+**escolher** modelos, argumentando que o ruído dez vezes menor (±0,4% contra
+±4,9%) permitiria distinguir configurações que a temporal confunde.
+
+**Fomos medir, e estava errado.** Ver `quantificar_ganhos.py`:
+
+| Configuração | F1 na CV aleatória | F1 na val. temporal |
+| --- | --- | --- |
+| prof. 10, folha 20 | 0,553 | 0,503 |
+| prof. 16, folha 5 | 0,623 | 0,513 |
+| prof. 26, folha 3 | 0,657 | **0,514** |
+| **sem limite, folha 2** | **0,665** | 0,514 |
+
+A CV aleatória sobe monotonicamente com a complexidade e escolhe a árvore sem
+limite de profundidade. Faz sentido: quanto mais o modelo decora, melhor ele
+vai num teste que contém meses vizinhos do treino. A validação temporal fica
+praticamente plana — ela não vê vantagem em decorar, porque o teste é um ano
+que ninguém viu.
+
+No teste comum (2022–2025):
+
+| Critério de escolha | Balanceada | F1 macro | Risco alto |
+| --- | --- | --- | --- |
+| Escolha da CV aleatória | 52,6% | 0,550 | 46,8% |
+| **Escolha da val. temporal** | **53,6%** | **0,557** | **50,4%** |
+
+**Escolher pela CV aleatória custa 1,1 ponto.** Ela não só superestima o
+resultado — ela seleciona o modelo errado, porque premia exatamente a
+memorização que não se transfere para o ano seguinte.
+
+É o que Roberts et al. (2017) chamam de "ampla oportunidade de sobreajuste
+com preditores não causais": a validação aleatória não erra só a nota, erra a
+escolha.
 
 | Para... | Usar | Por quê |
 | --- | --- | --- |
-| **Relatar o desempenho** | temporal | É a única que reproduz o uso real: em 2026 só existe o passado. Reportar 65% seria prometer o que o sistema não entrega. |
-| **Comparar modelos** | aleatória ou blocos | Desvio de ±0,4% contra ±4,9%. Com ruído tão menor, ela distingue duas variantes que a temporal não consegue separar. |
+| **Relatar o desempenho** | temporal | Única que reproduz o uso real |
+| **Escolher modelos** | temporal | Medido: a aleatória escolhe 1,1 ponto pior |
 
-Ou seja: o professor está certo sobre a **estabilidade** da estimativa
-aleatória, e ela passa a ser usada para escolher entre modelos. Mas o número
-que vai para a apresentação continua sendo o temporal, porque é o honesto.
+A estabilidade da estimativa aleatória é real, mas não compensa: uma medida
+precisa da coisa errada continua sendo a coisa errada.
 
 Blocos por **estado** (54,6%) ficam próximos da temporal e revelam outra
 fragilidade: o modelo generaliza mal para um estado inteiro que não viu.
@@ -125,26 +156,66 @@ acurácia balanceada por **+12,8 pontos de detecção de casos graves** (63,3%
 contra 50,5%). Para um sistema de alerta, essa troca pode valer a pena — é
 uma decisão de projeto, não de estatística.
 
-### O achado mais útil: as probabilidades estão mal calibradas
+### A calibração: também medida, e também não compensa
 
-A interface mostra "72% de chance de ser grave". Medimos se isso corresponde
-à realidade:
+A versão anterior deste documento recomendava calibrar as probabilidades,
+porque o modelo parecia otimista faixa a faixa. Medindo direito:
 
-| O modelo dizia | Aconteceu de fato | Desvio |
-| --- | --- | --- |
-| 0%–20% | 5,1% | −7,6% |
-| 20%–40% | 16,6% | −11,1% |
-| 40%–60% | 40,7% | −7,0% |
-| 60%–80% | 59,4% | −11,4% |
-| 80%–100% | 76,8% | −6,9% |
+| Versão | Brier | Erro de calibração | Balanceada | Risco alto |
+| --- | --- | --- | --- | --- |
+| **Sem calibração** | **0,1185** | **5,4%** | **53,6%** | **50,4%** |
+| Isotônica | 0,1312 | 11,1% | 50,2% | 34,0% |
+| Sigmoide (Platt) | 0,1332 | 11,7% | 49,3% | 33,1% |
 
-O modelo é **sistematicamente otimista**: promete mais risco do que acontece,
-em todas as faixas. Erro de Brier 0,128.
+**Calibrar piorou tudo.** O erro de calibração dobrou, e a acurácia caiu 3,5
+pontos.
 
-Isso não afeta a ordenação dos municípios — o mapa continua certo sobre quem é
-mais perigoso que quem. Mas afeta o número exibido. **Aplicar calibração
-(isotônica ou Platt) na validação corrigiria isso sem mexer na acurácia**, e é
-a única mudança destes experimentos que eu recomendaria levar para produção.
+Dois enganos meus, corrigidos aqui:
+
+1. **O desvio era menor do que parecia.** Eu havia citado desvios de −7% a
+   −11% por faixa. O erro de calibração esperado, que pondera as faixas pelo
+   número de casos, é **5,4%** — o modelo já era razoavelmente calibrado.
+
+2. **A correção não atravessa o tempo.** A calibração foi ajustada em
+   2020–2021 e aplicada em 2022–2025. Como a taxa de ocorrências muda entre
+   os períodos (de 28% para 34%), a correção aprendida é a errada: o modelo
+   calibrado passa a prever 9,2% de risco alto onde acontecem 19,0%.
+
+É a mesma deriva que explica a diferença entre validação aleatória e temporal,
+aparecendo de outra forma. **Calibrar num período e usar em outro não
+funciona nesta base.**
+
+---
+
+## Resposta curta: quanto cada mudança rende, em porcentagem
+
+| Mudança | Efeito na acurácia balanceada |
+| --- | --- |
+| Gradient boosting | +0,0% |
+| Gradient boosting + limiar ajustado | +0,7% *(dentro do ruído de ±4,9%)* |
+| Escolher hiperparâmetros pela CV aleatória | **−1,1%** |
+| Decomposição hierárquica | −2,9% |
+| Calibração isotônica | **−3,5%** |
+
+**Nenhuma ajuda.** As duas que eu havia recomendado — CV aleatória para
+escolha e calibração — são as duas piores. A única com sinal positivo soma
+0,7 ponto, sete vezes menor que a variação entre anos.
+
+Vale registrar a exceção: a decomposição hierárquica com peso alto no evento
+grave perde 0,7 ponto de acurácia mas ganha **+12,8 pontos na detecção de
+casos graves** (63,3% contra 50,5%). Para um sistema de alerta essa troca
+pode valer — é decisão de projeto, não de estatística.
+
+### Por que quase nada funciona
+
+Os três resultados apontam para a mesma causa. A base **muda de comportamento
+ao longo dos anos**: a taxa de ocorrências registradas sobe de 19% (2010) para
+34% (2023), por aumento real de eventos e por melhora da notificação.
+
+Qualquer ajuste fino aprendido num período — hiperparâmetro, calibração,
+limiar — chega ao período seguinte desatualizado. O ganho real não virá de
+afinar o modelo, e sim de dado novo que explique o evento (chuva em resolução
+diária, e não mensal) ou de mudar a resolução do alvo.
 
 ---
 
