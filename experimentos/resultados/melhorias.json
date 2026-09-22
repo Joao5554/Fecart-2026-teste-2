@@ -1,0 +1,130 @@
+{
+  "divisao": {
+    "validacao": 2020,
+    "teste": 2022
+  },
+  "arvores": 100,
+  "validacao": {
+    "floresta_multiclasse": {
+      "balanceada": 0.4928757868147485,
+      "f1_macro": 0.5055258634305556,
+      "recall_alto": 0.44421958006577283
+    },
+    "gradient_boosting": {
+      "balanceada": 0.5038295563788816,
+      "f1_macro": 0.5206318077089515,
+      "recall_alto": 0.4100683025550215
+    },
+    "hierarquico": {
+      "balanceada": 0.478207456576524,
+      "f1_macro": 0.49435458248125946,
+      "recall_alto": 0.39666076397672656
+    },
+    "hierarquico_peso_alto": {
+      "balanceada": 0.49049694864716886,
+      "f1_macro": 0.47911660913643095,
+      "recall_alto": 0.5261826460915761
+    }
+  },
+  "melhor_na_validacao": "gradient_boosting",
+  "limiar_escolhido": 0.3749999999999999,
+  "teste": {
+    "floresta_multiclasse": {
+      "balanceada": 0.5165777235072234,
+      "f1_macro": 0.5292401293440924,
+      "recall_alto": 0.5054199169283761
+    },
+    "gradient_boosting": {
+      "balanceada": 0.5168526493220792,
+      "f1_macro": 0.5331677051674135,
+      "recall_alto": 0.45790700030392056
+    },
+    "hierarquico": {
+      "balanceada": 0.4877543715761779,
+      "f1_macro": 0.5012196227708164,
+      "recall_alto": 0.43136460338364907
+    },
+    "hierarquico_peso_alto": {
+      "balanceada": 0.5100324843862005,
+      "f1_macro": 0.4865112074725247,
+      "recall_alto": 0.6333704791814406
+    },
+    "gradient_boosting + limiar 0.37": {
+      "balanceada": 0.5232283375717249,
+      "f1_macro": 0.5321130935814404,
+      "recall_alto": 0.5081552021071827
+    }
+  },
+  "calibracao": {
+    "floresta_multiclasse": {
+      "brier": 0.1282951142674478,
+      "faixas": [
+        {
+          "faixa": "0%–20%",
+          "previsto_medio": 0.12699203156283237,
+          "observado": 0.051096685354578536,
+          "n": 20334
+        },
+        {
+          "faixa": "20%–40%",
+          "previsto_medio": 0.2770474755562038,
+          "observado": 0.16622593365808397,
+          "n": 21555
+        },
+        {
+          "faixa": "40%–60%",
+          "previsto_medio": 0.47772218138836303,
+          "observado": 0.4073433294886582,
+          "n": 5202
+        },
+        {
+          "faixa": "60%–80%",
+          "previsto_medio": 0.7076772772842882,
+          "observado": 0.5937399161019684,
+          "n": 3099
+        },
+        {
+          "faixa": "80%–100%",
+          "previsto_medio": 0.8377210905078412,
+          "observado": 0.768314472900536,
+          "n": 1679
+        }
+      ]
+    },
+    "gradient_boosting": {
+      "brier": 0.1244223399994374,
+      "faixas": [
+        {
+          "faixa": "0%–20%",
+          "previsto_medio": 0.07510570212175342,
+          "observado": 0.08437209302325581,
+          "n": 32250
+        },
+        {
+          "faixa": "20%–40%",
+          "previsto_medio": 0.2857999469078126,
+          "observado": 0.22981245748712467,
+          "n": 10291
+        },
+        {
+          "faixa": "40%–60%",
+          "previsto_medio": 0.48806690404685077,
+          "observado": 0.34675967596759677,
+          "n": 4444
+        },
+        {
+          "faixa": "60%–80%",
+          "previsto_medio": 0.6935409478789607,
+          "observado": 0.5473032714412025,
+          "n": 2262
+        },
+        {
+          "faixa": "80%–100%",
+          "previsto_medio": 0.8962525921479073,
+          "observado": 0.7650648360030511,
+          "n": 2622
+        }
+      ]
+    }
+  }
+}

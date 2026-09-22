@@ -1,0 +1,72 @@
+{
+  "linhas": 187088,
+  "municipios": 5012,
+  "arvores": 30,
+  "estrategias": [
+    {
+      "estrategia": "aleatória (K-fold estratificado)",
+      "detalhe": "5 partições × 1 repetições, linhas sorteadas",
+      "n_particoes": 5,
+      "balanceada_mean": 0.6507083177457071,
+      "balanceada_std": 0.0041769125902330366,
+      "f1_macro_mean": 0.6344038077508158,
+      "f1_macro_std": 0.004078256182890187,
+      "recall_alto_mean": 0.8073472396840684,
+      "recall_alto_std": 0.004573692862758682
+    },
+    {
+      "estrategia": "blocos por município",
+      "detalhe": "5 partições, cada cidade inteira de um lado só",
+      "n_particoes": 5,
+      "balanceada_mean": 0.6489839928525793,
+      "balanceada_std": 0.0029237416976664403,
+      "f1_macro_mean": 0.6322952367521921,
+      "f1_macro_std": 0.0040681602440349116,
+      "recall_alto_mean": 0.8066732709217861,
+      "recall_alto_std": 0.007292380067099882
+    },
+    {
+      "estrategia": "blocos por estado",
+      "detalhe": "5 partições, UFs inteiras fora do treino",
+      "n_particoes": 5,
+      "balanceada_mean": 0.5457464214534387,
+      "balanceada_std": 0.036669972054558776,
+      "f1_macro_mean": 0.5321553099112206,
+      "f1_macro_std": 0.03275430881503418,
+      "recall_alto_mean": 0.6426508113712572,
+      "recall_alto_std": 0.1436057397288394
+    },
+    {
+      "estrategia": "temporal (janela expansiva)",
+      "detalhe": "8 janelas, treina no passado e testa no futuro",
+      "n_particoes": 8,
+      "balanceada_mean": 0.5619727274807758,
+      "balanceada_std": 0.049074530483392304,
+      "f1_macro_mean": 0.557768169452451,
+      "f1_macro_std": 0.040375785655329524,
+      "recall_alto_mean": 0.6358654610428227,
+      "recall_alto_std": 0.12650849080289872
+    }
+  ],
+  "teste_de_memorizacao": {
+    "n_por_grupo": 29729,
+    "municipios_no_treino": 4009,
+    "municipios_novos": 1003,
+    "mesma_cidade": {
+      "balanceada": 0.6463796588767602,
+      "f1_macro": 0.6303701937879554,
+      "recall_alto": 0.8010952902519167
+    },
+    "cidade_nova": {
+      "balanceada": 0.6418744185450989,
+      "f1_macro": 0.6277130904204219,
+      "recall_alto": 0.7811942959001783
+    },
+    "queda_balanceada": 0.004505240331661331
+  },
+  "referencias": [
+    "Roberts et al. (2017) Ecography 40:913-929",
+    "Bergmeir, Hyndman & Koo (2018) Comput Stat Data Anal 120:70-83",
+    "Cawley & Talbot (2010) JMLR 11:2079-2107"
+  ]
+}
