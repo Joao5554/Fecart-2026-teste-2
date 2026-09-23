@@ -103,11 +103,14 @@ arquivo novo; se foi só um teste, desfaça com `git checkout modelo/`.
 | `dados/preparar_dados.py`          | Gera `dados.csv` a partir da base bruta                         |
 | `dados/preparar_silhueta.py`       | Reduz a malha do IBGE ao contorno do país, para o globo         |
 | `dados/baixar_mundo.py`            | Baixa o contorno dos outros países (Natural Earth), para o globo |
+| `dados/baixar_malha_estados.py`    | Baixa a divisa das 27 UFs (IBGE), para a camada de fronteiras   |
+| `dados/baixar_relevo.py`           | Baixa a altimetria do Brasil, para a camada de relevo           |
 | `dados/README.md`                  | **Metodologia dos dados** e limitações — leitura obrigatória    |
 | `treinamento/treinar_modelo.py`    | Treina, avalia e salva o modelo                                 |
 | `backend/app.py`                   | API que serve as previsões                                      |
 | `frontend/`                        | Interface web (HTML/CSS/JS puro, sem bibliotecas)               |
 | `frontend/cenario.js`              | Globo e campo de vento animados, em canvas 2D                   |
+| `frontend/relevo3d.js`             | O mapa inclinado em 3D, também em canvas 2D                     |
 | `testes/`                          | Testes automatizados (`pytest`)                                 |
 | `modelo/`                          | Saída do treino: `modelo.pkl` e `metadados.json`                |
 
@@ -434,6 +437,9 @@ e o modelo melhorou junto: a detecção de casos graves subiu de 48,9% para
 | `POST` | `/prever` | Previsão informando todas as features manualmente |
 | `POST` | `/prever/lote` | Várias previsões de uma vez |
 | `GET` | `/mapa/malha` | Fronteiras dos 5.570 municípios (GeoJSON do IBGE) |
+| `GET` | `/mapa/estados` | Divisa das 27 unidades federativas (GeoJSON do IBGE) |
+| `GET` | `/mapa/relevo` | Onde fica e como ler a grade de altitudes |
+| `GET` | `/mapa/relevo.bin` | A grade de altitudes, crua (1 milhão de inteiros de 16 bits) |
 | `GET` | `/mapa/brasil` | Risco de todos os municípios de uma vez — é o que pinta o mapa |
 | `GET` | `/mapa/capitais` | As 27 capitais, com o ponto onde marcá-las no mapa |
 | `POST` | `/mapa/risco` | GeoJSON de pontos, para quem já tem coordenadas |
@@ -655,14 +661,107 @@ Quatro decisões separam este desenho de uma interpolação qualquer:
   estação de praia e uma de montanha, ela desenha a transição como se o relevo
   fosse uma rampa. Perto de cada estação o número é o medido; longe de todas, é
   estimativa — e é o que o rodapé da camada explica. Corrigir de verdade
-  exigiria um modelo de elevação do terreno, anotado como próximo passo em
-  `dados/README.md`.
+  exigiria reduzir cada estação ao nível do mar antes de interpolar; a grade de
+  altitude que isso pede passou a existir com a camada de relevo, e ligar as
+  duas está anotado como próximo passo em `dados/README.md`.
 
 O dado também serve de teste de sanidade do próprio encanamento: a estação mais
 fria do Brasil em julho é **Itatiaia (RJ), a 2.450 m, com 5,6 °C** — seguida de
 Morro da Igreja, São Joaquim e Campos do Jordão —, e a mais quente é
 **Manaus, com 28,6 °C**. Se latitude e longitude entrarem trocadas em qualquer
 ponto do caminho, esse ranking desmonta, e nenhuma checagem de formato notaria.
+
+**Fronteiras dos estados.** A divisa das 27 unidades federativas vem desenhada
+por cima do mapa, **ligada por padrão** — como as capitais, e ao contrário das
+camadas de dado, que começam desligadas. Parece supérfluo, já que o mapa tem os
+5.570 municípios, mas não é: sem ela, uma mancha vermelha no meio do país não
+diz de que estado é, e a pergunta seguinte de quem olha um mapa de risco é
+sempre "onde fica isso?". Quem não quiser, desliga; trocar de mapa a devolve
+ligada, porque fronteira é parte do mapa e não informação sobreposta a ele.
+
+A linha **vai dobrada**: um traço escuro largo por baixo e um branco fino por
+cima. Uma linha clara sozinha some sobre o amarelo do risco médio e sobre o
+claro do relevo alto; uma escura sozinha some sobre o fundo e sobre o vermelho.
+O par aparece em qualquer lugar do mapa — é o mesmo truque do marcador das
+capitais. E a cor é branca de propósito: verde, amarelo e vermelho já
+significam risco, e o ciano já significa "este é o estado escolhido". Uma
+quarta cor de dado faria o olho ler dado onde só há referência geográfica.
+
+**Camada de relevo.** Um interruptor pinta a altitude do terreno, com a escala
+hipsométrica dos atlas (verde na planície, marrom na montanha) e sombreamento
+de relevo por cima. O dado é real: 2.026 × 1.976 altitudes medidas, vindas dos
+*terrain tiles* abertos da Amazon (SRTM, ASTER e GMTED), baixadas uma vez por
+`dados/baixar_relevo.py` e servidas como um bloco de 7,6 MB que o navegador lê
+direto como `Int16Array`.
+
+Três decisões fazem essa camada funcionar:
+
+- **Ela fica por baixo do mapa, e é a única que fica.** Todas as outras camadas
+  cobrem o mapa de risco; o relevo é o chão, e o risco é uma propriedade do
+  município que está em cima dele. Então aqui o desenho é o oposto: o mapa é
+  que fica translúcido e deixa o terreno aparecer por baixo da sua cor, como
+  qualquer atlas imprime um mapa temático sobre relevo. Resolve de graça o
+  problema que as outras camadas enfrentam — o risco não precisa "sobreviver
+  como contorno", continua sendo a mancha de cor.
+
+- **O sombreamento é calculado no navegador, uma vez.** Ele simula um sol baixo
+  a noroeste e pergunta, para cada ponto, o quanto a encosta ali está virada
+  para essa luz. O noroeste não é capricho: o olho humano interpreta sombra
+  supondo luz vinda de cima e da esquerda, e um mapa iluminado do sudeste
+  produz a *ilusão do relevo invertido*, em que vale vira morro. A inclinação
+  entra multiplicada por 6 — exagero declarado, a mesma licença que os mapas de
+  relevo tomam há um século, e sem ela o Brasil, que é manso, sairia liso.
+
+- **Um grau de longitude não é um grau de latitude.** No Chuí ele vale 83% do
+  que vale no Equador. Tratar os dois como iguais entortaria o sombreamento
+  progressivamente de norte a sul, e a serra gaúcha sairia mais íngreme do que
+  é só por estar longe da linha do Equador.
+
+A camada **não mede cume**: cada ponto é a média de ~2,2 km de terreno, então
+pico estreito sai mais baixo que a altitude de placa — o Pico da Neblina, de
+2.995 m, aparece com cerca de 1.760 m. Serve para ver onde estão a serra, o
+planalto e a planície, e o rodapé da camada diz isso na tela.
+
+**Modo 3D.** Nos dois mapas grandes, um interruptor inclina a cena e levanta o
+terreno: o mesmo mapa, girável com o mouse, com a roda aproximando. O desenho
+mora em `frontend/relevo3d.js` e é feito em canvas 2D — sem three.js, sem
+WebGL, sem CDN, como o resto do projeto. O globo da tela de abertura já fazia
+projeção 3D à mão; aqui é a mesma ideia aplicada a um mapa de altitudes.
+
+Quatro decisões sustentam essa cena:
+
+- **A superfície veste o mapa plano.** Antes de desenhar, o app pinta o mapa 2D
+  num canvas fora da tela — terreno por baixo, risco translúcido por cima — e
+  usa essa imagem como textura. É o que faz o 3D mostrar a *mesma* informação
+  do mapa, e não um relevo bonito e mudo ao lado dele: quem gira a cena continua
+  olhando o risco, agora sabendo se o município está na serra ou na várzea. O
+  recorte da textura no contorno do país tem uma segunda função além da
+  estética — onde ela fica transparente, o quadrilátero não é desenhado, e o
+  terreno sai com o formato do Brasil em vez de uma placa retangular.
+
+- **Os quadriláteros são pintados de trás para frente.** É o algoritmo do
+  pintor, e dá oclusão correta sem nenhum buffer de profundidade por pixel. A
+  ordem sai de uma ordenação por contagem em 1.024 gavetas de profundidade, e
+  não de um `sort`: são dezenas de milhares de quadriláteros por quadro, e
+  n·log(n) com comparador derrubaria a taxa de quadros durante o arrasto.
+
+- **A malha afina quando a cena para.** Girando, ela usa células maiores;
+  parada, volta à resolução cheia. Ninguém repara na malha grossa enquanto a
+  cena está em movimento, e girar com cinquenta mil células engasgaria.
+
+- **A cena é reduzida para tamanho 1 antes de qualquer conta de câmera.** Não é
+  elegância: a distância da câmera vale 2,6, e sem a redução ela ficaria
+  comparável a uma janela de quarenta graus de largura. O divisor da
+  perspectiva cruzaria o zero no meio do mapa e metade dos pontos sairia
+  projetada do lado errado da tela. Foi exatamente assim que a cena apareceu na
+  primeira vez que rodou: um leque de triângulos em vez de um país.
+
+O exagero vertical é inevitável e é declarado no rodapé. O Brasil tem 4.300 km
+de largura e 2.995 m de altura máxima — na escala real, o relevo do país
+inteiro seria uma folha de papel, 0,07% da largura. A cena calcula o exagero
+para o ponto mais alto da janela ocupar cerca de 17% da largura dela, o que
+mantém a montanha visível tanto no país inteiro quanto num estado só, e mostra
+o número usado (91× no Brasil inteiro, bem menos num estado).
 
 **O município no mapa, dentro da consulta.** Logo abaixo do formulário, o
 contorno real do município consultado, ampliado e pintado com o risco previsto

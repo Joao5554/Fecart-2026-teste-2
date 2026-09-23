@@ -337,11 +337,20 @@ estações não sabe onde estão as serras. Perto de cada estação o número é
 medido; entre duas, o desenho trata o relevo como uma rampa.
 
 É a limitação principal desta camada, e ela está dita no rodapé da própria
-camada, na tela. Corrigir de verdade exigiria um modelo de elevação do terreno
-(TOPODATA/INPE, listado abaixo): com uma grade de altitude, a conta certa é
-reduzir cada estação ao nível do mar, interpolar esse campo — que é liso, e
-governado por latitude e continentalidade — e devolver o lapso usando a
-altitude real de cada ponto.
+camada, na tela.
+
+**A grade de altitude que a correção pede já existe**: é a
+`dados/relevo_brasil.bin`, descrita no fim deste arquivo, criada para a camada
+de relevo. Com ela, a conta certa é reduzir cada estação ao nível do mar
+(somando 6,5 °C por 1.000 m de altitude da estação), interpolar esse campo — que
+é liso, e governado por latitude e continentalidade — e devolver o lapso usando
+a altitude real de cada ponto do desenho. É a correção clássica, e agora é um
+trabalho pequeno: o que faltava era o dado, não o método.
+
+Ainda não foi feita porque muda o número que a camada mostra, e trocar uma
+medição por uma estimativa corrigida pede uma rodada de conferência contra as
+estações de montanha — Itatiaia, Morro da Igreja, Campos do Jordão — antes de
+ir para a tela.
 
 O efeito é visível e é bom sinal de que os dados estão certos: a estação mais
 fria do país em julho é **Itatiaia (RJ), a 2.450 m** — não uma estação gaúcha.
@@ -366,3 +375,109 @@ O globo da tela de abertura desenha o mundo por trás do Brasil. Esse contorno
 não tem nada a ver com o modelo — é cenário — e vem do **Natural Earth**,
 escala 1:110m: <https://www.naturalearthdata.com>. É domínio público (CC0),
 então vai junto com o projeto, reduzido a 53 KB por `dados/baixar_mundo.py`.
+
+
+## Fronteiras dos estados (camada dos mapas)
+
+A divisa das 27 unidades federativas, desenhada por cima do mapa quando se liga
+a camada "destacar as fronteiras dos estados".
+
+```
+python dados/baixar_malha_estados.py     ->  dados/malha_estados.json  (87 KB)
+```
+
+Vem da mesma API de malhas do IBGE que a malha municipal, e na mesma qualidade
+(`qualidade=minima`, coordenadas arredondadas em 3 casas). Isso não é detalhe:
+as duas são desenhadas uma por cima da outra, e simplificações diferentes
+fariam a linha do estado passar ao lado da divisa do município — uma fresta
+discreta no país inteiro e gritante quando a câmera desce num estado. O teste
+`test_as_duas_malhas_batem_no_continente` trava essa condição.
+
+### Por que não somar os municípios
+
+A fronteira de um estado é, em tese, a soma das fronteiras dos municípios dele,
+e o projeto já tem os 5.570. Só que desenhar com traço grosso os municípios de
+um estado desenha junto **todas as divisas internas**, que é o contrário do que
+a camada quer mostrar. Somar os polígonos de verdade é uma união geométrica:
+cara e cheia de casos de borda. 87 KB resolvem sem conta nenhuma.
+
+### A exceção: as ilhas oceânicas
+
+A malha de UF do IBGE não traz as ilhas; a municipal traz. Na prática, Fernando
+de Noronha (distrito de Pernambuco, a -32,4° de longitude) aparece no mapa
+pintado com seu risco, mas sem contorno de estado em volta. É a única diferença
+entre as duas malhas, e está fixada em teste para não passar despercebida se
+mudar.
+
+## Relevo (a camada de altitude)
+
+A altura do terreno em todo o Brasil, que a camada "relevo" usa para pintar a
+altitude e calcular o sombreamento.
+
+```
+python dados/baixar_relevo.py     ->  dados/relevo_brasil.bin   (7,6 MB)
+                                      dados/relevo_brasil.json  (metadados)
+```
+
+### De onde vem
+
+Dos **terrain tiles** da Amazon (projeto Terrarium, herdado do Mapzen): uma
+composição aberta de SRTM, ASTER, GMTED e levantamentos nacionais, distribuída
+sem cadastro e sem chave em
+<https://registry.opendata.aws/terrain-tiles/>. Cada tile é um PNG 256×256 em
+que a cor não é cor nenhuma — é a altitude codificada:
+
+```
+altura_em_metros = vermelho * 256 + verde + azul / 256 - 32768
+```
+
+O script baixa os 225 tiles que cobrem o país no zoom 7, decodifica os PNGs
+(sem Pillow: o projeto não depende dele, e um PNG sem entrelaçamento é
+honestamente simples), reprojeta de Mercator para uma grade regular de latitude
+e longitude e salva as altitudes como inteiros de 16 bits.
+
+### O formato do `.bin`
+
+Cru, sem cabeçalho: 2026 × 1976 inteiros de 16 bits little-endian, linha a linha
+de norte a sul. Quem diz o tamanho é o `.json` ao lado. Em JSON o mesmo conteúdo
+passaria de 25 MB e o navegador ainda teria de converter texto em número quatro
+milhões de vezes; assim o JavaScript recebe o bloco e o lê como `Int16Array` sem
+custo nenhum.
+
+### Passo de 0,02° (~2,2 km)
+
+É o dobro da resolução de que o mapa do país inteiro precisaria — e de
+propósito. Num mapa do Brasil todo, 0,04° bastaria: são ~40° de largura em
+1000 px, ou 25 px por grau, que é exatamente o que uma grade de 0,04° entrega.
+
+Só que o mapa não fica parado no país inteiro: ele voa até o estado, e é lá que
+o relevo interessa, com a serra ocupando a tela. Nesse zoom, 0,04° virava
+borrão, e o modo 3D mostrava degraus de 4 km no lugar de encostas.
+
+Quem preferir um repositório menor pode voltar à grade de 2 MB, que continua
+boa para o mapa do país:
+
+```
+python dados/baixar_relevo.py --passo 0.04 --zoom 6
+```
+
+### Duas coisas que o arquivo não é
+
+**Não mede cume.** Cada ponto é a média de ~2,2 km de terreno, então pico
+estreito sai mais baixo que a altitude de placa: o Pico da Neblina, de 2.995 m,
+aparece com cerca de 1.760 m. A camada serve para ver onde estão a serra, o
+planalto e a planície — não para medir a altitude de um ponto. A interface diz
+isso no rodapé da camada.
+
+**Não tem o fundo do mar.** Os tiles trazem a batimetria, que chega a -4.000 m,
+e o script zera tudo que está abaixo do nível do mar. Nenhum ponto do Brasil
+fica abaixo dele, e manter a profundidade criaria um degrau de 4 km na linha da
+costa — que no sombreamento vira um risco brilhante em cima de todo o litoral.
+
+### O retângulo é maior que o país
+
+A grade cobre de -74,5° a -34,0° de longitude e de 5,5° a -34,0° de latitude, o
+que entra em países vizinhos: o ponto mais alto do arquivo tem 6.546 m e está
+nos Andes argentinos, não no Brasil. O mapa recorta o desenho no contorno do
+país, então isso não aparece — mas é por esse motivo que o campo dos metadados
+se chama `altitude_maxima_grade_m`, e não "altitude máxima do Brasil".

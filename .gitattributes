@@ -6,3 +6,8 @@
 *.png binary
 *.jpg binary
 *.pkl binary
+# A grade de relevo é um bloco de inteiros de 16 bits. Sem esta linha ela fica
+# dependendo da heurística do `text=auto`, e uma única conversão de quebra de
+# linha embaralharia as altitudes em silêncio: o arquivo continuaria abrindo,
+# só que com o Brasil torto.
+*.bin binary

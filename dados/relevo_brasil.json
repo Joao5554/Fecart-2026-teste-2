@@ -1,0 +1,24 @@
+{
+  "fonte": "Terrarium terrain tiles (AWS) — SRTM, ASTER, GMTED e outros",
+  "arquivo": "relevo_brasil.bin",
+  "tipo": "int16 little-endian, sem cabeçalho, linha a linha de norte a sul",
+  "largura": 2026,
+  "altura": 1976,
+  "passo_graus": 0.02,
+  "passo_km_aprox": 2.2,
+  "lon_oeste": -74.5,
+  "lat_norte": 5.5,
+  "lon_leste": -34.0,
+  "lat_sul": -34.0,
+  "altitude_maxima_grade_m": 6546,
+  "altitude_maxima_grade_em": [
+    -27.76,
+    -68.8
+  ],
+  "zoom_dos_tiles": 7,
+  "observacoes": [
+    "Abaixo do nível do mar tudo virou zero: nenhum ponto do Brasil fica abaixo dele, e a batimetria só criaria um degrau artificial na linha da costa.",
+    "O retângulo cobre o Brasil com folga e entra em países vizinhos. O mapa recorta o desenho no contorno do país.",
+    "Cada ponto da grade é a média de ~2.2 km de terreno, então pico estreito aparece mais baixo que a altitude real do cume: o Pico da Neblina (2.995 m) sai por volta de 1.760 m. Serve para mostrar a forma do relevo, não para medir cume."
+  ]
+}

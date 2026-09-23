@@ -1178,6 +1178,9 @@ def prever_municipio(consulta: ConsultaMunicipio):
 
 
 ARQUIVO_MALHA = RAIZ / "dados" / "malha_municipios.json"
+ARQUIVO_MALHA_ESTADOS = RAIZ / "dados" / "malha_estados.json"
+ARQUIVO_RELEVO = RAIZ / "dados" / "relevo_brasil.bin"
+ARQUIVO_RELEVO_META = RAIZ / "dados" / "relevo_brasil.json"
 
 # O mapa do país inteiro custa milhares de previsões. Como o resultado só muda
 # quando muda (tipo, mês, ano), guardá-lo em memória evita refazer a conta a
@@ -1204,6 +1207,71 @@ def malha_municipios():
     from fastapi.responses import FileResponse
 
     return FileResponse(ARQUIVO_MALHA, media_type="application/geo+json")
+
+
+@app.get("/mapa/estados", tags=["mapa"])
+def malha_estados():
+    """
+    Fronteiras das 27 unidades federativas, em GeoJSON.
+
+    É o que a camada "fronteiras dos estados" desenha por cima do mapa. Vem do
+    IBGE no mesmo nível de simplificação da malha municipal (~90 KB), para as
+    duas se encaixarem sem abrir fresta.
+    """
+    if not ARQUIVO_MALHA_ESTADOS.exists():
+        raise HTTPException(
+            status_code=404,
+            detail=("Malha dos estados não encontrada.\n"
+                    "Rode: python dados/baixar_malha_estados.py"),
+        )
+
+    from fastapi.responses import FileResponse
+
+    return FileResponse(ARQUIVO_MALHA_ESTADOS, media_type="application/geo+json")
+
+
+@app.get("/mapa/relevo", tags=["mapa"])
+def relevo_descricao():
+    """
+    Onde fica e como ler a grade de altitudes do Brasil.
+
+    Só os metadados: tamanho da grade, canto noroeste, passo em graus e a
+    procedência do dado. A grade em si vem de `/mapa/relevo.bin`, que é um
+    bloco binário e não caberia aqui sem inchar dez vezes.
+    """
+    if not (ARQUIVO_RELEVO.exists() and ARQUIVO_RELEVO_META.exists()):
+        raise HTTPException(
+            status_code=404,
+            detail=("Grade de relevo não encontrada.\n"
+                    "Rode: python dados/baixar_relevo.py"),
+        )
+
+    meta = json.loads(ARQUIVO_RELEVO_META.read_text(encoding="utf-8-sig"))
+    meta["url_grade"] = "/mapa/relevo.bin"
+    meta["bytes"] = ARQUIVO_RELEVO.stat().st_size
+    return meta
+
+
+@app.get("/mapa/relevo.bin", tags=["mapa"])
+def relevo_grade():
+    """
+    A altitude do terreno, ponto a ponto: inteiros de 16 bits, sem cabeçalho.
+
+    Vai cru de propósito. São um milhão de altitudes; em JSON passariam de 6 MB
+    e o navegador ainda teria que converter texto em número um por um. Assim o
+    JavaScript recebe o bloco e o lê como `Int16Array` sem custo nenhum — os
+    metadados de `/mapa/relevo` dizem as dimensões.
+    """
+    if not ARQUIVO_RELEVO.exists():
+        raise HTTPException(
+            status_code=404,
+            detail=("Grade de relevo não encontrada.\n"
+                    "Rode: python dados/baixar_relevo.py"),
+        )
+
+    from fastapi.responses import FileResponse
+
+    return FileResponse(ARQUIVO_RELEVO, media_type="application/octet-stream")
 
 
 # As capitais são calculadas uma vez e ficam em memória: a malha tem 3 MB e

@@ -696,18 +696,25 @@ def test_os_mapas_grandes_desenham_sempre_o_pais_inteiro():
         )
 
 
-def test_a_camera_move_as_tres_camadas_juntas():
+def test_a_camera_move_todas_as_camadas_juntas():
     """
-    Mapa, chuva e capitais têm de sair de registro nunca. Ficando todas dentro
-    do mesmo elemento transformado, uma só matriz move as três — qualquer uma
-    delas fora da câmera ficaria parada enquanto as outras voam.
+    Relevo, mapa, chuva, fronteiras e capitais têm de sair de registro nunca.
+    Ficando todas dentro do mesmo elemento transformado, uma só matriz move o
+    conjunto — qualquer uma delas fora da câmera ficaria parada enquanto as
+    outras voam.
+
+    O vento é a exceção conhecida, e está documentada no próprio index.html:
+    ele é um canvas do tamanho da tela que recebe a transformação por dentro,
+    para as partículas não saírem borradas no zoom.
     """
     html = _html()
     for mapa in ("mapa", "ano"):
         camera = html[html.index(f'id="camera-{mapa}"'):]
         camera = camera[:camera.index("</div>")]
         for camada in (f'id="{mapa}-svg"', f'id="{mapa}-chuva-canvas"',
-                       f'id="{mapa}-capitais-svg"'):
+                       f'id="{mapa}-capitais-svg"',
+                       f'id="{mapa}-relevo-canvas"',
+                       f'id="{mapa}-estados-svg"'):
             assert camada in camera, f"{camada} está fora da câmera"
 
 
@@ -758,3 +765,545 @@ def test_o_fundo_animado_para_quando_sai_de_cena():
     """
     corpo = _corpo_da_funcao("function trocarPalco(")
     assert "pausar()" in corpo and "seguir()" in corpo
+
+
+# --------------------------------------------------------------------------
+# Camada de relevo
+# --------------------------------------------------------------------------
+
+MAPAS_COM_CAMADAS = ("mapa", "ano", "consulta", "cidade")
+
+
+def test_todos_os_mapas_tem_a_camada_de_relevo():
+    html = _html()
+    for mapa in MAPAS_COM_CAMADAS:
+        assert f'id="{mapa}-relevo"' in html, f"{mapa} não tem o interruptor"
+        assert f'id="{mapa}-relevo-canvas"' in html, f"{mapa} não tem a tela"
+        assert f'id="{mapa}-relevo-legenda"' in html, f"{mapa} não tem legenda"
+        assert f'id="{mapa}-relevo-nota"' in html, f"{mapa} não tem rodapé"
+
+
+def test_o_canvas_do_relevo_acompanha_o_viewbox_do_mapa():
+    """
+    O relevo é desenhado com a projeção do mapa, em unidades do `viewBox`. Um
+    canvas de tamanho diferente deslocaria o terreno em relação às fronteiras
+    — a serra apareceria ao lado da serra.
+    """
+    html = _html()
+    for mapa in MAPAS_COM_CAMADAS:
+        viewbox = re.search(rf'<svg id="{mapa}-svg" viewBox="([^"]+)"', html)
+        largura, altura = viewbox.group(1).split()[2:]
+
+        canvas = re.search(
+            rf'<canvas id="{mapa}-relevo-canvas"[^>]*?width="(\d+)"\s+height="(\d+)"',
+            html, re.S)
+        assert canvas, f"não achei o canvas de relevo de {mapa}"
+        assert canvas.group(1) == largura and canvas.group(2) == altura, (
+            f"o canvas de relevo de {mapa} não tem o tamanho do viewBox"
+        )
+
+
+def test_o_relevo_e_a_unica_camada_que_fica_embaixo_do_mapa():
+    """
+    Relevo é o chão: o mapa de risco fica por cima dele, translúcido, como num
+    atlas. Se o relevo subisse para cima do mapa — que é onde todas as outras
+    camadas ficam —, a cor do risco sumiria debaixo do terreno e o aplicativo
+    deixaria de mostrar justamente aquilo para que existe.
+    """
+    html = _html()
+    for mapa in MAPAS_COM_CAMADAS:
+        assert html.index(f'id="{mapa}-relevo-canvas"') \
+            < html.index(f'id="{mapa}-svg"'), (
+            f"em {mapa}, o relevo está desenhado por cima do mapa"
+        )
+
+
+def test_o_relevo_nao_intercepta_o_mouse():
+    css = _css()
+    bloco = css[css.index(".camada-relevo {"):]
+    bloco = bloco[:bloco.index("}")]
+    assert "pointer-events: none" in bloco
+
+
+def test_o_mapa_e_atenuado_quando_o_relevo_entra():
+    """Sem atenuar, a mancha de risco opaca esconde o terreno inteiro."""
+    css = _css()
+    opacidade = re.search(
+        r"\.mapa-area\.com-relevo svg path \{ fill-opacity: \.(\d+); \}", css)
+    assert opacidade, "o mapa não é atenuado quando o relevo entra"
+    assert 20 <= int(opacidade.group(1)) <= 45, (
+        "muito apagado, o risco vira véu; muito forte, o relevo some"
+    )
+
+
+def test_o_relevo_e_recortado_no_contorno_do_mapa():
+    """Sem recorte, o terreno vaza para o oceano e para os países vizinhos."""
+    corpo = _corpo_da_funcao("function pintarRelevo(")
+    assert "mascaraDoMapa(projecao)" in corpo
+    assert "contexto.clip(mascara)" in corpo
+
+
+def test_o_sombreamento_e_calculado_uma_vez_so():
+    """
+    São um milhão de células com raiz e arco-tangente. Refazer isso a cada
+    troca de mês travaria a interface; o desenho só pode ler a tabela pronta.
+    """
+    assert "calcularSombra(meta, alturas)" in _corpo_da_funcao(
+        "function carregarRelevo(")
+    assert "calcularSombra(" not in _corpo_da_funcao("function pintarRelevo(")
+
+
+def test_o_sombreamento_corrige_a_longitude_pela_latitude():
+    """
+    Um grau de longitude no Chuí vale 83% do que vale no Equador. Usar a mesma
+    distância nas duas direções entortaria o sombreamento de norte a sul: a
+    serra gaúcha sairia mais íngreme do que é, só por estar longe do Equador.
+    """
+    corpo = _corpo_da_funcao("function calcularSombra(")
+    assert "Math.cos(lat)" in corpo, (
+        "o sombreamento trata um grau de longitude como um grau de latitude"
+    )
+
+
+def test_a_grade_do_relevo_so_e_baixada_quando_pedida():
+    """São 2 MB: quem não liga a camada não pode pagar por eles."""
+    assert "carregarRelevo()" not in _corpo_da_funcao("async function iniciar(")
+    assert "await carregarRelevo()" in _corpo_da_funcao(
+        "async function atualizarRelevo(")
+
+
+def test_o_relevo_confere_o_tamanho_do_que_recebeu():
+    """
+    O arquivo vem cru, sem cabeçalho. Um descompasso entre o que os metadados
+    prometem e o que chega inclinaria o Brasil inteiro na tela, em silêncio.
+    """
+    corpo = _corpo_da_funcao("function carregarRelevo(")
+    assert "meta.largura * meta.altura" in corpo
+    assert "throw new Error" in corpo
+
+
+def test_a_escala_de_altitude_e_continua():
+    """
+    Faixas de cor com degrau leem como categoria ("terra baixa", "terra alta"),
+    e altitude não é categoria. A interpolação entre as faixas é o que faz a
+    escala ser lida como escala.
+    """
+    corpo = _corpo_da_funcao("function montarTabelaDeRelevo(")
+    assert "de[c] + (para[c] - de[c]) * t" in corpo, (
+        "a tabela de cores do relevo não interpola entre as faixas"
+    )
+
+
+def test_o_relevo_avisa_que_nao_mede_cume():
+    """
+    Cada ponto da grade é a média de ~4,4 km. Quem olhar o Pico da Neblina vai
+    ler 1.650 m onde a placa diz 2.995, e a interface tem de dizer por quê.
+    """
+    corpo = _corpo_da_funcao("async function atualizarRelevo(")
+    assert "Neblina" in corpo
+    assert "não para medir a altitude" in corpo
+
+
+# --------------------------------------------------------------------------
+# Camada das fronteiras dos estados
+# --------------------------------------------------------------------------
+
+
+def test_todos_os_mapas_tem_a_camada_de_fronteiras():
+    html = _html()
+    for mapa in MAPAS_COM_CAMADAS:
+        assert f'id="{mapa}-estados"' in html, f"{mapa} não tem o interruptor"
+        assert f'id="{mapa}-estados-svg"' in html, f"{mapa} não tem a camada"
+
+
+def test_a_camada_das_fronteiras_acompanha_o_viewbox_do_mapa():
+    html = _html()
+    for mapa in MAPAS_COM_CAMADAS:
+        do_mapa = re.search(rf'<svg id="{mapa}-svg" viewBox="([^"]+)"', html)
+        da_camada = re.search(
+            rf'<svg id="{mapa}-estados-svg" class="camada-estados"\s+viewBox="([^"]+)"',
+            html)
+        assert da_camada, f"não achei a camada de fronteiras de {mapa}"
+        assert da_camada.group(1) == do_mapa.group(1), (
+            f"a camada de fronteiras de {mapa} usa outro enquadramento"
+        )
+
+
+def test_as_fronteiras_ficam_acima_dos_campos_climaticos():
+    """
+    Fronteira é referência, não dado: some debaixo da chuva ou do calor e deixa
+    de servir para a única coisa que faz, que é dizer de que estado é a mancha
+    que se está olhando.
+    """
+    css = _css()
+
+    def z_index(seletor):
+        bloco = css[css.index(seletor):]
+        bloco = bloco[:bloco.index("}")]
+        return int(re.search(r"z-index:\s*(\d+)", bloco).group(1))
+
+    assert z_index(".camada-estados {") >= z_index(".camada-chuva {")
+    assert z_index(".camada-estados {") >= z_index(".camada-temperatura {")
+    assert z_index(".camada-estados {") < z_index(".mapa-dica {")
+
+
+def test_as_fronteiras_nao_interceptam_o_mouse():
+    css = _css()
+    bloco = css[css.index(".camada-estados {"):]
+    bloco = bloco[:bloco.index("}")]
+    assert "pointer-events: none" in bloco
+
+
+def test_a_cor_da_fronteira_nao_e_cor_de_dado():
+    """
+    O mapa já usa verde, amarelo e vermelho para dizer risco, e o ciano do
+    `--foco` para dizer "este é o estado escolhido". Uma fronteira em qualquer
+    uma dessas cores faria o olho ler dado onde só há referência geográfica.
+    """
+    css = _css()
+
+    def variavel(nome):
+        return re.search(rf"--{nome}:\s*([^;]+);", css).group(1).strip().lower()
+
+    fronteira = variavel("fronteira-uf")
+    for reservada in ("verde", "amarelo", "vermelho", "foco"):
+        assert fronteira != variavel(reservada), (
+            f"a fronteira usa a mesma cor de --{reservada}"
+        )
+
+
+def test_a_fronteira_vence_o_traco_das_divisas_municipais():
+    """
+    `.mapa-area svg path` pinta TODO caminho de mapa com o cinza das divisas
+    municipais. Uma classe sozinha perde dele na conta de especificidade do
+    CSS, e a fronteira sai escura — desenhada, mas invisível.
+    """
+    css = _css()
+    assert ".camada-estados path.fronteira-uf {" in css, (
+        "o seletor da fronteira não tem especificidade para vencer o do mapa"
+    )
+
+
+def test_a_espessura_da_fronteira_e_dividida_pelo_zoom():
+    """Mesmo motivo do contorno de foco: a câmera amplia o traço junto."""
+    css = _css()
+    assert ".teatros .fronteira-uf { stroke-width: calc(" in css
+    assert "/ var(--zoom))" in css[css.index(".teatros .fronteira-uf {"):][:80]
+
+
+def test_a_fronteira_vai_dobrada_para_aparecer_em_qualquer_fundo():
+    """
+    Linha clara some sobre o amarelo do risco médio e sobre o relevo alto;
+    linha escura some sobre o fundo e sobre o vermelho. O par aparece em
+    qualquer lugar — é o mesmo truque do marcador das capitais.
+    """
+    corpo = _corpo_da_funcao("function desenharFronteiras(")
+    assert 'class="fronteira-uf-sombra"' in corpo
+    assert 'class="fronteira-uf"' in corpo
+
+
+# --------------------------------------------------------------------------
+# As duas camadas, juntas
+# --------------------------------------------------------------------------
+
+
+def test_o_redesenho_do_mapa_refaz_as_camadas_de_referencia():
+    """
+    `renderizarSvg` reconstrói o mapa a cada troca de mês, de tipo ou de
+    recorte, e com ele vem uma projeção nova. Fronteiras e relevo moram fora
+    desse SVG: sem serem refeitos, ficariam desenhados contra o enquadramento
+    antigo, deslocados do mapa de baixo.
+    """
+    assert "redesenharReferencias(idSvg)" in _corpo_da_funcao(
+        "function renderizarSvg(")
+
+    corpo = _corpo_da_funcao("function redesenharReferencias(")
+    assert "atualizarEstados(prefixo)" in corpo
+    assert "atualizarRelevo(prefixo)" in corpo
+
+
+def test_as_camadas_novas_sao_desligadas_ao_reiniciar():
+    """
+    Desmarcar a caixinha por código não dispara `change`. Sem a chamada, o
+    canvas ficaria com o relevo do mapa anterior por cima do novo.
+    """
+    corpo = _corpo_da_funcao("function reiniciarCamadas(")
+    assert "atualizarRelevo(prefixo)" in corpo
+    assert "atualizarEstados(prefixo)" in corpo
+
+
+def test_o_relevo_comeca_desligado():
+    """
+    São 2 MB de altimetria. Quem não pediu a camada não pode pagar por eles ao
+    abrir a página.
+    """
+    html = _html()
+    for mapa in MAPAS_COM_CAMADAS:
+        marcacao = re.search(
+            rf'<input type="checkbox" id="{mapa}-relevo"([^>]*)>', html)
+        assert marcacao, f"não achei o interruptor {mapa}-relevo"
+        assert "checked" not in marcacao.group(1), (
+            f"{mapa}-relevo vem ligado sem ninguém pedir"
+        )
+
+
+def test_a_fronteira_dos_estados_comeca_ligada():
+    """
+    Fronteira de estado é parte do mapa, não informação sobreposta a ele: sem
+    ela, uma mancha vermelha no meio do país não diz de que estado é. Vem
+    ligada como as capitais, e pode ser desligada por quem não quiser.
+    """
+    html = _html()
+    for mapa in MAPAS_COM_CAMADAS:
+        marcacao = re.search(
+            rf'<input type="checkbox" id="{mapa}-estados"([^>]*)>', html)
+        assert marcacao, f"não achei o interruptor {mapa}-estados"
+        assert "checked" in marcacao.group(1), (
+            f"{mapa}-estados precisa vir ligado"
+        )
+
+
+def test_trocar_de_mapa_nao_desliga_a_fronteira():
+    """
+    `reiniciarCamadas` apaga as camadas de dado ao trocar de mapa, para o campo
+    de um mapa não ficar por cima do outro. A fronteira não é campo: tem de
+    voltar ligada, como as capitais.
+    """
+    corpo = _corpo_da_funcao("function reiniciarCamadas(")
+    trecho = corpo[corpo.index("${prefixo}-estados"):]
+    assert "estados.checked = true;" in trecho, (
+        "trocar de mapa está desligando a fronteira dos estados"
+    )
+
+
+# --------------------------------------------------------------------------
+# Modo 3D
+# --------------------------------------------------------------------------
+
+ARQUIVO_3D = PASTA / "relevo3d.js"
+
+MAPAS_COM_3D = ("mapa", "ano")
+
+
+def _js3d() -> str:
+    return ARQUIVO_3D.read_text(encoding="utf-8")
+
+
+def _corpo_3d(assinatura: str) -> str:
+    """O corpo de uma função do relevo3d.js, da assinatura até o `}` dela.
+
+    O arquivo inteiro vive dentro de uma função, então as funções de dentro
+    fecham com recuo — o corte é no primeiro `}` na coluna em que a assinatura
+    começou.
+    """
+    conteudo = _js3d()
+    inicio = conteudo.index(assinatura)
+    recuo = " " * (inicio - conteudo.rfind("\n", 0, inicio) - 1)
+    fim = conteudo.index(f"\n{recuo}}}", inicio)
+    return conteudo[inicio:fim]
+
+
+def test_o_modulo_3d_existe_e_carrega_antes_do_app():
+    """
+    O `app.js` chama `Relevo3D.cena(...)`. Carregado depois, o objeto ainda não
+    existiria na hora em que os interruptores são ligados.
+    """
+    assert ARQUIVO_3D.exists(), "frontend/relevo3d.js não existe"
+
+    html = _html()
+    assert 'src="relevo3d.js"' in html
+    assert html.index('src="relevo3d.js"') < html.index('src="app.js"')
+
+
+def test_o_3d_nao_usa_biblioteca_externa():
+    """
+    O projeto inteiro roda offline, de um `git clone`. Uma biblioteca 3D vinda
+    de CDN quebraria isso no primeiro computador sem internet — que é
+    exatamente o computador em que o projeto vai ser apresentado.
+    """
+    html = _html()
+    assert "three" not in html.lower()
+    assert "cdn" not in html.lower()
+    assert "getContext(\"webgl" not in _js3d()
+
+
+def test_so_os_mapas_grandes_tem_3d():
+    """
+    Os mapas dos painéis têm 640x460 e mostram um município. Inclinar isso não
+    acrescenta nada e tira a leitura que eles têm.
+    """
+    html = _html()
+    for mapa in MAPAS_COM_3D:
+        assert f'id="{mapa}-3d"' in html
+        assert f'id="{mapa}-3d-canvas"' in html
+    for mapa in ("consulta", "cidade"):
+        assert f'id="{mapa}-3d"' not in html
+
+
+def test_a_tela_do_3d_fica_fora_da_camera():
+    """
+    Ela desenha em pixels de tela, como a do vento e pelo mesmo motivo: dentro
+    da câmera seria um bitmap esticado pelo zoom.
+    """
+    html = _html()
+    for mapa in MAPAS_COM_3D:
+        camera = html[html.index(f'id="camera-{mapa}"'):]
+        camera = camera[:camera.index("</div>")]
+        assert f'id="{mapa}-3d-canvas"' not in camera, (
+            f"a tela 3D de {mapa} está dentro da câmera"
+        )
+
+
+def test_o_mapa_plano_sai_de_cena_no_3d():
+    """Sem isso, o mapa 2D apareceria por baixo da cena inclinada."""
+    css = _css()
+    bloco = css[css.index(".teatro.em-3d .camera,"):]
+    bloco = bloco[:bloco.index("}")]
+    assert "display: none" in bloco
+    assert ".camada-vento" in bloco
+    assert ".mapa-dica" in bloco, (
+        "a dica depende do SVG para saber de que município é o ponto, e o SVG "
+        "não está em cena no 3D"
+    )
+
+
+def test_o_arrasto_do_3d_nao_rola_a_pagina():
+    """Sem `touch-action: none`, arrastar no celular rola a página."""
+    css = _css()
+    bloco = css[css.index(".camada-3d {"):]
+    bloco = bloco[:bloco.index("}")]
+    assert "touch-action: none" in bloco
+
+
+def test_a_cena_e_normalizada_antes_da_camera():
+    """
+    A distância da câmera vale 2,6. Sem reduzir a cena para tamanho 1, ela
+    ficaria comparável a uma janela de quarenta graus de largura: o divisor da
+    perspectiva cruzaria o zero no meio do mapa e metade dos pontos sairia
+    projetada do lado errado da tela. Foi o primeiro defeito desta cena, e
+    aparecia como um leque de triângulos no lugar do país.
+    """
+    corpo = _corpo_3d("function criarProjetor(")
+    assert "const norma = 1 / Math.max(larguraGeo, alturaGeo" in corpo
+
+    # Os três eixos precisam entrar na mesma régua: normalizar só dois deixaria
+    # a altitude fora de escala com a largura, e a serra sairia do tamanho de
+    # um continente.
+    assert "const x = (lon - lonC) * cosLat * norma;" in corpo
+    assert "const y = (lat - latC) * norma;" in corpo
+    assert "const alturaParaCena = (exagero / METROS_POR_GRAU) * norma;" in _js3d()
+
+    assert "Math.max(distancia + d" in corpo, (
+        "falta o piso no divisor da perspectiva"
+    )
+
+
+def test_a_projecao_do_3d_existe_uma_vez_so():
+    """
+    A superfície e as fronteiras usam a mesma conta. Enquanto houve duas
+    cópias, bastou uma delas mudar para a divisa do estado sair flutuando ao
+    lado da serra a que pertence.
+    """
+    js = _js3d()
+    assert js.count("function criarProjetor(") == 1
+    assert "function desenharFronteiras(projetarPonto)" in js, (
+        "as fronteiras estão recalculando a projeção em vez de receber a "
+        "mesma que a superfície usou"
+    )
+
+
+def test_o_3d_ordena_por_contagem_e_nao_por_sort():
+    """
+    São dezenas de milhares de quadriláteros por quadro. Um `sort` com
+    comparador custa n·log(n) e derruba a taxa de quadros durante o arrasto.
+    """
+    js = _js3d()
+    assert ".sort(" not in js, "a cena 3D voltou a usar sort()"
+    assert "quadOrdem[cursor[quadGaveta[q]]++] = q;" in js
+
+
+def test_a_malha_do_3d_engrossa_durante_o_arrasto():
+    """Girar com cinquenta mil células engasgaria, e ninguém repara."""
+    js = _js3d()
+    assert "PIXELS_POR_CELULA_ARRASTANDO" in js
+    corpo = _corpo_3d("function dimensionar(")
+    assert "emArrasto" in corpo
+
+
+def test_o_3d_veste_o_terreno_com_o_mapa_plano():
+    """
+    Sem a textura, a cena 3D seria um relevo bonito e mudo ao lado do mapa. O
+    risco tem de continuar lá, agora deitado sobre a serra que ele ocupa.
+    """
+    corpo = _corpo_da_funcao("function montarCena3D(")
+    assert "textura: texturaDoMapa(" in corpo
+
+
+def test_a_transparencia_do_risco_e_a_mesma_nos_dois_mapas():
+    """
+    O mapa plano deixa o risco a 34% para o terreno aparecer por baixo. A
+    textura do 3D tem de usar o MESMO valor, senão o mesmo município aparece
+    com duas cores diferentes conforme a cena esteja deitada ou em pé.
+    """
+    no_css = re.search(
+        r"\.mapa-area\.com-relevo svg path \{ fill-opacity: (\.\d+); \}", _css())
+    no_js = re.search(r"contexto\.globalAlpha = (0?\.\d+);", _js())
+
+    assert no_css and no_js, "não achei uma das duas transparências"
+    assert float(no_css.group(1)) == float(no_js.group(1)), (
+        f"o mapa plano usa {no_css.group(1)} e a textura do 3D "
+        f"{no_js.group(1)}"
+    )
+
+
+def test_o_terreno_sai_com_o_formato_do_brasil():
+    """
+    A malha do 3D é um retângulo. Sem pular o que cai fora do país, a cena
+    seria uma placa retangular com o Brasil pintado no meio dela.
+    """
+    js = _js3d()
+    assert "SEM_COR" in js
+    assert "if (cor === SEM_COR) continue;" in js
+    assert "if (textura.dados[pos + 3] <= 8) return SEM_COR;" in js
+
+
+def test_o_3d_acompanha_a_camera_e_o_redesenho():
+    """
+    Voar até um estado muda o recorte sem passar por `renderizarSvg`, e trocar
+    o mês muda o mapa sem mexer na câmera. Os dois caminhos precisam avisar.
+    """
+    assert "agendarRedesenho3D(prefixo)" in _corpo_da_funcao(
+        "function aplicarCamera(")
+    assert "agendarRedesenho3D(prefixo)" in _corpo_da_funcao(
+        "function redesenharReferencias(")
+
+
+def test_o_3d_e_desligado_ao_reiniciar_o_mapa():
+    """
+    Sem isto, o teatro continuaria com a classe `em-3d` e o mapa plano ficaria
+    escondido atrás de uma cena que ninguém mais está girando.
+    """
+    corpo = _corpo_da_funcao("function reiniciarCamadas(")
+    assert "atualizar3D(prefixo)" in corpo
+
+
+def test_o_3d_para_o_vento():
+    """
+    O vento vive fora da câmera e não sai de cena com ela. Parado atrás de um
+    mapa que ninguém está vendo, ele só gastaria bateria.
+    """
+    corpo = _corpo_da_funcao("async function atualizar3D(")
+    assert "ventosEmCena(false)" in corpo
+    assert 'ventosEmCena(prefixo === "mapa")' in corpo, (
+        "ao sair do 3D o vento precisa voltar ao estado que `mostrarMapa` deixa"
+    )
+
+
+def test_o_3d_diz_o_exagero_que_esta_usando():
+    """
+    Quem olha um relevo 3D precisa saber que a serra não é aquilo tudo — sem o
+    exagero, o relevo do Brasil seria uma folha de papel.
+    """
+    corpo = _corpo_da_funcao("function mostrarEstado3D(")
+    assert "exagero" in corpo
+    assert "4.300 km" in corpo and "2.995 m" in corpo

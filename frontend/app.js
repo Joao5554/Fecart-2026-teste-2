@@ -76,6 +76,9 @@ async function iniciar() {
   ligarCamadasDeChuva();
   ligarCamadasDeVento();
   ligarCamadasDeTemperatura();
+  ligarCamadasDeRelevo();
+  ligarCamadasDeEstados();
+  ligarCamadas3D();
   ligarCapitais();
   carregarCapitais();
 
@@ -1586,6 +1589,818 @@ const observadorDaLegenda = new ResizeObserver((entradas) => {
 // no mapa de um estado só, o nome da capital às vezes cobre justamente o
 // município que se quer olhar.
 
+// ---------------------------------------------------------------------------
+// Camada de relevo
+//
+// A altitude do terreno, vinda de `/mapa/relevo.bin`: um milhão de inteiros de
+// 16 bits, numa grade regular de 0,04° que cobre o país inteiro. O desenho tem
+// duas partes que se somam — a cor diz a altitude, o sombreamento diz a forma.
+//
+// O sombreamento é o que faz a serra parecer serra. Ele simula um sol baixo no
+// noroeste e pergunta, para cada ponto, o quanto a encosta ali está virada
+// para essa luz: encosta de frente clareia, encosta de costas escurece, e o
+// olho lê o par claro-escuro como volume. É a mesma conta que qualquer
+// programa de mapa faz, e aparece nos manuais de SIG sob o nome de "hillshade".
+// ---------------------------------------------------------------------------
+
+const MAPAS_COM_RELEVO = {
+  consulta: "consulta-svg", mapa: "mapa-svg",
+  cidade: "cidade-svg", ano: "ano-svg",
+};
+
+/* Escala hipsométrica: a convenção dos atlas, do verde da planície ao marrom
+   da montanha. Não é decoração nem é a mesma família do risco — verde, amarelo
+   e vermelho ali significam probabilidade, e aqui significariam altura. Para
+   as duas leituras não se atropelarem, o relevo fica em tons terrosos e
+   dessaturados, e o risco por baixo continua sendo a cor forte da tela. */
+const FAIXAS_RELEVO = [
+  { m: 0,    cor: "#2c5d4f" },
+  { m: 200,  cor: "#4a7a4c" },
+  { m: 500,  cor: "#7d9a52" },
+  { m: 800,  cor: "#a8a05c" },
+  { m: 1200, cor: "#a37a52" },
+  { m: 1800, cor: "#8a5f48" },
+  { m: 2600, cor: "#c9bcb2" },
+];
+
+// Sol a 45° de altura, vindo do noroeste. O noroeste é convenção cartográfica
+// antiga e não capricho: o olho humano interpreta sombra supondo luz vinda de
+// cima e da esquerda, e um mapa iluminado do sudeste produz a "ilusão do
+// relevo invertido", em que vale vira morro e morro vira vale.
+const SOL_AZIMUTE = 315;
+const SOL_ALTURA = 45;
+
+/* O Brasil é um país de relevo manso: fora da faixa da Mantiqueira e do
+   Espinhaço, a maior parte do território sobe poucos metros por quilômetro. Em
+   escala real o sombreamento sairia quase liso, e a camada não mostraria nada.
+   Multiplicar a inclinação por 6 é exagero declarado — a mesma licença que os
+   mapas de relevo tomam há um século —, e serve para revelar a forma, não para
+   medir declividade. */
+const EXAGERO_RELEVO = 6;
+
+/* Quase opaco, porque agora o relevo é o fundo e não um véu: quem faz a
+   mistura com o risco é a transparência do mapa por cima. O pouco que falta
+   para 1 tira a dureza da borda recortada no contorno do país. */
+const OPACIDADE_RELEVO = 0.96;
+
+let dadosDoRelevo = null;     // { meta, alturas, sombra }
+let promessaRelevo = null;
+
+/**
+ * Busca a grade de altitudes uma vez e calcula o sombreamento.
+ *
+ * São 7,6 MB, então só saem do servidor quando alguém liga a camada ou o modo
+ * 3D — carregá-los junto com a página faria todo mundo pagar por um recurso
+ * que a maioria não abre.
+ *
+ * O sombreamento é calculado aqui, uma vez, e não a cada desenho: são um
+ * milhão de células com raiz e arco-tangente, e refazer isso a cada troca de
+ * mês travaria a interface. Depois de pronto, repintar o mapa é só ler a
+ * tabela.
+ */
+function carregarRelevo() {
+  if (promessaRelevo) return promessaRelevo;
+
+  promessaRelevo = (async () => {
+    const meta = await pedir("/mapa/relevo");
+
+    const resposta = await fetch(API + meta.url_grade);
+    if (!resposta.ok) throw new Error(`erro ${resposta.status} ao baixar a grade`);
+
+    const alturas = new Int16Array(await resposta.arrayBuffer());
+    const esperado = meta.largura * meta.altura;
+    if (alturas.length !== esperado) {
+      throw new Error(`a grade veio com ${alturas.length} pontos, `
+                      + `esperava ${esperado}`);
+    }
+
+    dadosDoRelevo = { meta, alturas, sombra: calcularSombra(meta, alturas) };
+    return dadosDoRelevo;
+  })();
+
+  // Uma falha não pode ficar guardada para sempre: sem isto, um tropeço de
+  // rede na primeira tentativa deixaria a camada quebrada até recarregar a
+  // página, mesmo com o servidor já de volta.
+  promessaRelevo.catch(() => { promessaRelevo = null; });
+
+  return promessaRelevo;
+}
+
+/**
+ * O quanto cada ponto da grade está virado para o sol, de 0 (sombra) a 255.
+ *
+ * A conta é a do manual: mede-se a inclinação do terreno nas duas direções,
+ * disso saem a declividade e a direção para onde a encosta aponta, e o brilho
+ * é o cosseno do ângulo entre essa direção e o sol.
+ *
+ * O detalhe que não pode ser esquecido é que um grau de longitude não é um
+ * grau de latitude: no extremo sul do país ele vale 83% do que vale no
+ * Equador. Usar a mesma distância nas duas direções entortaria o sombreamento
+ * progressivamente de norte a sul — a serra gaúcha sairia com encostas mais
+ * íngremes do que são, só por estar mais longe da linha do Equador.
+ */
+function calcularSombra(meta, alturas) {
+  const { largura, altura } = meta;
+  const passo = meta.passo_graus;
+  const sombra = new Uint8Array(largura * altura);
+
+  const zenite = (90 - SOL_ALTURA) * Math.PI / 180;
+  const azimute = (360 - SOL_AZIMUTE + 90) * Math.PI / 180;
+  const cosZenite = Math.cos(zenite);
+  const senZenite = Math.sin(zenite);
+
+  const metrosPorGrau = 111320;
+  const metrosY = passo * metrosPorGrau;
+
+  for (let linha = 0; linha < altura; linha++) {
+    const lat = (meta.lat_norte - linha * passo) * Math.PI / 180;
+    const metrosX = Math.max(metrosY * Math.cos(lat), 1);
+
+    const aqui = linha * largura;
+    const acima = Math.max(linha - 1, 0) * largura;
+    const abaixo = Math.min(linha + 1, altura - 1) * largura;
+
+    for (let coluna = 0; coluna < largura; coluna++) {
+      const oeste = Math.max(coluna - 1, 0);
+      const leste = Math.min(coluna + 1, largura - 1);
+
+      const dzdx = (alturas[aqui + leste] - alturas[aqui + oeste])
+                 / (2 * metrosX) * EXAGERO_RELEVO;
+      const dzdy = (alturas[abaixo + coluna] - alturas[acima + coluna])
+                 / (2 * metrosY) * EXAGERO_RELEVO;
+
+      const declive = Math.atan(Math.sqrt(dzdx * dzdx + dzdy * dzdy));
+      const face = Math.atan2(dzdy, -dzdx);
+
+      const luz = cosZenite * Math.cos(declive)
+                + senZenite * Math.sin(declive) * Math.cos(azimute - face);
+
+      sombra[aqui + coluna] = Math.max(0, Math.min(255, Math.round(luz * 255)));
+    }
+  }
+
+  return sombra;
+}
+
+/* Tabela de 512 cores entre o nível do mar e 2.600 m, montada uma vez. Buscar
+   a cor na lista de faixas por pixel custaria um milhão de varreduras a cada
+   desenho; assim custa um índice. */
+let tabelaRelevo = null;
+const TOPO_RELEVO = 2600;
+
+function montarTabelaDeRelevo() {
+  if (tabelaRelevo) return;
+
+  tabelaRelevo = new Uint8Array(512 * 3);
+  const ultima = FAIXAS_RELEVO[FAIXAS_RELEVO.length - 1];
+
+  for (let i = 0; i < 512; i++) {
+    const altura = (i / 511) * TOPO_RELEVO;
+
+    let baixa = FAIXAS_RELEVO[0];
+    let alta = ultima;
+    for (let f = 0; f < FAIXAS_RELEVO.length - 1; f++) {
+      if (altura >= FAIXAS_RELEVO[f].m && altura <= FAIXAS_RELEVO[f + 1].m) {
+        baixa = FAIXAS_RELEVO[f];
+        alta = FAIXAS_RELEVO[f + 1];
+        break;
+      }
+    }
+
+    const faixa = Math.max(alta.m - baixa.m, 1);
+    const t = Math.max(0, Math.min((altura - baixa.m) / faixa, 1));
+    const de = paraRgb(baixa.cor);
+    const para = paraRgb(alta.cor);
+    for (let c = 0; c < 3; c++) {
+      tabelaRelevo[i * 3 + c] = Math.round(de[c] + (para[c] - de[c]) * t);
+    }
+  }
+}
+
+function corDaAltitude(metros) {
+  montarTabelaDeRelevo();
+  const i = Math.max(0, Math.min(511, Math.round(metros / TOPO_RELEVO * 511)));
+  return [tabelaRelevo[i * 3], tabelaRelevo[i * 3 + 1], tabelaRelevo[i * 3 + 2]];
+}
+
+/** Desenha o relevo no enquadramento atual de um mapa. */
+function pintarRelevo(tela, projecao) {
+  if (!dadosDoRelevo) return;
+  const { meta, alturas, sombra } = dadosDoRelevo;
+  const passo = meta.passo_graus;
+
+  montarTabelaDeRelevo();
+  const tabela = tabelaRelevo;
+
+  // A projeção do mapa é afim e monotônica — `px` e `py` são multiplicação e
+  // soma, nada mais. Duas sondagens bastam para invertê-la, e invertê-la é o
+  // que permite perguntar "que latitude e longitude caem NESTE pixel", que é a
+  // pergunta que o desenho faz um milhão de vezes.
+  const x0 = projecao.px(0);
+  const escalaX = projecao.px(1) - x0;
+  const y0 = projecao.py(0);
+  const escalaY = projecao.py(1) - y0;
+  if (!escalaX || !escalaY) return;
+
+  const largura = tela.width;
+  const altura = tela.height;
+  const porPixelX = projecao.largura / largura;
+  const porPixelY = projecao.altura / altura;
+
+  const contexto = tela.getContext("2d");
+  contexto.clearRect(0, 0, largura, altura);
+
+  const imagem = contexto.createImageData(largura, altura);
+  const dados = imagem.data;
+  const alfa = Math.round(255 * OPACIDADE_RELEVO);
+
+  for (let linha = 0; linha < altura; linha++) {
+    const lat = ((linha + 0.5) * porPixelY - y0) / escalaY;
+    const linhaGrade = (meta.lat_norte - lat) / passo;
+    if (linhaGrade < 0 || linhaGrade > meta.altura - 1.001) continue;
+
+    const lg = Math.floor(linhaGrade);
+    const fy = linhaGrade - lg;
+    const topo = lg * meta.largura;
+    const base = (lg + 1) * meta.largura;
+
+    for (let coluna = 0; coluna < largura; coluna++) {
+      const lon = ((coluna + 0.5) * porPixelX - x0) / escalaX;
+      const colunaGrade = (lon - meta.lon_oeste) / passo;
+      if (colunaGrade < 0 || colunaGrade > meta.largura - 1.001) continue;
+
+      const cg = Math.floor(colunaGrade);
+      const fx = colunaGrade - cg;
+
+      // Bilinear nas duas tabelas. Vizinho mais próximo deixaria a grade
+      // aparecer como um xadrez de 4 km, que num mapa de estado é enorme.
+      const a = topo + cg;
+      const b = base + cg;
+      const metros = (alturas[a] * (1 - fx) + alturas[a + 1] * fx) * (1 - fy)
+                   + (alturas[b] * (1 - fx) + alturas[b + 1] * fx) * fy;
+      const luz = (sombra[a] * (1 - fx) + sombra[a + 1] * fx) * (1 - fy)
+                + (sombra[b] * (1 - fx) + sombra[b + 1] * fx) * fy;
+
+      const i = Math.max(0, Math.min(511, Math.round(metros / TOPO_RELEVO * 511))) * 3;
+
+      // Luz ambiente somada à direta: sem o piso, a encosta virada para o lado
+      // oposto do sol ficaria preta, e o Brasil ganharia manchas chapadas onde
+      // não há informação nenhuma além de "não pega sol".
+      const brilho = 0.34 + 0.92 * (luz / 255);
+
+      const posicao = (linha * largura + coluna) * 4;
+      dados[posicao] = Math.min(255, tabela[i] * brilho);
+      dados[posicao + 1] = Math.min(255, tabela[i + 1] * brilho);
+      dados[posicao + 2] = Math.min(255, tabela[i + 2] * brilho);
+      dados[posicao + 3] = alfa;
+    }
+  }
+
+  // `putImageData` ignora recorte — ele escreve pixel, não desenha. Por isso o
+  // campo é montado fora e entra por `drawImage`, que respeita o `clip` e é o
+  // que impede o relevo de vazar para o oceano e para os países vizinhos.
+  const buffer = document.createElement("canvas");
+  buffer.width = largura;
+  buffer.height = altura;
+  buffer.getContext("2d").putImageData(imagem, 0, 0);
+
+  contexto.save();
+  const mascara = mascaraDoMapa(projecao);
+  if (mascara) contexto.clip(mascara);
+  contexto.drawImage(buffer, 0, 0);
+  contexto.restore();
+}
+
+/** Liga os interruptores do relevo dos quatro mapas. */
+function ligarCamadasDeRelevo() {
+  for (const prefixo of Object.keys(MAPAS_COM_RELEVO)) {
+    const caixa = $(`${prefixo}-relevo`);
+    if (caixa) caixa.addEventListener("change", () => atualizarRelevo(prefixo));
+  }
+}
+
+/** Liga, desliga ou redesenha o relevo de um mapa. */
+async function atualizarRelevo(prefixo) {
+  const caixa = $(`${prefixo}-relevo`);
+  const tela = $(`${prefixo}-relevo-canvas`);
+  const area = tela ? tela.closest(".mapa-area") : null;
+  const rodape = $(`${prefixo}-relevo-nota`);
+  const legenda = $(`${prefixo}-relevo-legenda`);
+  if (!caixa || !tela || !area) return;
+
+  const contexto = tela.getContext("2d");
+  contexto.clearRect(0, 0, tela.width, tela.height);
+
+  if (!caixa.checked) {
+    area.classList.remove("com-relevo");
+    rodape.classList.add("oculto");
+    legenda.classList.add("oculto");
+    return;
+  }
+
+  const projecao = projecaoDoMapa[MAPAS_COM_RELEVO[prefixo]];
+  if (!projecao) {
+    rodape.textContent = "Desenhe o mapa primeiro para sobrepor o relevo.";
+    rodape.classList.remove("oculto");
+    return;
+  }
+
+  rodape.textContent =
+    "Carregando a altimetria (7,6 MB, só na primeira vez)...";
+  rodape.classList.remove("oculto");
+
+  try {
+    const { meta } = await carregarRelevo();
+
+    // O interruptor pode ter sido desligado enquanto os 2 MB vinham.
+    if (!caixa.checked) return;
+
+    area.classList.add("com-relevo");
+    pintarRelevo(tela, projecao);
+    montarLegendaDeRelevo(`${prefixo}-relevo-legenda`);
+
+    rodape.textContent =
+      `Altitude do terreno — ${meta.fonte}. Cada ponto da grade cobre `
+      + `${meta.passo_km_aprox} km, e a sombra simula um sol baixo a noroeste, `
+      + `com a inclinação exagerada ${EXAGERO_RELEVO} vezes: é o que revela a `
+      + `forma do relevo num país quase todo plano. Por causa do tamanho da `
+      + `célula, pico estreito aparece mais baixo que o cume real — o Pico da `
+      + `Neblina, de 2.995 m, sai por volta de 1.760 m. A camada serve para ver `
+      + `onde estão a serra, o planalto e a planície, não para medir a altitude `
+      + `de um ponto.`;
+  } catch (erro) {
+    caixa.checked = false;
+    area.classList.remove("com-relevo");
+    legenda.classList.add("oculto");
+    rodape.textContent = `Sem relevo: ${erro.message}`;
+  }
+}
+
+function montarLegendaDeRelevo(idLegenda) {
+  const legenda = $(idLegenda);
+  const degraus = [0, 200, 500, 800, 1200, 1800, 2400];
+
+  const escala = degraus.map((m) => {
+    const [r, g, b] = corDaAltitude(m);
+    return `<i style="background:rgb(${r},${g},${b})" title="${m} m"></i>`;
+  }).join("");
+
+  legenda.innerHTML =
+    "<span>Altitude</span>"
+    + `<span class="escala-relevo">${escala}</span>`
+    + "<span>0 m &rarr; 2.400 m ou mais</span>";
+  legenda.classList.remove("oculto");
+}
+
+// ---------------------------------------------------------------------------
+// Camada das fronteiras dos estados
+//
+// A fronteira do estado é, em tese, a soma das fronteiras dos municípios que
+// ele contém — e o mapa já tem os 5.570. Mas traçar com linha grossa os
+// municípios de um estado desenha junto todas as divisas internas dele, que é
+// exatamente o contrário do que esta camada existe para mostrar. Somar os
+// polígonos de verdade (uma união geométrica) seria caro e cheio de casos de
+// borda. 90 KB do IBGE resolvem sem conta nenhuma.
+// ---------------------------------------------------------------------------
+
+const MAPAS_COM_ESTADOS = ["consulta", "mapa", "cidade", "ano"];
+
+let malhaEstados = null;
+let promessaEstados = null;
+
+function carregarEstados() {
+  if (promessaEstados) return promessaEstados;
+
+  promessaEstados = (async () => {
+    malhaEstados = await pedir("/mapa/estados");
+    return malhaEstados;
+  })();
+
+  promessaEstados.catch(() => { promessaEstados = null; });
+  return promessaEstados;
+}
+
+/** Liga os interruptores das fronteiras dos quatro mapas. */
+function ligarCamadasDeEstados() {
+  for (const prefixo of MAPAS_COM_ESTADOS) {
+    const caixa = $(`${prefixo}-estados`);
+    if (caixa) caixa.addEventListener("change", () => atualizarEstados(prefixo));
+  }
+}
+
+/** Liga, desliga ou redesenha as fronteiras de um mapa. */
+async function atualizarEstados(prefixo) {
+  const caixa = $(`${prefixo}-estados`);
+  const camada = $(`${prefixo}-estados-svg`);
+  if (!caixa || !camada) return;
+
+  if (!caixa.checked) {
+    camada.innerHTML = "";
+    return;
+  }
+
+  const projecao = projecaoDoMapa[`${prefixo}-svg`];
+  if (!projecao) return;      // ainda não há mapa; sai no desenho seguinte
+
+  try {
+    await carregarEstados();
+  } catch (erro) {
+    caixa.checked = false;
+    mostrarAviso(`Sem as fronteiras dos estados: ${erro.message}`, true);
+    return;
+  }
+
+  if (!caixa.checked) return;  // desligado enquanto a malha vinha
+  camada.innerHTML = desenharFronteiras(projecao);
+}
+
+/**
+ * Os 27 contornos, em dois caminhos.
+ *
+ * Dois, e não um: a linha vai dobrada, escura por baixo e clara por cima. Uma
+ * linha clara sozinha some sobre o amarelo do risco médio e sobre o claro do
+ * relevo alto; uma escura sozinha some sobre o fundo e sobre o vermelho. O par
+ * aparece em qualquer lugar do mapa — é o mesmo motivo por que o marcador das
+ * capitais tem anel escuro e miolo branco.
+ *
+ * E são dois elementos no total, não 27: o navegador desenha um caminho com
+ * mil subcaminhos bem mais rápido do que mil caminhos, e aqui nada precisa ser
+ * clicado individualmente.
+ */
+function desenharFronteiras(projecao) {
+  if (!malhaEstados || !malhaEstados.features) return "";
+
+  const { px, py } = projecao;
+  const anelParaPath = (anel) =>
+    "M" + anel.map(([lon, lat]) => `${px(lon).toFixed(1)},${py(lat).toFixed(1)}`)
+              .join("L") + "Z";
+
+  const d = malhaEstados.features.map((feicao) => {
+    const g = feicao.geometry;
+    if (!g) return "";
+    const poligonos = g.type === "Polygon" ? [g.coordinates] : g.coordinates;
+    return poligonos.map((p) => p.map(anelParaPath).join("")).join("");
+  }).join("");
+
+  if (!d) return "";
+
+  return `<path class="fronteira-uf-sombra" d="${d}"></path>`
+       + `<path class="fronteira-uf" d="${d}"></path>`;
+}
+
+/**
+ * Refaz as camadas que vivem fora do SVG do mapa.
+ *
+ * `renderizarSvg` reconstrói o mapa inteiro a cada troca de mês, de tipo ou de
+ * recorte, e com ele vem uma projeção nova. As fronteiras e o relevo moram em
+ * elementos próprios, que o redesenho não tocou — e que por isso continuariam
+ * desenhados contra o enquadramento antigo, deslocados do mapa de baixo.
+ */
+function redesenharReferencias(idSvg) {
+  const prefixo = idSvg.replace("-svg", "");
+  if ($(`${prefixo}-estados`)?.checked) atualizarEstados(prefixo);
+  if ($(`${prefixo}-relevo`)?.checked) atualizarRelevo(prefixo);
+  // A cena 3D veste o terreno com o mapa que acabou de ser refeito: sem isto
+  // ela continuaria mostrando o mês anterior, em relevo.
+  agendarRedesenho3D(prefixo);
+}
+
+// ---------------------------------------------------------------------------
+// Modo 3D
+//
+// O mesmo mapa, inclinado, com o terreno levantado. O desenho em si mora em
+// `relevo3d.js`; o que fica aqui é o que só o app sabe: qual pedaço do Brasil
+// está em cena, que cores o mapa está usando neste momento, e quando isso
+// mudou e precisa ser refeito.
+//
+// Só nos dois mapas grandes. Os mapas dos painéis têm 640x460 e mostram um
+// município: inclinar isso não acrescenta nada e tira a leitura que eles têm.
+// ---------------------------------------------------------------------------
+
+const MAPAS_COM_3D = ["mapa", "ano"];
+
+const cenas3D = {};
+const relogio3D = {};
+let observadorDeTamanho3D = null;
+
+/**
+ * Que pedaço do mundo está em cena, em longitude e latitude.
+ *
+ * A câmera 2D guarda o recorte em unidades de desenho, não em graus. Como a
+ * projeção do mapa é afim — `px` e `py` são só multiplicação e soma —, duas
+ * sondagens bastam para invertê-la e devolver a janela em coordenadas
+ * geográficas, que é a linguagem em que a grade de altitudes fala.
+ */
+function janelaGeografica(prefixo, projecao) {
+  const caixa = (cameras[prefixo] && cameras[prefixo].caixa)
+    || caixaDoPais(prefixo);
+
+  const x0 = projecao.px(0);
+  const escalaX = projecao.px(1) - x0;
+  const y0 = projecao.py(0);
+  const escalaY = projecao.py(1) - y0;
+  if (!escalaX || !escalaY) return null;
+
+  const paraLon = (x) => (x - x0) / escalaX;
+  const paraLat = (y) => (y - y0) / escalaY;
+
+  // O y do desenho cresce para baixo, então o TOPO da caixa é a MAIOR
+  // latitude. Trocar os dois aqui viraria o Brasil de cabeça para baixo.
+  return {
+    geo: [paraLon(caixa[0]), paraLat(caixa[3]),
+          paraLon(caixa[2]), paraLat(caixa[1])],
+    desenho: caixa,
+  };
+}
+
+/**
+ * Pinta o mapa 2D num canvas fora da tela, para vestir o terreno com ele.
+ *
+ * É o que faz a cena 3D mostrar a MESMA informação do mapa plano, e não um
+ * relevo bonito e mudo ao lado dele: o risco de cada município continua ali,
+ * agora deitado sobre a serra que ele ocupa.
+ *
+ * A textura é montada na mesma ordem do mapa plano — terreno por baixo, risco
+ * translúcido por cima — e recortada no contorno do país. O recorte tem uma
+ * segunda função, além da estética: onde a textura fica transparente, a cena
+ * 3D não desenha o quadrilátero, e o terreno sai com o formato do Brasil em
+ * vez de uma placa retangular com o país pintado no meio.
+ *
+ * O terreno vai para a textura SEM sombreamento. Quem sombreia é a cena 3D,
+ * encosta por encosta, com a luz batendo no ângulo em que ela está sendo
+ * vista; sombrear aqui também deixaria todo vale duas vezes mais escuro.
+ */
+function texturaDoMapa(idSvg, projecao, janela, largura) {
+  const [x0, y0, x1, y1] = janela.desenho;
+  const proporcao = (y1 - y0) / Math.max(x1 - x0, 1e-6);
+  const altura = Math.max(32, Math.round(largura * proporcao));
+
+  const tela = document.createElement("canvas");
+  tela.width = largura;
+  tela.height = altura;
+  const contexto = tela.getContext("2d", { willReadFrequently: true });
+
+  const escalaX = largura / Math.max(x1 - x0, 1e-6);
+  const escalaY = altura / Math.max(y1 - y0, 1e-6);
+  const mascara = mascaraDoMapa(projecao);
+
+  // Leva o contexto das unidades do desenho para os pixels da textura. Toda
+  // geometria do mapa — os caminhos dos municípios, a máscara do país — está
+  // nas unidades do desenho, e é esta transformação que as põe no lugar.
+  const enquadrar = () => {
+    contexto.setTransform(escalaX, 0, 0, escalaY,
+                          -x0 * escalaX, -y0 * escalaY);
+    if (mascara) contexto.clip(mascara);
+  };
+
+  // 1. O terreno.
+  pintarTerrenoNaTextura(contexto, tela, janela.geo, enquadrar);
+
+  // 2. O risco por cima, com a mesma transparência do mapa plano.
+  contexto.save();
+  enquadrar();
+  contexto.globalAlpha = 0.34;
+
+  // Agrupar por cor antes de desenhar não é microotimização: são 5.570
+  // caminhos, e trocar `fillStyle` a cada um custa mais que a geometria
+  // inteira. Como o risco tem três cores, saem três preenchimentos.
+  const porCor = new Map();
+  for (const caminho of $(idSvg).querySelectorAll("path[data-ibge]")) {
+    const cor = caminho.getAttribute("fill");
+    if (!cor) continue;        // sem histórico: deixa o terreno aparecer
+    let junto = porCor.get(cor);
+    if (!junto) porCor.set(cor, junto = new Path2D());
+    junto.addPath(new Path2D(caminho.getAttribute("d")));
+  }
+  for (const [cor, junto] of porCor) {
+    contexto.fillStyle = cor;
+    contexto.fill(junto);
+  }
+  contexto.restore();
+
+  return {
+    dados: contexto.getImageData(0, 0, largura, altura).data,
+    largura,
+    altura,
+  };
+}
+
+/** A escala hipsométrica pintada pixel a pixel, recortada no contorno do país. */
+function pintarTerrenoNaTextura(contexto, tela, geo, enquadrar) {
+  if (!dadosDoRelevo) return;
+  const { meta, alturas } = dadosDoRelevo;
+  montarTabelaDeRelevo();
+
+  const largura = tela.width;
+  const altura = tela.height;
+  const imagem = contexto.createImageData(largura, altura);
+  const dados = imagem.data;
+
+  const [lonOeste, latSul, lonLeste, latNorte] = geo;
+
+  for (let linha = 0; linha < altura; linha++) {
+    const lat = latNorte - (latNorte - latSul) * ((linha + 0.5) / altura);
+    const linhaGrade = (meta.lat_norte - lat) / meta.passo_graus;
+    if (linhaGrade < 0 || linhaGrade > meta.altura - 1.001) continue;
+
+    const lg = Math.floor(linhaGrade);
+    const fy = linhaGrade - lg;
+    const topo = lg * meta.largura;
+    const base = (lg + 1) * meta.largura;
+
+    for (let coluna = 0; coluna < largura; coluna++) {
+      const lon = lonOeste + (lonLeste - lonOeste) * ((coluna + 0.5) / largura);
+      const colunaGrade = (lon - meta.lon_oeste) / meta.passo_graus;
+      if (colunaGrade < 0 || colunaGrade > meta.largura - 1.001) continue;
+
+      const cg = Math.floor(colunaGrade);
+      const fx = colunaGrade - cg;
+      const a = topo + cg;
+      const b = base + cg;
+      const metros = (alturas[a] * (1 - fx) + alturas[a + 1] * fx) * (1 - fy)
+                   + (alturas[b] * (1 - fx) + alturas[b + 1] * fx) * fy;
+
+      const i = Math.max(0, Math.min(511,
+        Math.round(metros / TOPO_RELEVO * 511))) * 3;
+      const pos = (linha * largura + coluna) * 4;
+      dados[pos] = tabelaRelevo[i];
+      dados[pos + 1] = tabelaRelevo[i + 1];
+      dados[pos + 2] = tabelaRelevo[i + 2];
+      dados[pos + 3] = 255;
+    }
+  }
+
+  // `putImageData` ignora recorte — ele escreve pixel, não desenha. Por isso o
+  // campo é montado fora e entra por `drawImage`, que respeita o `clip`.
+  const bruto = document.createElement("canvas");
+  bruto.width = largura;
+  bruto.height = altura;
+  bruto.getContext("2d").putImageData(imagem, 0, 0);
+
+  contexto.save();
+  enquadrar();
+  contexto.setTransform(1, 0, 0, 1, 0, 0);   // o recorte fica; a escala, não
+  contexto.drawImage(bruto, 0, 0);
+  contexto.restore();
+}
+
+function ligarCamadas3D() {
+  for (const prefixo of MAPAS_COM_3D) {
+    const caixa = $(`${prefixo}-3d`);
+    if (caixa) caixa.addEventListener("change", () => atualizar3D(prefixo));
+
+    const voltar = $(`${prefixo}-3d-reiniciar`);
+    if (voltar) {
+      voltar.addEventListener("click", () => {
+        if (cenas3D[prefixo]) cenas3D[prefixo].reiniciar();
+      });
+    }
+  }
+
+  // O canvas 3D desenha em pixels de tela, então uma janela redimensionada o
+  // deixaria esticado. O observador refaz a cena no tamanho novo.
+  if (window.ResizeObserver && !observadorDeTamanho3D) {
+    observadorDeTamanho3D = new ResizeObserver(() => {
+      for (const prefixo of MAPAS_COM_3D) {
+        const caixa = $(`${prefixo}-3d`);
+        if (caixa && caixa.checked) ajustarTela3D(prefixo);
+      }
+    });
+    for (const prefixo of MAPAS_COM_3D) {
+      const teatro = $(`teatro-${prefixo}`);
+      if (teatro) observadorDeTamanho3D.observe(teatro);
+    }
+  }
+}
+
+function ajustarTela3D(prefixo) {
+  const tela = $(`${prefixo}-3d-canvas`);
+  const teatro = $(`teatro-${prefixo}`);
+  const cena = cenas3D[prefixo];
+  if (!tela || !teatro || !cena || !teatro.clientWidth) return;
+
+  // Meio caminho entre o pixel do CSS e o do dispositivo. Na resolução cheia
+  // de uma tela retina seriam quatro vezes mais quadriláteros por quadro
+  // durante o arrasto, e o ganho de nitidez não paga isso.
+  const densidade = Math.min(window.devicePixelRatio || 1, 1.5);
+  cena.redimensionar(Math.round(teatro.clientWidth * densidade),
+                     Math.round(teatro.clientHeight * densidade));
+}
+
+/**
+ * Refaz a cena depois que a câmera 2D pousa.
+ *
+ * "Voar até o estado" muda o recorte sem passar por `renderizarSvg`, então sem
+ * isto a cena continuaria mostrando o Brasil inteiro depois de o mapa ter ido
+ * para Minas. O adiamento é necessidade, não economia: o voo dispara um quadro
+ * por vez, e remontar a textura sessenta vezes por segundo travaria a
+ * animação.
+ */
+function agendarRedesenho3D(prefixo) {
+  const caixa = $(`${prefixo}-3d`);
+  if (!caixa || !caixa.checked) return;
+  clearTimeout(relogio3D[prefixo]);
+  relogio3D[prefixo] = setTimeout(() => montarCena3D(prefixo), 220);
+}
+
+function montarCena3D(prefixo) {
+  const tela = $(`${prefixo}-3d-canvas`);
+  const projecao = projecaoDoMapa[`${prefixo}-svg`];
+  if (!tela || !projecao || !dadosDoRelevo) return false;
+
+  const janela = janelaGeografica(prefixo, projecao);
+  if (!janela) return false;
+
+  const cena = cenas3D[prefixo] || (cenas3D[prefixo] = Relevo3D.cena(tela));
+  const comFronteiras = $(`${prefixo}-estados`);
+
+  cena.montar({
+    grade: dadosDoRelevo,
+    caixa: janela.geo,
+    textura: texturaDoMapa(`${prefixo}-svg`, projecao, janela, 640),
+    fronteiras: (comFronteiras && comFronteiras.checked) ? malhaEstados : null,
+    corDaAltitude,
+    aoMudar: () => mostrarEstado3D(prefixo),
+  });
+
+  ajustarTela3D(prefixo);
+  cena.desenhar();
+  mostrarEstado3D(prefixo);
+  return true;
+}
+
+function mostrarEstado3D(prefixo) {
+  const rodape = $(`${prefixo}-3d-nota`);
+  const cena = cenas3D[prefixo];
+  if (!rodape || !cena) return;
+
+  const { giro, inclinacao, exagero } = cena.estado();
+  rodape.textContent =
+    "Arraste para girar e inclinar; a roda do mouse aproxima. "
+    + `Giro ${giro}°, inclinação ${inclinacao}°, altura exagerada ${exagero}× `
+    + "— sem exagero o relevo do país seria uma folha de papel, porque o "
+    + "Brasil tem 4.300 km de largura e 2.995 m de altura máxima. A cor é a "
+    + "mesma do mapa plano: o terreno por baixo, o risco por cima.";
+}
+
+/** Liga ou desliga o modo 3D de um mapa. */
+async function atualizar3D(prefixo) {
+  const caixa = $(`${prefixo}-3d`);
+  const teatro = $(`teatro-${prefixo}`);
+  const rodape = $(`${prefixo}-3d-nota`);
+  const botao = $(`${prefixo}-3d-reiniciar`);
+  if (!caixa || !teatro) return;
+
+  if (!caixa.checked) {
+    teatro.classList.remove("em-3d");
+    if (cenas3D[prefixo]) cenas3D[prefixo].limpar();
+    clearTimeout(relogio3D[prefixo]);
+    if (rodape) rodape.classList.add("oculto");
+    if (botao) botao.classList.add("oculto");
+    // Devolve o vento ao estado em que `mostrarMapa` o deixaria: só o mapa da
+    // previsão tem a camada, e ela só anima quando está em cena.
+    ventosEmCena(prefixo === "mapa");
+    return;
+  }
+
+  const projecao = projecaoDoMapa[`${prefixo}-svg`];
+  if (!projecao) {
+    caixa.checked = false;
+    mostrarAviso("Desenhe o mapa primeiro para vê-lo em 3D.", false);
+    return;
+  }
+
+  rodape.textContent = "Montando o relevo em 3D...";
+  rodape.classList.remove("oculto");
+
+  try {
+    await carregarRelevo();
+    if (!caixa.checked) return;          // desligado enquanto os dados vinham
+    await carregarEstados().catch(() => null);
+  } catch (erro) {
+    caixa.checked = false;
+    rodape.textContent = `Sem 3D: ${erro.message}`;
+    return;
+  }
+
+  teatro.classList.add("em-3d");
+  // Parar é obrigatório, e não zelo: o laço das partículas continuaria rodando
+  // atrás de um mapa que saiu de cena, gastando bateria para desenhar o que
+  // ninguém vê.
+  ventosEmCena(false);
+
+  if (!montarCena3D(prefixo)) {
+    caixa.checked = false;
+    teatro.classList.remove("em-3d");
+    ventosEmCena(prefixo === "mapa");
+    rodape.textContent = "Não foi possível montar a cena 3D.";
+    return;
+  }
+
+  cenas3D[prefixo].ligarControles();
+  if (botao) botao.classList.remove("oculto");
+}
+
 const MAPAS_COM_CAPITAIS = ["consulta", "mapa", "cidade", "ano"];
 
 const capitalPorCodigo = new Map();      // codigo_ibge -> capital
@@ -1884,6 +2699,10 @@ function renderizarSvg(idSvg, idDica, feicoes, porMunicipio, codigoEmFoco = null
   // O redesenho refez o SVG do zero e levou o véu junto. Se havia um estado em
   // destaque, ele volta — trocar o mês não é motivo para perder a escolha.
   aplicarFocoDeEstado(idSvg);
+
+  // Pelo mesmo motivo, as fronteiras e o relevo: eles moram fora deste SVG e
+  // ficaram desenhados contra a projeção anterior.
+  redesenharReferencias(idSvg);
 
   return projecaoDoMapa[idSvg];
 }
@@ -2336,6 +3155,29 @@ function reiniciarCamadas(prefixo) {
     // novo — um mapa de calor do Brasil inteiro em cima de um município.
     atualizarTemperatura(prefixo);
   }
+
+  const relevo = $(`${prefixo}-relevo`);
+  if (relevo) {
+    relevo.checked = false;
+    atualizarRelevo(prefixo);
+  }
+
+  const tresD = $(`${prefixo}-3d`);
+  if (tresD && tresD.checked) {
+    tresD.checked = false;
+    // Sem a chamada o teatro continuaria com a classe `em-3d`, e o mapa plano
+    // ficaria escondido atrás de uma cena que ninguém mais está girando.
+    atualizar3D(prefixo);
+  }
+
+  const estados = $(`${prefixo}-estados`);
+  if (estados) {
+    // Ligada, e não desligada como as camadas de dado: a fronteira do estado é
+    // parte do mapa, não uma informação sobreposta a ele. Quem trocou de mapa
+    // não pediu para deixar de saber em que estado está olhando.
+    estados.checked = true;
+    atualizarEstados(prefixo);
+  }
 }
 
 /** Devolve a câmera ao país inteiro, sem voo e sem estado marcado. */
@@ -2550,6 +3392,10 @@ function aplicarCamera(prefixo, escala, x, y) {
   // sai daqui porque este é o único caminho por onde a câmera passa; o
   // adiamento de quem recebe é que garante um redesenho só, no fim do voo.
   agendarRedesenhoDoCalor(prefixo);
+
+  // A cena 3D enquadra o mesmo recorte da câmera 2D. Pelo mesmo caminho e pelo
+  // mesmo motivo: voar até um estado precisa levar o relevo junto.
+  agendarRedesenho3D(prefixo);
 }
 
 /** Põe o enquadramento guardado de volta, sem animação. */
