@@ -44,6 +44,14 @@
   /* Apaga o que está fora do estado escolhido sem apagá-lo de vez: o resto do
      país ainda precisa ser lido como contexto. */
   --veu-mapa: rgba(7, 13, 27, .72);
+  /* A fronteira dos estados. Não podia ser nenhuma das três cores de risco,
+     nem o ciano do `--foco`, que já quer dizer "este é o estado escolhido".
+     Sobrou o branco — que aqui funciona porque são 27 linhas, e não os 5.570
+     contornos municipais que viravam teia. Para ele aguentar cair tanto sobre
+     o amarelo do risco médio quanto sobre o verde escuro do relevo, a linha
+     vai dobrada: um traço escuro largo por baixo e o branco fino por cima. */
+  --fronteira-uf: #eaf3ff;
+  --fronteira-uf-sombra: rgba(4, 8, 16, .85);
   /* Contorno escuro: sobre o fundo animado, um traço branco entre municípios
      vira uma teia que compete com o próprio dado. */
   --traco-mapa: rgba(8, 11, 16, .75);
@@ -859,6 +867,8 @@ option { background: var(--papel-solido); color: var(--tinta); }
 .teatros svg path { stroke-width: calc(.55 / var(--zoom)); }
 .teatros svg path.foco { stroke-width: calc(2.2 / var(--zoom)); }
 .teatros .capital-contorno { stroke-width: calc(1.6 / var(--zoom)); }
+.teatros .fronteira-uf-sombra { stroke-width: calc(2.9 / var(--zoom)); }
+.teatros .fronteira-uf { stroke-width: calc(1.15 / var(--zoom)); }
 
 .mapa-dica {
   position: absolute;
@@ -898,6 +908,70 @@ option { background: var(--papel-solido); color: var(--tinta); }
   border-radius: 4px;
   display: inline-block;
 }
+
+/* ---------- camada de relevo ---------- */
+/* A única camada que fica ABAIXO do próprio mapa, e não acima dele. Relevo é o
+   chão: chuva, vento e temperatura acontecem sobre ele, e o risco é uma
+   propriedade do município que está em cima dele. Por isso o desenho aqui é o
+   oposto do das outras camadas — em vez de o campo cobrir o mapa, é o mapa que
+   fica translúcido e deixa o terreno aparecer por baixo da sua cor.
+
+   É como qualquer atlas imprime um mapa temático sobre relevo, e resolve de
+   graça o problema que as outras camadas têm de enfrentar: aqui o risco não
+   precisa "sobreviver como contorno", ele continua sendo a mancha de cor. */
+
+.camada-relevo {
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity .3s ease;
+}
+
+.painel .camada-relevo {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.mapa-area.com-relevo .camada-relevo { opacity: 1; }
+
+/* O apagamento mais leve de todos (.34), e por um motivo diferente do das
+   outras camadas: aqui ele não serve para o campo cobrir o mapa, mas para o
+   mapa deixar o terreno passar. Abaixo de ~.25 a cor do risco vira um véu sem
+   força; acima de ~.45 ela chapa o sombreamento e o relevo some. */
+.mapa-area.com-relevo svg path { fill-opacity: .34; }
+.mapa-area.com-relevo svg path.sem-dado { fill-opacity: .1; }
+.mapa-area.com-relevo .capital-contorno { opacity: 1; }
+
+/* Com qualquer campo climático por cima do relevo, quem manda é o apagamento
+   do campo: são duas camadas cheias empilhadas, e devolver força ao mapa
+   embaixo faria três. */
+/* Com um campo climático por cima, quem manda é o apagamento do campo: o
+   relevo está embaixo de tudo e o mapa, no meio, vira contorno de qualquer
+   jeito. */
+.mapa-area.com-relevo.com-chuva svg path { fill-opacity: .28; }
+.mapa-area.com-relevo.com-vento svg path { fill-opacity: .28; }
+.mapa-area.com-relevo.com-temperatura svg path { fill-opacity: .18; }
+
+.legenda-relevo { margin-top: 10px; }
+
+/* Na legenda de altitude as faixas são contínuas, e não categorias soltas:
+   coladas, elas leem como uma escala; separadas, como cinco cores sem ordem. */
+.legenda-relevo { gap: 0 14px; }
+.legenda-relevo .escala-relevo {
+  display: flex;
+  align-items: center;
+  gap: 0;
+}
+.legenda-relevo .escala-relevo i {
+  width: 26px;
+  height: 11px;
+  border-radius: 0;
+}
+.legenda-relevo .escala-relevo i:first-child { border-radius: 3px 0 0 3px; }
+.legenda-relevo .escala-relevo i:last-child { border-radius: 0 3px 3px 0; }
 
 /* ---------- camada de temperatura (o mapa de calor) ---------- */
 /* Fica ABAIXO da chuva e do vento, e o z-index não é detalhe: temperatura é o
@@ -1096,6 +1170,36 @@ option { background: var(--papel-solido); color: var(--tinta); }
 /* Muito ampliado, o nome da capital vira um letreiro atravessado na tela e
    esconde justamente o município que a câmera foi buscar. */
 .teatro.ampliado .camada-capitais { display: none; }
+
+/* ---------- camada das fronteiras dos estados ---------- */
+/* Acima dos campos climáticos, abaixo das capitais. É uma camada de
+   referência, não de dado: some debaixo de chuva ou de calor e deixa de servir
+   para o que existe, que é saber de que estado é a mancha que se está olhando. */
+
+.camada-estados { z-index: 3; pointer-events: none; }
+
+.painel .camada-estados {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.camada-estados path { fill: none; }
+
+/* O seletor precisa dos dois níveis: `.mapa-area svg path` já pinta todo
+   caminho de mapa com o cinza das divisas municipais, e uma classe sozinha
+   perde dela na conta de especificidade do CSS. */
+.camada-estados path.fronteira-uf-sombra {
+  stroke: var(--fronteira-uf-sombra);
+  stroke-linejoin: round;
+}
+
+.camada-estados path.fronteira-uf {
+  stroke: var(--fronteira-uf);
+  stroke-linejoin: round;
+}
 
 .capital-contorno {
   fill: none;
@@ -1518,4 +1622,53 @@ option { background: var(--papel-solido); color: var(--tinta); }
     animation-iteration-count: 1 !important;
     transition-duration: .01ms !important;
   }
+}
+
+/* Nos painéis não há câmera, então não há `--zoom` para dividir: as fronteiras
+   têm espessura fixa. Um pouco mais finas que nos teatros, porque ali o mapa
+   é de um município e dos vizinhos — a divisa estadual, quando aparece, é
+   contexto de canto de tela e não o assunto. */
+.painel .fronteira-uf-sombra { stroke-width: 2.4; }
+.painel .fronteira-uf { stroke-width: .95; }
+
+/* ---------- modo 3D ---------- */
+/* A tela do 3D fica no teatro e FORA da câmera, como a do vento e pelo mesmo
+   motivo: ela desenha em pixels de tela, e dentro da câmera seria um bitmap
+   esticado pelo zoom. Aqui ela É a cena inteira — a câmera 2D sai do ar
+   enquanto o modo está ligado. */
+
+.camada-3d {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 2;
+  display: none;
+  cursor: grab;
+  /* Sem isto, arrastar no celular rola a página em vez de girar a cena. */
+  touch-action: none;
+}
+
+.camada-3d.arrastando { cursor: grabbing; }
+
+.teatro.em-3d .camada-3d { display: block; }
+
+/* O mapa plano e tudo que vive sobre ele saem de cena juntos. A dica de risco
+   depende do SVG para saber sobre qual município o mouse está, e o SVG não
+   está mais lá. */
+.teatro.em-3d .camera,
+.teatro.em-3d .camada-vento,
+.teatro.em-3d .mapa-dica,
+.teatro.em-3d .botao-voltar-brasil { display: none; }
+
+.botao-3d {
+  margin-top: 10px;
+  width: 100%;
+}
+
+.nota-3d {
+  margin-top: 10px;
+  font-size: .78rem;
+  line-height: 1.5;
 }

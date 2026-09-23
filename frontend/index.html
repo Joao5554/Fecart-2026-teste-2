@@ -139,6 +139,10 @@
           <input type="checkbox" id="mapa-capitais" checked>
           <span>Destacar as capitais</span>
         </label>
+        <label class="camada-opcao" for="mapa-estados">
+          <input type="checkbox" id="mapa-estados" checked>
+          <span>Destacar as fronteiras dos estados</span>
+        </label>
         <label class="camada-opcao" for="mapa-chuva">
           <input type="checkbox" id="mapa-chuva">
           <span>Camada: chuva medida (INMET)</span>
@@ -151,6 +155,17 @@
           <input type="checkbox" id="mapa-temperatura">
           <span>Camada: mapa de calor — temperatura (INMET)</span>
         </label>
+        <label class="camada-opcao" for="mapa-relevo">
+          <input type="checkbox" id="mapa-relevo">
+          <span>Camada: relevo — altitude do terreno</span>
+        </label>
+        <label class="camada-opcao" for="mapa-3d">
+          <input type="checkbox" id="mapa-3d">
+          <span>Ver em 3D — o relevo inclinado</span>
+        </label>
+        <button type="button" class="botao-secundario botao-3d oculto"
+                id="mapa-3d-reiniciar">↺ Endireitar a cena</button>
+        <p id="mapa-3d-nota" class="ajuda nota-3d oculto"></p>
       </div>
 
       <!-- Controles do mapa histórico -->
@@ -180,6 +195,10 @@
           <input type="checkbox" id="ano-capitais" checked>
           <span>Destacar as capitais</span>
         </label>
+        <label class="camada-opcao" for="ano-estados">
+          <input type="checkbox" id="ano-estados" checked>
+          <span>Destacar as fronteiras dos estados</span>
+        </label>
         <label class="camada-opcao" for="ano-chuva">
           <input type="checkbox" id="ano-chuva">
           <span>Camada: chuva medida (acumulado do ano)</span>
@@ -188,6 +207,17 @@
           <input type="checkbox" id="ano-temperatura">
           <span>Camada: mapa de calor — temperatura (média do ano)</span>
         </label>
+        <label class="camada-opcao" for="ano-relevo">
+          <input type="checkbox" id="ano-relevo">
+          <span>Camada: relevo — altitude do terreno</span>
+        </label>
+        <label class="camada-opcao" for="ano-3d">
+          <input type="checkbox" id="ano-3d">
+          <span>Ver em 3D — o relevo inclinado</span>
+        </label>
+        <button type="button" class="botao-secundario botao-3d oculto"
+                id="ano-3d-reiniciar">↺ Endireitar a cena</button>
+        <p id="ano-3d-nota" class="ajuda nota-3d oculto"></p>
 
         <div id="ano-numeros" class="numeros-ano oculto"></div>
       </div>
@@ -201,12 +231,16 @@
       <!-- Mapa da previsão -->
       <div class="teatro mapa-area ativo" id="teatro-mapa">
         <div class="camera" id="camera-mapa">
+          <canvas id="mapa-relevo-canvas" class="camada-relevo"
+                  width="1000" height="820" aria-hidden="true"></canvas>
           <svg id="mapa-svg" viewBox="0 0 1000 820" role="img"
                aria-label="Mapa de risco por município"></svg>
           <canvas id="mapa-temperatura-canvas" class="camada-temperatura"
                   width="1000" height="820" aria-hidden="true"></canvas>
           <canvas id="mapa-chuva-canvas" class="camada-chuva"
                   width="1000" height="820" aria-hidden="true"></canvas>
+          <svg id="mapa-estados-svg" class="camada-estados"
+               viewBox="0 0 1000 820" aria-hidden="true"></svg>
           <svg id="mapa-capitais-svg" class="camada-capitais"
                viewBox="0 0 1000 820" aria-hidden="true"></svg>
         </div>
@@ -218,6 +252,9 @@
              desenho que recebe a transformação da câmera — as partículas
              saem nítidas em qualquer aproximação. -->
         <canvas id="mapa-vento-canvas" class="camada-vento"
+                aria-hidden="true"></canvas>
+
+        <canvas id="mapa-3d-canvas" class="camada-3d"
                 aria-hidden="true"></canvas>
 
         <div id="mapa-dica" class="mapa-dica oculto"></div>
@@ -234,6 +271,9 @@
           <div id="mapa-temperatura-legenda"
                class="mapa-legenda legenda-temperatura oculto"></div>
           <p id="mapa-temperatura-nota" class="nota-chuva oculto"></p>
+          <div id="mapa-relevo-legenda"
+               class="mapa-legenda legenda-relevo oculto"></div>
+          <p id="mapa-relevo-nota" class="nota-chuva oculto"></p>
         </div>
 
         <button type="button" class="botao-voltar-brasil oculto"
@@ -243,15 +283,22 @@
       <!-- Mapa do histórico -->
       <div class="teatro mapa-area" id="teatro-ano">
         <div class="camera" id="camera-ano">
+          <canvas id="ano-relevo-canvas" class="camada-relevo"
+                  width="1000" height="820" aria-hidden="true"></canvas>
           <svg id="ano-svg" viewBox="0 0 1000 820" role="img"
                aria-label="Mapa das ocorrências registradas no ano"></svg>
           <canvas id="ano-temperatura-canvas" class="camada-temperatura"
                   width="1000" height="820" aria-hidden="true"></canvas>
           <canvas id="ano-chuva-canvas" class="camada-chuva"
                   width="1000" height="820" aria-hidden="true"></canvas>
+          <svg id="ano-estados-svg" class="camada-estados"
+               viewBox="0 0 1000 820" aria-hidden="true"></svg>
           <svg id="ano-capitais-svg" class="camada-capitais"
                viewBox="0 0 1000 820" aria-hidden="true"></svg>
         </div>
+        <canvas id="ano-3d-canvas" class="camada-3d"
+                aria-hidden="true"></canvas>
+
         <div id="ano-dica" class="mapa-dica oculto"></div>
 
         <div class="teatro-topo">
@@ -264,6 +311,9 @@
           <div id="ano-temperatura-legenda"
                class="mapa-legenda legenda-temperatura oculto"></div>
           <p id="ano-temperatura-nota" class="nota-chuva oculto"></p>
+          <div id="ano-relevo-legenda"
+               class="mapa-legenda legenda-relevo oculto"></div>
+          <p id="ano-relevo-nota" class="nota-chuva oculto"></p>
         </div>
 
         <button type="button" class="botao-voltar-brasil oculto"
@@ -320,6 +370,10 @@
           <input type="checkbox" id="consulta-capitais" checked>
           <span>Destacar as capitais</span>
         </label>
+        <label class="camada-opcao" for="consulta-estados">
+          <input type="checkbox" id="consulta-estados" checked>
+          <span>Destacar as fronteiras dos estados</span>
+        </label>
         <label class="camada-opcao" for="consulta-chuva">
           <input type="checkbox" id="consulta-chuva">
           <span>Camada: chuva medida (INMET)</span>
@@ -332,8 +386,14 @@
           <input type="checkbox" id="consulta-temperatura">
           <span>Camada: mapa de calor — temperatura (INMET)</span>
         </label>
+        <label class="camada-opcao" for="consulta-relevo">
+          <input type="checkbox" id="consulta-relevo">
+          <span>Camada: relevo — altitude do terreno</span>
+        </label>
 
         <div class="mapa-area">
+          <canvas id="consulta-relevo-canvas" class="camada-relevo"
+                  width="640" height="460" aria-hidden="true"></canvas>
           <svg id="consulta-svg" viewBox="0 0 640 460" role="img"
                aria-label="Mapa do município consultado"></svg>
           <canvas id="consulta-temperatura-canvas" class="camada-temperatura"
@@ -342,6 +402,8 @@
                   width="640" height="460" aria-hidden="true"></canvas>
           <canvas id="consulta-vento-canvas" class="camada-vento"
                   width="640" height="460" aria-hidden="true"></canvas>
+          <svg id="consulta-estados-svg" class="camada-estados"
+               viewBox="0 0 640 460" aria-hidden="true"></svg>
           <svg id="consulta-capitais-svg" class="camada-capitais"
                viewBox="0 0 640 460" aria-hidden="true"></svg>
           <div id="consulta-dica" class="mapa-dica oculto"></div>
@@ -355,6 +417,9 @@
         <div id="consulta-temperatura-legenda"
              class="mapa-legenda legenda-temperatura oculto"></div>
         <p id="consulta-temperatura-nota" class="nota-chuva oculto"></p>
+        <div id="consulta-relevo-legenda"
+             class="mapa-legenda legenda-relevo oculto"></div>
+        <p id="consulta-relevo-nota" class="nota-chuva oculto"></p>
       </section>
 
       <!-- O ano inteiro -->
@@ -380,6 +445,10 @@
           <input type="checkbox" id="cidade-capitais" checked>
           <span>Destacar as capitais</span>
         </label>
+        <label class="camada-opcao" for="cidade-estados">
+          <input type="checkbox" id="cidade-estados" checked>
+          <span>Destacar as fronteiras dos estados</span>
+        </label>
         <label class="camada-opcao" for="cidade-chuva">
           <input type="checkbox" id="cidade-chuva">
           <span>Camada: chuva medida (INMET)</span>
@@ -392,8 +461,14 @@
           <input type="checkbox" id="cidade-temperatura">
           <span>Camada: mapa de calor — temperatura (INMET)</span>
         </label>
+        <label class="camada-opcao" for="cidade-relevo">
+          <input type="checkbox" id="cidade-relevo">
+          <span>Camada: relevo — altitude do terreno</span>
+        </label>
 
         <div class="mapa-area">
+          <canvas id="cidade-relevo-canvas" class="camada-relevo"
+                  width="640" height="460" aria-hidden="true"></canvas>
           <svg id="cidade-svg" viewBox="0 0 640 460" role="img"
                aria-label="Mapa da cidade e da região"></svg>
           <canvas id="cidade-temperatura-canvas" class="camada-temperatura"
@@ -402,6 +477,8 @@
                   width="640" height="460" aria-hidden="true"></canvas>
           <canvas id="cidade-vento-canvas" class="camada-vento"
                   width="640" height="460" aria-hidden="true"></canvas>
+          <svg id="cidade-estados-svg" class="camada-estados"
+               viewBox="0 0 640 460" aria-hidden="true"></svg>
           <svg id="cidade-capitais-svg" class="camada-capitais"
                viewBox="0 0 640 460" aria-hidden="true"></svg>
           <div id="cidade-dica" class="mapa-dica oculto"></div>
@@ -415,6 +492,9 @@
         <div id="cidade-temperatura-legenda"
              class="mapa-legenda legenda-temperatura oculto"></div>
         <p id="cidade-temperatura-nota" class="nota-chuva oculto"></p>
+        <div id="cidade-relevo-legenda"
+             class="mapa-legenda legenda-relevo oculto"></div>
+        <p id="cidade-relevo-nota" class="nota-chuva oculto"></p>
         <p id="cidade-setores" class="ajuda"></p>
       </section>
 
@@ -520,6 +600,7 @@
 
 <script src="cenario.js"></script>
 <script src="vento.js"></script>
+<script src="relevo3d.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
