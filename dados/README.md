@@ -284,6 +284,68 @@ porque o vento ali gira a cada frente que passa.
 Sem esse número, um alísio firme e um mês de vento caótico desenhariam
 exatamente a mesma seta.
 
+## Temperatura (a camada de mapa de calor)
+
+`dados/temperatura_estacoes.csv` — uma linha por estação do INMET, por ano e
+por mês, com a temperatura média, a máxima e a mínima daquele mês.
+
+```
+python dados/preparar_temperatura.py
+```
+
+O script baixa os mesmos ZIPs anuais que a camada de vento usa (padrão: 2021 a
+2025) — se o vento já foi preparado, não baixa nada de novo — e lê a coluna de
+temperatura horária de cada estação. O CSV final tem 1,8 MB, com 603 estações,
+e vai versionado.
+
+### Por que ano E mês, diferente do vento
+
+O vento guarda só doze linhas por estação, porque direção não tem sentido fora
+de um mês. Temperatura é média, e média de médias continua sendo média — então
+guardar ano e mês deixa o mesmo arquivo responder às três perguntas dos mapas:
+
+| Pedido | Resposta |
+| --- | --- |
+| `mes`, sem `ano` | O mês **típico**, apurado sobre todos os anos baixados |
+| `ano`, sem `mes` | A média daquele ano |
+| `ano` e `mes` | Aquele mês daquele ano |
+
+### Máxima e mínima são médias, não picos
+
+A "máxima" de um mês é a **média das máximas diárias**, não o pico absoluto. É
+a definição climatológica, e é a única robusta: o pico absoluto é um único
+registro, e um sensor com uma leitura maluca viraria "a máxima do mês". A média
+de trinta máximas diárias absorve o erro de uma delas.
+
+### A ordem das três etapas do preparo
+
+1. Descartar sensor com defeito, linha a linha (fora de −25 a 55 °C).
+2. Agrupar, com média **ponderada pelas horas medidas**.
+3. Só então cortar o mês mal medido (menos de 240 horas).
+
+Cortar antes de agrupar é o erro sutil: o mesmo mês da mesma estação aparece
+em duas linhas sempre que o ano foi baixado solto **e** dentro de um ZIP, e
+duas metades de 150 horas seriam jogadas fora separadamente — quando juntas
+fazem um mês de 300 horas, bem medido. O teste
+[`test_a_media_de_linhas_repetidas_e_ponderada_pelas_horas`](../testes/test_clima_temperatura.py)
+protege esse ponto.
+
+### O que a camada não corrige: a altitude
+
+O ar esfria cerca de **6,5 °C a cada 1.000 m**, e a interpolação entre
+estações não sabe onde estão as serras. Perto de cada estação o número é o
+medido; entre duas, o desenho trata o relevo como uma rampa.
+
+É a limitação principal desta camada, e ela está dita no rodapé da própria
+camada, na tela. Corrigir de verdade exigiria um modelo de elevação do terreno
+(TOPODATA/INPE, listado abaixo): com uma grade de altitude, a conta certa é
+reduzir cada estação ao nível do mar, interpolar esse campo — que é liso, e
+governado por latitude e continentalidade — e devolver o lapso usando a
+altitude real de cada ponto.
+
+O efeito é visível e é bom sinal de que os dados estão certos: a estação mais
+fria do país em julho é **Itatiaia (RJ), a 2.450 m** — não uma estação gaúcha.
+
 ## Outras fontes, para os próximos passos
 
 - **INMET (BDMEP)**: <https://bdmep.inmet.gov.br> — chuva, temperatura, umidade

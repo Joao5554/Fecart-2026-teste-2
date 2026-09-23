@@ -891,6 +891,229 @@ def vento_predominante(mes: int | None = None):
     }
 
 
+# --------------------------------------------------------------------------
+# Camada de temperatura (o mapa de calor)
+# --------------------------------------------------------------------------
+# A temperatura do ar medida pelas estações automáticas do INMET, preparada
+# por `dados/preparar_temperatura.py`.
+#
+# É o mapa de calor propriamente dito: um campo contínuo, que cobre o país
+# inteiro, ao contrário da chuva (que é intensidade e some onde é pouca) e do
+# vento (que é direção). Por isso ele é desenhado cheio, como no Windy.
+#
+# O que ela NÃO é: previsão do tempo. Os três modos abaixo devolvem médias de
+# medições passadas, e a resposta sempre diz de que período é o número.
+
+ARQUIVO_TEMPERATURA = RAIZ / "dados" / "temperatura_estacoes.csv"
+
+temperatura_estacoes: pd.DataFrame | None = None
+
+# A escala do Windy, ancorada no que o Brasil mede de fato: de 0 °C (a geada
+# da serra catarinense em julho) a 40 °C (o sertão em novembro). Fora dessa
+# faixa o país quase não vai, e uma escala que fosse de -40 a 50 gastaria
+# metade das cores em temperaturas que nunca aparecem — o mapa inteiro sairia
+# na mesma tonalidade de verde.
+#
+# A ordem das cores é a convenção meteorológica, e não uma escolha estética:
+# violeta e azul para o frio, verde para o ameno, amarelo e laranja para o
+# quente, vermelho e vinho para o calor extremo. Quem já viu um mapa de
+# temperatura lê este sem legenda.
+ESCALA_TEMPERATURA = [
+    (0, 5, "#6C4FA3", "até 5 °C"),
+    (5, 10, "#3B5FC0", "5 a 10"),
+    (10, 15, "#2E8FD0", "10 a 15"),
+    (15, 20, "#35B6A8", "15 a 20"),
+    (20, 24, "#6FBF4A", "20 a 24"),
+    (24, 28, "#E8CF3A", "24 a 28"),
+    (28, 32, "#EFA02A", "28 a 32"),
+    (32, 36, "#E0561F", "32 a 36"),
+    (36, None, "#B92318", "mais de 36"),
+]
+
+# Quanto o ar esfria a cada metro de altitude, no ar livre e em média. É a
+# taxa de lapso padrão da atmosfera: 6,5 °C por quilômetro. Não é usada para
+# corrigir nada — é informada na resposta para que a tela possa explicar por
+# que a serra aparece fria no meio de uma região quente.
+LAPSO_TERMICO_C_POR_M = 0.0065
+
+# As três grandezas que a base guarda, e como cada uma se chama para quem lê.
+#
+# Nenhuma descrição menciona "mês": a mesma grandeza serve ao mês típico, ao
+# ano inteiro e a um mês específico, e o período já vem dito no campo ao lado.
+GRANDEZAS_TEMPERATURA = {
+    "media": ("temperatura_media_c", "média das medições"),
+    "maxima": ("temperatura_max_c", "média das máximas diárias"),
+    "minima": ("temperatura_min_c", "média das mínimas diárias"),
+}
+
+
+def carregar_temperatura() -> bool:
+    """Carrega a temperatura medida por cada estação do INMET."""
+    global temperatura_estacoes
+
+    if not ARQUIVO_TEMPERATURA.exists():
+        temperatura_estacoes = None
+        return False
+
+    temperatura_estacoes = pd.read_csv(ARQUIVO_TEMPERATURA)
+    return True
+
+
+carregar_temperatura()
+
+
+@app.get("/clima/temperatura", tags=["clima"])
+def temperatura_medida(
+    ano: int | None = None,
+    mes: int | None = None,
+    grandeza: str = "media",
+):
+    """
+    Temperatura do ar medida pelas estações do INMET — o mapa de calor.
+
+    São três perguntas diferentes, e o que muda entre elas é só quais linhas
+    entram na média:
+
+    - **`mes`, sem `ano`** — o mês TÍPICO, apurado sobre todos os anos
+      medidos. É o que os mapas de previsão pedem: eles estimam o risco de um
+      mês que ainda não aconteceu, e a temperatura de um mês futuro não
+      existe. Pedir "fevereiro" devolve o fevereiro de sempre.
+    - **`ano`, sem `mes`** — a média do ano inteiro. É o que o mapa do
+      histórico pede, que escolhe um ano.
+    - **`ano` e `mes`** — aquele mês daquele ano, exatamente.
+
+    `grandeza` escolhe entre `media`, `maxima` e `minima`. Máxima e mínima são
+    médias das máximas e das mínimas DIÁRIAS, não o pico absoluto do período:
+    o pico é um registro só, e um sensor com defeito viraria "a máxima".
+    """
+    if temperatura_estacoes is None:
+        raise HTTPException(
+            status_code=503,
+            detail=("Dados de temperatura não preparados "
+                    "(dados/temperatura_estacoes.csv).\n"
+                    "Rode: python dados/preparar_temperatura.py"),
+        )
+
+    if grandeza not in GRANDEZAS_TEMPERATURA:
+        raise HTTPException(
+            status_code=422,
+            detail=(f"grandeza precisa ser uma de "
+                    f"{', '.join(GRANDEZAS_TEMPERATURA)}"),
+        )
+
+    if mes is not None and not 1 <= mes <= 12:
+        raise HTTPException(status_code=422, detail="mês precisa estar entre 1 e 12")
+
+    coluna, descricao_grandeza = GRANDEZAS_TEMPERATURA[grandeza]
+
+    primeiro = int(temperatura_estacoes["ano"].min())
+    ultimo = int(temperatura_estacoes["ano"].max())
+
+    recorte = temperatura_estacoes
+    if ano is not None:
+        recorte = recorte[recorte["ano"] == ano]
+    if mes is not None:
+        recorte = recorte[recorte["mes"] == mes]
+
+    if recorte.empty:
+        if ano is not None and mes is not None:
+            quando = f"{MESES_POR_EXTENSO[mes - 1]} de {ano}"
+        elif ano is not None:
+            quando = str(ano)
+        else:
+            quando = MESES_POR_EXTENSO[mes - 1]
+        raise HTTPException(
+            status_code=404,
+            detail=(f"O INMET não tem medição de temperatura para {quando}. "
+                    f"A base preparada cobre {primeiro}–{ultimo}."),
+        )
+
+    # Uma estação tem várias linhas no recorte sempre que o pedido abrange
+    # mais de um mês (o ano inteiro, ou o mesmo mês em vários anos). A média
+    # é ponderada pelas horas medidas: um mês em que o termômetro só
+    # funcionou uma semana não pode pesar como um mês completo.
+    trabalho = recorte.copy()
+    trabalho["_peso"] = trabalho["horas_medidas"].clip(lower=1)
+    trabalho["_valor"] = trabalho[coluna] * trabalho["_peso"]
+
+    por_estacao = (
+        trabalho.groupby(["estacao", "uf"], as_index=False)
+        .agg(latitude=("latitude", "first"), longitude=("longitude", "first"),
+             altitude=("altitude", "first"),
+             _valor=("_valor", "sum"), _peso=("_peso", "sum"),
+             meses_medidos=("mes", "count"),
+             anos_medidos=("ano", "nunique"))
+    )
+    por_estacao["temperatura_c"] = por_estacao["_valor"] / por_estacao["_peso"]
+    por_estacao = por_estacao[por_estacao["temperatura_c"].notna()]
+
+    if por_estacao.empty:
+        raise HTTPException(
+            status_code=404,
+            detail="Nenhuma estação com temperatura válida no período pedido.",
+        )
+
+    # O período entra numa frase ("Temperatura do ar em ..."), então ele é
+    # escrito para caber ali: "2024", e não "o ano de 2024", que daria
+    # "em o ano de 2024". É o mesmo formato que /clima/chuva já usa.
+    if ano is not None and mes is not None:
+        periodo = f"{MESES_POR_EXTENSO[mes - 1]} de {ano}"
+    elif ano is not None:
+        periodo = str(ano)
+    elif mes is not None:
+        periodo = (f"{MESES_POR_EXTENSO[mes - 1]} "
+                   f"(média de {primeiro} a {ultimo})")
+    else:
+        periodo = f"{primeiro} a {ultimo}"
+
+    mais_quente = por_estacao.loc[por_estacao["temperatura_c"].idxmax()]
+    mais_fria = por_estacao.loc[por_estacao["temperatura_c"].idxmin()]
+
+    def extremo(linha) -> dict:
+        return {
+            "estacao": str(linha.estacao),
+            "uf": str(linha.uf),
+            "temperatura_c": round(float(linha.temperatura_c), 1),
+        }
+
+    return {
+        "ano": ano,
+        "mes": mes,
+        "grandeza": grandeza,
+        "descricao_grandeza": descricao_grandeza,
+        "periodo": periodo,
+        "unidade": "°C",
+        "cobertura": {"primeiro_ano": primeiro, "ultimo_ano": ultimo},
+        "total_estacoes": int(len(por_estacao)),
+        "temperatura_media_c": round(float(por_estacao["temperatura_c"].mean()), 1),
+        "temperatura_minima_c": round(float(por_estacao["temperatura_c"].min()), 1),
+        "temperatura_maxima_c": round(float(por_estacao["temperatura_c"].max()), 1),
+        "mais_quente": extremo(mais_quente),
+        "mais_fria": extremo(mais_fria),
+        "lapso_c_por_m": LAPSO_TERMICO_C_POR_M,
+        "escala": [
+            {"de": de, "ate": ate, "cor": cor, "rotulo": rotulo}
+            for de, ate, cor, rotulo in ESCALA_TEMPERATURA
+        ],
+        "estacoes": [
+            {
+                "estacao": linha.estacao,
+                "uf": linha.uf,
+                "lat": float(linha.latitude),
+                "lon": float(linha.longitude),
+                # A altitude vai junto porque é ela que explica a mancha fria
+                # dentro de uma região quente. Sem ela, a serra parece erro.
+                "altitude_m": (None if pd.isna(linha.altitude)
+                               else round(float(linha.altitude))),
+                "temperatura_c": round(float(linha.temperatura_c), 1),
+                "meses_medidos": int(linha.meses_medidos),
+                "anos_medidos": int(linha.anos_medidos),
+            }
+            for linha in por_estacao.itertuples()
+        ],
+    }
+
+
 @app.post("/prever/municipio", tags=["consulta"])
 def prever_municipio(consulta: ConsultaMunicipio):
     """

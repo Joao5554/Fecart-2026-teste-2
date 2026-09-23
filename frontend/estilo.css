@@ -899,6 +899,46 @@ option { background: var(--papel-solido); color: var(--tinta); }
   display: inline-block;
 }
 
+/* ---------- camada de temperatura (o mapa de calor) ---------- */
+/* Fica ABAIXO da chuva e do vento, e o z-index não é detalhe: temperatura é o
+   único campo que cobre o país inteiro sem buraco. Por cima das outras, ela
+   seria uma tinta opaca que apagaria as duas; por baixo, vira o fundo sobre o
+   qual a chuva e o vento continuam legíveis — que é exatamente a ordem em que
+   o Windy empilha as dele. */
+
+.camada-temperatura {
+  z-index: 1;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity .3s ease;
+}
+
+.painel .camada-temperatura {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.mapa-area.com-temperatura .camada-temperatura { opacity: 1; }
+
+/* O apagamento mais forte de todos (.18 contra os .28 da chuva). A camada de
+   calor é cheia por definição — não há célula transparente onde o mapa possa
+   reaparecer, como acontece na chuva fraca —, então o risco embaixo só
+   sobrevive como contorno. É o que se quer: a leitura aqui é a do campo
+   térmico, e o mapa por baixo serve de referência geográfica. */
+.mapa-area.com-temperatura svg path { fill-opacity: .18; }
+.mapa-area.com-temperatura svg path.sem-dado { fill-opacity: .1; }
+.mapa-area.com-temperatura .capital-contorno { opacity: 1; }
+
+/* Com a chuva por cima do calor, quem manda é o apagamento do calor: são duas
+   escalas cheias empilhadas, e devolver força ao mapa embaixo faria três. */
+.mapa-area.com-temperatura.com-chuva svg path { fill-opacity: .18; }
+.mapa-area.com-temperatura.com-vento svg path { fill-opacity: .18; }
+
+.legenda-temperatura { margin-top: 10px; }
+
 /* ---------- camada de chuva ---------- */
 
 .camada-chuva {

@@ -605,6 +605,65 @@ Fortaleza e Natal. Perto de 0, ele girou tanto que a predominante é quase um
 empate, como no Sul em julho. Sem esse número, um alísio firme e um mês de
 vento caótico desenhariam a mesma seta.
 
+**Camada de temperatura — o mapa de calor.** O terceiro interruptor pinta o
+campo térmico do país, do jeito que o Windy pinta o dele: violeta e azul para
+o frio, verde para o ameno, amarelo e laranja para o quente, vermelho para o
+extremo. É a convenção meteorológica, e não uma escolha estética — quem já viu
+um mapa de temperatura lê este sem legenda. Os números vêm das mesmas estações
+automáticas do INMET, reduzidas por `dados/preparar_temperatura.py`.
+
+Ela está nos **quatro mapas**, e responde a três perguntas diferentes conforme
+quem pergunta:
+
+| Quem pede | O que recebe |
+| --- | --- |
+| Os três mapas de previsão (pedem só o mês) | O mês **típico**, apurado sobre 2021–2025 |
+| O mapa do histórico (pede um ano) | A média daquele ano, de fato |
+| A API, com ano e mês | Aquele mês daquele ano, exatamente |
+
+A diferença para o vento é que aqui a média de vários anos continua
+significando alguma coisa: temperatura é média, e média de médias é média. A
+direção predominante de um ano inteiro não descreve mês nenhum — por isso o
+vento não está no mapa do histórico, e a temperatura está.
+
+Quatro decisões separam este desenho de uma interpolação qualquer:
+
+- **Ela é cheia, e fica por baixo das outras duas.** Chuva é *intensidade*:
+  existe "não choveu", e onde chove pouco a camada se apaga de propósito.
+  Temperatura não tem zero nem ausência — todo ponto do país tem uma, sempre —,
+  então a opacidade é constante, e apagá-la onde faz frio diria que ali falta
+  dado. Por ser o único campo sem buraco, ela é o fundo sobre o qual a chuva e
+  o vento continuam legíveis; por cima, seria tinta opaca que apagaria as duas.
+- **Sem olho de boi e sem circunferência.** São dois artefatos que aparecem no
+  desenho e não nos números. Sem um piso de distância, o peso da interpolação
+  vai a infinito em cima de cada estação e cada uma vira uma bolha chapada com
+  anel em volta. Sem um corte suave, o limite do alcance vira uma
+  circunferência visível — e num campo cheio não há transparência que a
+  disfarce. O piso resolve o primeiro; uma gaussiana que leva o peso a quase
+  zero na borda do raio resolve o segundo.
+- **O índice espacial, e o que ele custou para valer a pena.** Comparar cada
+  célula da grade com todas as estações são 14 milhões de distâncias por
+  desenho, quase todas resultando em "longe demais". Distribuir as estações em
+  caixas do tamanho do raio derruba isso para 2,6 milhões — mas a primeira
+  versão **empatou** com a varredura burra, porque juntar as nove caixas
+  vizinhas alocava um array por célula, e alocar custa o que se economizou.
+  Guardando a lista por caixa, as milhares de células que caem na mesma caixa
+  reaproveitam a mesma lista, e aí o ganho aparece: ~24 ms contra ~46 ms, com
+  uma grade mais fina que a da chuva.
+- **Ela não corrige a altitude, e diz isso.** O ar esfria cerca de 6,5 °C a
+  cada 1.000 m, e a interpolação não sabe onde estão as serras: entre uma
+  estação de praia e uma de montanha, ela desenha a transição como se o relevo
+  fosse uma rampa. Perto de cada estação o número é o medido; longe de todas, é
+  estimativa — e é o que o rodapé da camada explica. Corrigir de verdade
+  exigiria um modelo de elevação do terreno, anotado como próximo passo em
+  `dados/README.md`.
+
+O dado também serve de teste de sanidade do próprio encanamento: a estação mais
+fria do Brasil em julho é **Itatiaia (RJ), a 2.450 m, com 5,6 °C** — seguida de
+Morro da Igreja, São Joaquim e Campos do Jordão —, e a mais quente é
+**Manaus, com 28,6 °C**. Se latitude e longitude entrarem trocadas em qualquer
+ponto do caminho, esse ranking desmonta, e nenhuma checagem de formato notaria.
+
 **O município no mapa, dentro da consulta.** Logo abaixo do formulário, o
 contorno real do município consultado, ampliado e pintado com o risco previsto
 para o mês escolhido — a mesma resposta do selo, no lugar em que a pergunta foi

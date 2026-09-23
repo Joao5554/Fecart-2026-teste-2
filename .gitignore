@@ -20,6 +20,10 @@ __pycache__/
 #  - vento_estacoes.csv (0,6 MB) VAI, pela mesma razão que o anterior: é o que
 #    a camada de vento consulta em execução, e reconstruí-lo custa 470 MB de
 #    download. É pequeno porque já vem reduzido a uma linha por estação e mês;
+#  - temperatura_estacoes.csv (1,8 MB) VAI, pela mesma razão: é o que o mapa
+#    de calor consulta em execução, e sai dos mesmos ZIPs do vento. Guarda
+#    ano e mês (e não só o mês, como o vento), porque média de médias continua
+#    sendo média — é o que deixa o mesmo arquivo servir ao mapa do histórico;
 #  - clima_mensal.csv (102 MB) fica de fora: passa do limite de 100 MB do
 #    GitHub, só serve para treinar e sai do mesmo comando que o anterior;
 #  - dados.csv (24 MB) fica de fora: só serve para treinar e é regenerável;
@@ -29,6 +33,7 @@ dados/*.csv
 !dados/ocorrencias.csv
 !dados/clima_estacoes.csv
 !dados/vento_estacoes.csv
+!dados/temperatura_estacoes.csv
 dados/bruto/
 
 # Registro de procedência do CSV local: descreve o arquivo de dados de cada

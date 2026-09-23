@@ -442,18 +442,192 @@ def test_a_chuva_e_recortada_no_contorno_do_mapa():
     assert "contexto.clip(" in js
 
 
-def test_a_escala_de_chuva_e_continua():
+def test_a_escala_de_cor_e_continua():
     """
-    Pintar faixa a faixa desenha degraus onde a chuva é contínua, e degrau no
+    Pintar faixa a faixa desenha degraus onde o campo é contínuo, e degrau no
     meio da mancha parece fronteira de dado. As cores são as mesmas da
     legenda; o que muda é que o valor entre duas faixas é interpolado.
+
+    A rampa é a mesma para a chuva e para o mapa de calor: as duas escalas
+    chegam da API no mesmo formato, e a conta não depende da unidade.
     """
     js = _js()
-    assert "rampaDeChuva" in js
-    corpo = _corpo_da_funcao("function corDaChuva(")
+    assert "rampaDeCores" in js
+    corpo = _corpo_da_funcao("function corNaRampa(")
     assert "depois.cor[c] - antes.cor[c]" in corpo, (
-        "corDaChuva voltou a escolher uma faixa em vez de interpolar"
+        "corNaRampa voltou a escolher uma faixa em vez de interpolar"
     )
+
+
+# --------------------------------------------------------------------------
+# Camada de temperatura — o mapa de calor
+# --------------------------------------------------------------------------
+
+
+def test_todos_os_mapas_tem_o_mapa_de_calor():
+    html, js = _html(), _js()
+    for mapa in MAPAS:
+        for parte in ("temperatura", "temperatura-canvas",
+                      "temperatura-legenda", "temperatura-nota"):
+            assert f'id="{mapa}-{parte}"' in html, f"falta {mapa}-{parte}"
+        assert f'atualizarTemperatura("{mapa}")' in js, (
+            f"o mapa '{mapa}' nunca redesenha o mapa de calor"
+        )
+
+
+def test_o_canvas_do_mapa_de_calor_acompanha_o_viewbox():
+    """
+    Mesmo cuidado da chuva: canvas com dimensões diferentes do viewBox desenha
+    o campo deslocado do mapa, e as duas camadas *parecem* certas separadas.
+    """
+    html = _html()
+    for mapa in MAPAS:
+        svg = re.search(rf'id="{mapa}-svg" viewBox="0 0 (\d+) (\d+)"', html)
+        assert svg, f"viewBox de {mapa}-svg não encontrado"
+
+        canvas = re.search(
+            rf'id="{mapa}-temperatura-canvas"[^>]*?width="(\d+)" height="(\d+)"',
+            html, re.DOTALL,
+        )
+        assert canvas, f"dimensões de {mapa}-temperatura-canvas não encontradas"
+        assert svg.groups() == canvas.groups(), (
+            f"{mapa}-temperatura-canvas ({canvas.groups()}) não casa com "
+            f"{mapa}-svg ({svg.groups()})"
+        )
+
+
+def test_o_mapa_de_calor_fica_embaixo_da_chuva_e_do_vento():
+    """
+    Temperatura é o único campo que cobre o país inteiro sem buraco. Por cima,
+    ela viraria uma tinta opaca que apagaria as outras duas; por baixo, é o
+    fundo sobre o qual elas continuam legíveis — a ordem do Windy.
+    """
+    css = _css()
+
+    def z_index(seletor):
+        bloco = css[css.index(seletor):]
+        bloco = bloco[:bloco.index("}")]
+        return int(re.search(r"z-index:\s*(\d+)", bloco).group(1))
+
+    assert z_index(".camada-temperatura {") < z_index(".camada-chuva {")
+    assert z_index(".camada-temperatura {") < z_index(".camada-vento {")
+    assert z_index(".camada-temperatura {") < z_index(".mapa-dica {")
+
+
+def test_o_mapa_de_calor_nao_intercepta_o_mouse():
+    css = _css()
+    bloco = css[css.index(".camada-temperatura {"):]
+    bloco = bloco[:bloco.index("}")]
+    assert "pointer-events: none" in bloco
+
+
+def test_o_mapa_e_atenuado_quando_o_calor_entra():
+    """
+    A camada é cheia por definição: não há célula transparente onde o mapa de
+    risco possa reaparecer sozinho, como acontece na chuva fraca. Sem atenuar,
+    duas escalas de cor cheias disputam a mesma área e nenhuma se lê.
+    """
+    assert ".mapa-area.com-temperatura svg path" in _css()
+    assert 'classList.add("com-temperatura")' in _js()
+    assert 'classList.remove("com-temperatura")' in _js()
+
+
+def test_o_mapa_de_calor_usa_indice_espacial():
+    """
+    Comparar cada célula com TODAS as estações é 160×160 × 600 = 15 milhões de
+    distâncias, quase todas resultando em "longe demais". O índice por caixas
+    deixa o custo depender da densidade local, e é o que torna a grade mais
+    fina que a da chuva viável.
+    """
+    js = _js()
+    assert "indexarPorProximidade" in js, "o índice espacial sumiu"
+    corpo = _corpo_da_funcao("function pintarTemperatura(")
+    assert "indice.vizinhas(" in corpo, (
+        "pintarTemperatura voltou a varrer a lista inteira de estações"
+    )
+
+
+def test_o_mapa_de_calor_nao_deixa_olho_de_boi():
+    """
+    Sem piso de distância, o peso vai a infinito em cima de cada estação e ela
+    vira uma bolha chapada com anel em volta. Sem corte suave, o limite do
+    raio vira uma circunferência visível — e num campo cheio não há
+    transparência que a disfarce.
+    """
+    corpo = _corpo_da_funcao("function pintarTemperatura(")
+    assert "suavizacao2" in corpo, "o piso de distância sumiu"
+    assert "Math.exp(" in corpo, "o corte suave do raio virou corte seco"
+
+
+def test_o_mapa_de_calor_e_recortado_no_contorno():
+    """Sem a máscara, a camada afirma temperatura no mar."""
+    corpo = _corpo_da_funcao("function pintarTemperatura(")
+    assert "mascaraDoMapa(projecao)" in corpo
+    assert "contexto.clip(" in corpo
+
+
+def test_a_legenda_do_calor_nao_supoe_escala_comecando_em_zero():
+    """
+    A escala da chuva começa no zero; a da temperatura, não. Posicionar as
+    marcas por `valor / topo` colocaria os 5 °C a um oitavo da barra, quando
+    eles são o começo dela — a legenda mentiria sobre a escala que explica.
+    """
+    corpo = _corpo_da_funcao("function montarLegendaDeTemperatura(")
+    assert "escala[0].de" in corpo, "a legenda não ancora no início da escala"
+    assert "valor - base" in corpo, (
+        "montarLegendaDeTemperatura voltou a posicionar por valor/topo"
+    )
+
+
+def test_o_mapa_de_calor_avisa_que_nao_corrige_altitude():
+    """
+    O ar esfria ~6,5 °C a cada 1.000 m e a interpolação não sabe onde estão as
+    serras. Omitir isso faz a camada afirmar uma precisão que ela não tem.
+    """
+    corpo = _corpo_da_funcao("async function atualizarTemperatura(")
+    assert "altitude" in corpo, "o rodapé não avisa sobre a altitude"
+    assert "interpolado" in corpo
+
+
+def test_o_marcador_da_estacao_encolhe_com_o_zoom():
+    """
+    O canvas vive dentro da câmera, e é ampliado junto com o mapa. Um marcador
+    de tamanho fixo vira um borrão de 58 px quando a câmera fecha num
+    município a 36x — foi o pior defeito visual desta camada.
+    """
+    corpo = _corpo_da_funcao("function pintarTemperatura(")
+    assert "escalaDaCamera" in corpo, "o marcador voltou a ter tamanho fixo"
+    assert "desenharEstacoes(contexto, pontos, 0.62 / Math.max(" in corpo
+
+
+def test_o_zoom_redesenha_o_mapa_de_calor_uma_vez_so():
+    """
+    `aplicarCamera` roda a cada quadro do voo. Repintar 25.600 células sessenta
+    vezes por segundo travaria a animação — o redesenho precisa ser adiado até
+    a câmera parar, e vir do dado já guardado, sem pedir tudo de novo à API.
+    """
+    js = _js()
+    assert "agendarRedesenhoDoCalor(prefixo)" in _corpo_da_funcao(
+        "function aplicarCamera("
+    ), "a câmera não avisa o mapa de calor que mudou de zoom"
+
+    corpo = _corpo_da_funcao("function agendarRedesenhoDoCalor(")
+    assert "clearTimeout" in corpo and "setTimeout" in corpo, (
+        "o redesenho não é adiado: o voo vai repintar a cada quadro"
+    )
+    assert "dadosDoCalor[prefixo]" in corpo, (
+        "o redesenho voltou a pedir os dados à API em vez de usar os guardados"
+    )
+    assert "/clima/temperatura" not in corpo
+
+
+def test_o_mapa_de_calor_e_desligado_ao_reiniciar_as_camadas():
+    """
+    Desmarcar por código não dispara `change`. Sem a chamada, o canvas fica
+    com o campo do mapa anterior por cima do novo.
+    """
+    corpo = _corpo_da_funcao("function reiniciarCamadas(")
+    assert "atualizarTemperatura(prefixo)" in corpo
 
 
 # --------------------------------------------------------------------------

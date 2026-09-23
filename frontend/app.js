@@ -75,6 +75,7 @@ async function iniciar() {
   ligarCamera();
   ligarCamadasDeChuva();
   ligarCamadasDeVento();
+  ligarCamadasDeTemperatura();
   ligarCapitais();
   carregarCapitais();
 
@@ -542,6 +543,7 @@ async function desenharMapa(tipo, mes) {
     renderizarSvg("mapa-svg", "mapa-dica", malhaCache.features, porMunicipio);
     atualizarChuva("mapa");
     atualizarVento("mapa");
+    atualizarTemperatura("mapa");
     reenquadrar("mapa");
 
     const resumo = { baixo: 0, medio: 0, alto: 0 };
@@ -613,6 +615,7 @@ async function mostrarMapaDaConsulta(previsao) {
     if (desenhado) desenhado.style.stroke = info.cor;
 
     atualizarChuva("consulta");
+    atualizarTemperatura("consulta");
 
     $("consulta-legenda").innerHTML =
       `<span><i style="background:${info.cor}"></i>risco ${info.nivel_risco}</span>`
@@ -649,6 +652,7 @@ async function mostrarMapaDaCidade(codigoIbge, tipo, mes) {
     const porMunicipio = new Map(dados.municipios.map((m) => [m.codigo_ibge, m]));
     renderizarSvg("cidade-svg", "cidade-dica", feicoes, porMunicipio, codigoIbge);
     atualizarChuva("cidade");
+    atualizarTemperatura("cidade");
 
     const resumo = { baixo: 0, medio: 0, alto: 0 };
     dados.municipios.forEach((m) => { resumo[m.nivel_risco] += 1; });
@@ -934,6 +938,386 @@ function montarLegendaDeVento(idLegenda, dados) {
 }
 
 
+// ---------------------------------------------------------------------------
+// Camada de temperatura — o mapa de calor
+// ---------------------------------------------------------------------------
+// A temperatura do ar medida pelas ~600 estações automáticas do INMET,
+// interpolada num campo contínuo, como o Windy faz com a dele.
+//
+// Por que ela é desenhada diferente da chuva
+// ------------------------------------------
+// A chuva é uma INTENSIDADE: existe "não choveu", e onde chove pouco a camada
+// se apaga de propósito para o mapa reaparecer. Temperatura não tem zero nem
+// ausência — todo ponto do país tem uma, sempre —, então a camada é CHEIA e
+// de opacidade constante. Apagá-la onde faz frio seria dizer que ali falta
+// dado, e não falta.
+//
+// É por isso que ela também fica na camada de baixo: é o fundo sobre o qual a
+// chuva e o vento continuam legíveis.
+//
+// O que este mapa NÃO diz
+// -----------------------
+// Ele não corrige a altitude. O ar esfria ~6,5 °C a cada 1.000 m, e a
+// interpolação não sabe onde estão as serras: entre uma estação de praia e
+// uma de montanha, ela desenha a transição como se o relevo fosse uma rampa.
+// Perto de cada estação o número é o medido; longe de todas, é estimativa. O
+// rodapé da camada diz isso, e os pontos das estações mostram onde é qual.
+// Corrigir de verdade exigiria um modelo de elevação do terreno, que é o
+// próximo passo anotado em dados/README.md.
+
+const GRADE_TEMPERATURA = 160;   // mais fina que a da chuva — ver abaixo
+const RAIO_TEMPERATURA = 6.5;    // graus: o alcance de uma estação
+const POTENCIA_IDW_TEMPERATURA = 2.0;
+// Distância, em unidades do desenho, abaixo da qual a estação para de ganhar
+// peso. Sem esse piso o peso vai a infinito em cima da estação e cada uma
+// vira um ponto de cor chapada — o "olho de boi" clássico da interpolação.
+const SUAVIZACAO_TEMPERATURA = 2.5;
+
+// Cada mapa e o que ele pede à API.
+//
+// Os três mapas de previsão pedem só o MÊS, sem ano: eles estimam o risco de
+// um mês que ainda não chegou, e a temperatura de um mês futuro não existe.
+// Sem `ano`, a API responde com o mês típico de todos os anos medidos — que é
+// a mesma pergunta que o modelo de risco responde, pelo outro lado.
+//
+// O mapa do histórico escolhe um ANO, e aí a pergunta é outra: a temperatura
+// média daquele ano, de fato. Diferente do vento, isso significa alguma coisa
+// — média de médias continua sendo média, enquanto a direção predominante de
+// um ano inteiro não descreve mês nenhum.
+const MAPAS_COM_TEMPERATURA = {
+  consulta: { svg: "consulta-svg", periodo: () => ({ mes: Number($("mes").value) }) },
+  mapa: { svg: "mapa-svg", periodo: () => ({ mes: Number($("mapa-mes").value) }) },
+  cidade: { svg: "cidade-svg", periodo: () => ({ mes: Number($("mes").value) }) },
+  ano: {
+    svg: "ano-svg",
+    periodo: () => ({ ano: Number($("ano-escolhido").value) }),
+  },
+};
+
+// A última resposta da API, por mapa. Guardada para o redesenho do zoom não
+// precisar pedir tudo de novo: o campo é o mesmo, só o tamanho dos marcadores
+// muda, e refazer a busca a cada pouso da câmera seria pedir 550 estações
+// para desenhar exatamente os mesmos números.
+const dadosDoCalor = {};
+
+// Um relógio por mapa, para o redesenho do zoom. Ver `agendarRedesenhoDoCalor`.
+const relogioDoCalor = {};
+
+function ligarCamadasDeTemperatura() {
+  for (const prefixo of Object.keys(MAPAS_COM_TEMPERATURA)) {
+    const caixa = $(`${prefixo}-temperatura`);
+    if (caixa) caixa.addEventListener("change", () => atualizarTemperatura(prefixo));
+  }
+}
+
+/**
+ * Redesenha o mapa de calor depois que a câmera pousa.
+ *
+ * O canvas vive DENTRO da câmera, então ele é ampliado junto com o mapa — um
+ * bitmap de 1000x820 esticado. Para o campo isso não incomoda: temperatura é
+ * lisa, e ampliar uma mancha lisa continua dando uma mancha lisa. Para os
+ * marcadores das estações, incomoda muito: um ponto de 1,6 px ampliado 36
+ * vezes vira um borrão de 58 px atravessado na tela.
+ *
+ * A saída é desenhar o marcador com o tamanho dividido pela ampliação, e é
+ * por isso que o desenho precisa refazer-se quando a câmera muda — o que esta
+ * função agenda.
+ *
+ * O adiamento não é economia, é necessidade: `aplicarCamera` roda a cada
+ * quadro do voo, e repintar 25.600 células sessenta vezes por segundo
+ * travaria a animação. Cada quadro reinicia o relógio, então o redesenho sai
+ * uma vez só, quando a câmera já parou.
+ */
+function agendarRedesenhoDoCalor(prefixo) {
+  const caixa = $(`${prefixo}-temperatura`);
+  const dados = dadosDoCalor[prefixo];
+  if (!caixa || !caixa.checked || !dados) return;
+
+  clearTimeout(relogioDoCalor[prefixo]);
+  relogioDoCalor[prefixo] = setTimeout(() => {
+    const tela = $(`${prefixo}-temperatura-canvas`);
+    const projecao = projecaoDoMapa[MAPAS_COM_TEMPERATURA[prefixo].svg];
+    if (tela && projecao && caixa.checked) {
+      pintarTemperatura(tela, projecao, dados, cameras[prefixo]?.escala || 1);
+    }
+  }, 140);
+}
+
+/** Liga, desliga ou redesenha o mapa de calor de um mapa. */
+async function atualizarTemperatura(prefixo) {
+  const caixa = $(`${prefixo}-temperatura`);
+  const tela = $(`${prefixo}-temperatura-canvas`);
+  const area = tela ? tela.closest(".mapa-area") : null;
+  const rodape = $(`${prefixo}-temperatura-nota`);
+  if (!caixa || !tela || !area) return;
+
+  const contexto = tela.getContext("2d");
+  contexto.clearRect(0, 0, tela.width, tela.height);
+
+  if (!caixa.checked) {
+    area.classList.remove("com-temperatura");
+    rodape.classList.add("oculto");
+    $(`${prefixo}-temperatura-legenda`).classList.add("oculto");
+    // Sem o descarte, um redesenho agendado antes de desligar ainda acharia
+    // dado para pintar e acenderia a camada de volta sozinha.
+    delete dadosDoCalor[prefixo];
+    clearTimeout(relogioDoCalor[prefixo]);
+    return;
+  }
+
+  const projecao = projecaoDoMapa[MAPAS_COM_TEMPERATURA[prefixo].svg];
+  if (!projecao) {
+    rodape.textContent = "Desenhe o mapa primeiro para sobrepor a temperatura.";
+    rodape.classList.remove("oculto");
+    return;
+  }
+
+  rodape.textContent = "Buscando as medições do INMET...";
+  rodape.classList.remove("oculto");
+
+  try {
+    const { ano, mes } = MAPAS_COM_TEMPERATURA[prefixo].periodo();
+    const parametros = new URLSearchParams();
+    if (ano) parametros.set("ano", ano);
+    if (mes) parametros.set("mes", mes);
+
+    const dados = await pedir(`/clima/temperatura?${parametros}`);
+
+    // O interruptor pode ter sido desligado enquanto a resposta vinha.
+    if (!caixa.checked) return;
+
+    area.classList.add("com-temperatura");
+    dadosDoCalor[prefixo] = dados;
+    pintarTemperatura(tela, projecao, dados, cameras[prefixo]?.escala || 1);
+    montarLegendaDeTemperatura(`${prefixo}-temperatura-legenda`, dados);
+
+    rodape.textContent =
+      `Temperatura do ar (${dados.descricao_grandeza}) em ${dados.periodo}, `
+      + `medida por ${dados.total_estacoes} estações automáticas do INMET · `
+      + `média ${dados.temperatura_media_c} °C, de `
+      + `${dados.mais_fria.temperatura_c} °C em ${dados.mais_fria.estacao}/`
+      + `${dados.mais_fria.uf} a ${dados.mais_quente.temperatura_c} °C em `
+      + `${dados.mais_quente.estacao}/${dados.mais_quente.uf}. Cada ponto é `
+      + `uma estação; entre elas o valor é interpolado e não corrige a `
+      + `altitude — o ar esfria cerca de 6,5 °C a cada 1.000 m, então serra `
+      + `entre estações de planície aparece mais quente do que é.`;
+  } catch (erro) {
+    caixa.checked = false;
+    area.classList.remove("com-temperatura");
+    $(`${prefixo}-temperatura-legenda`).classList.add("oculto");
+    rodape.textContent = `Sem mapa de calor: ${erro.message}`;
+  }
+}
+
+/**
+ * Índice espacial das estações, em caixas do tamanho do raio de busca.
+ *
+ * É o que torna a grade fina viável. A camada de chuva compara cada célula
+ * com TODAS as estações: 120×120 células × 600 estações são 8,6 milhões de
+ * distâncias, e quase todas resultam em "longe demais, ignora".
+ *
+ * Com as estações distribuídas em caixas de um raio de lado, cada célula só
+ * precisa olhar as 9 caixas ao redor da sua — e aí só sobram as estações que
+ * têm mesmo chance de influenciar. O custo deixa de depender do total de
+ * estações e passa a depender da densidade local, que no Brasil é de poucas
+ * dezenas por caixa. É o mesmo truque que qualquer motor de partículas usa
+ * para detectar colisão, e é por isso que aqui cabe uma grade de 160×160
+ * gastando menos que a de 120×120 da chuva.
+ */
+function indexarPorProximidade(pontos, raio) {
+  const lado = Math.max(raio, 1);
+  const caixas = new Map();
+  // A lista das 9 caixas vizinhas, guardada por caixa. Sem isto o índice não
+  // vale a pena, e a medição foi clara: juntar as 9 listas a cada célula
+  // aloca um array por célula — 25.600 arrays por desenho —, e o custo de
+  // alocar anula exatamente o que se economizou em distâncias. Medido, o
+  // índice sem esta memória empatava com a varredura burra.
+  //
+  // Com ela, as milhares de células que caem na MESMA caixa reaproveitam a
+  // mesma lista, e o índice passa a ganhar de verdade: cerca de metade do
+  // tempo da varredura completa, no mapa do Brasil inteiro.
+  const vizinhancas = new Map();
+
+  for (const ponto of pontos) {
+    const cx = Math.floor(ponto.x / lado);
+    const cy = Math.floor(ponto.y / lado);
+    const chave = `${cx}:${cy}`;
+    const caixa = caixas.get(chave);
+    if (caixa) caixa.push(ponto); else caixas.set(chave, [ponto]);
+  }
+
+  return {
+    lado,
+    /** As estações das 9 caixas em volta de (x, y). */
+    vizinhas(x, y) {
+      const cx = Math.floor(x / lado);
+      const cy = Math.floor(y / lado);
+      const chave = `${cx}:${cy}`;
+
+      const guardada = vizinhancas.get(chave);
+      if (guardada) return guardada;
+
+      const perto = [];
+      for (let dx = -1; dx <= 1; dx++) {
+        for (let dy = -1; dy <= 1; dy++) {
+          const caixa = caixas.get(`${cx + dx}:${cy + dy}`);
+          if (caixa) perto.push(...caixa);
+        }
+      }
+      vizinhancas.set(chave, perto);
+      return perto;
+    },
+  };
+}
+
+/**
+ * Interpola a temperatura entre as estações e pinta o mapa de calor.
+ *
+ * A interpolação é IDW com duas correções, e as duas existem para matar
+ * artefatos que aparecem no desenho e não nos números:
+ *
+ * 1. **Piso de distância** (`SUAVIZACAO_TEMPERATURA`) — sem ele, o peso vai a
+ *    infinito em cima de cada estação, e cada uma vira uma bolha de cor
+ *    chapada com anel em volta: o "olho de boi". Com o piso, o valor da
+ *    estação continua mandando ali perto, mas sem o degrau.
+ *
+ * 2. **Corte suave** (a gaussiana) — a chuva usa raio com corte seco, e o
+ *    limite do alcance vira uma circunferência visível no mapa. Num campo
+ *    cheio como o da temperatura isso seria gritante, porque não há célula
+ *    transparente para disfarçar. A gaussiana leva o peso a praticamente zero
+ *    na borda do raio, então o alcance acaba sem deixar marca.
+ */
+function pintarTemperatura(tela, projecao, dados, escalaDaCamera = 1) {
+  const pontos = dados.estacoes.map((e) => ({
+    x: projecao.px(e.lon), y: projecao.py(e.lat), valor: e.temperatura_c,
+  }));
+  if (!pontos.length) return;
+
+  const rampa = rampaDeCores(dados.escala);
+
+  const passoX = projecao.largura / GRADE_TEMPERATURA;
+  const passoY = projecao.altura / GRADE_TEMPERATURA;
+  // O raio vale em graus; converte para as unidades do desenho usando a
+  // própria projeção, para valer igual num mapa do país e num de estado.
+  const raio = Math.abs(projecao.px(RAIO_TEMPERATURA) - projecao.px(0));
+  const raio2 = raio * raio;
+  const suavizacao2 = SUAVIZACAO_TEMPERATURA * SUAVIZACAO_TEMPERATURA;
+  const expoente = POTENCIA_IDW_TEMPERATURA / 2;
+
+  const indice = indexarPorProximidade(pontos, raio);
+
+  const grade = document.createElement("canvas");
+  grade.width = GRADE_TEMPERATURA;
+  grade.height = GRADE_TEMPERATURA;
+  const pincel = grade.getContext("2d");
+  const imagem = pincel.createImageData(GRADE_TEMPERATURA, GRADE_TEMPERATURA);
+
+  for (let linha = 0; linha < GRADE_TEMPERATURA; linha++) {
+    const y = (linha + 0.5) * passoY;
+
+    for (let coluna = 0; coluna < GRADE_TEMPERATURA; coluna++) {
+      const x = (coluna + 0.5) * passoX;
+
+      let soma = 0, pesos = 0, maisPerto = Infinity;
+      for (const ponto of indice.vizinhas(x, y)) {
+        const dx = ponto.x - x, dy = ponto.y - y;
+        const distancia2 = dx * dx + dy * dy;
+        if (distancia2 > raio2) continue;
+        if (distancia2 < maisPerto) maisPerto = distancia2;
+
+        const queda = Math.exp(-3 * (distancia2 / raio2));
+        const peso = queda / Math.pow(distancia2 + suavizacao2, expoente);
+        soma += ponto.valor * peso;
+        pesos += peso;
+      }
+
+      const posicao = (linha * GRADE_TEMPERATURA + coluna) * 4;
+      if (!pesos) continue;  // longe de tudo: fica transparente
+
+      const cor = corNaRampa(soma / pesos, rampa);
+
+      // Opacidade constante, ao contrário da chuva. A única coisa que a
+      // apaga é a borda da área coberta: sem esse desvanecer, o limite do
+      // alcance das estações viraria uma silhueta dura, e borda dura parece
+      // fronteira de dado.
+      const proximidade = 1 - Math.min(Math.sqrt(maisPerto) / raio, 1);
+      const opacidade = 0.86 * Math.min(proximidade * 3, 1);
+
+      imagem.data[posicao] = cor[0];
+      imagem.data[posicao + 1] = cor[1];
+      imagem.data[posicao + 2] = cor[2];
+      imagem.data[posicao + 3] = Math.round(255 * opacidade);
+    }
+  }
+
+  pincel.putImageData(imagem, 0, 0);
+
+  const contexto = tela.getContext("2d");
+  contexto.clearRect(0, 0, tela.width, tela.height);
+  contexto.imageSmoothingEnabled = true;
+  contexto.imageSmoothingQuality = "high";
+
+  contexto.save();
+  // O mesmo recorte da chuva, pelo mesmo motivo: sem ele a camada afirma
+  // temperatura no mar e nos estados que ficaram fora do desenho.
+  const mascara = mascaraDoMapa(projecao);
+  if (mascara) contexto.clip(mascara);
+  contexto.drawImage(grade, 0, 0, tela.width, tela.height);
+
+  // O marcador é desenhado no tamanho dividido pela ampliação da câmera, para
+  // ocupar sempre o mesmo espaço NA TELA. Sem isso, o ponto de 1,6 px do mapa
+  // do Brasil vira um borrão de 58 px quando a câmera fecha num município a
+  // 36x — foi o pior defeito visual desta camada.
+  //
+  // Dividir tem um limite, e ele é honesto: passado um certo zoom o marcador
+  // fica menor que um pixel do bitmap e simplesmente desaparece, em vez de
+  // virar mancha. É o comportamento certo para o que se está vendo ali — a
+  // essa altura a tela mostra um município, e a estação mais próxima quase
+  // sempre está fora do quadro.
+  desenharEstacoes(contexto, pontos, 0.62 / Math.max(escalaDaCamera, 1));
+  contexto.restore();
+}
+
+/**
+ * Legenda do mapa de calor.
+ *
+ * Igual à da chuva na aparência, mas com uma diferença que importa: a escala
+ * da chuva começa no zero, e a da temperatura não. Posicionar as marcas por
+ * `valor / topo` colocaria os 5 °C a um oitavo da barra, quando eles são o
+ * começo dela — a legenda mentiria sobre a própria escala que explica.
+ */
+function montarLegendaDeTemperatura(idLegenda, dados) {
+  const escala = dados.escala;
+  const base = escala[0].de;
+  const topo = escala[escala.length - 1].de;
+  const vao = (topo - base) || 1;
+  const posicao = (valor) => (((valor - base) / vao) * 100).toFixed(1);
+
+  const degrade = escala.map((f) => `${f.cor} ${posicao(f.de)}%`).join(", ");
+
+  // A primeira marca é o começo da barra e dispensa número; a última leva "+"
+  // porque a faixa não tem fim.
+  const marcas = escala.slice(1).map((f, i) => {
+    const numero = f.de.toLocaleString("pt-BR");
+    const rotulo = i === escala.length - 2 ? `${numero}+` : numero;
+    return `<span style="left:${posicao(f.de)}%">${rotulo}</span>`;
+  }).join("");
+
+  const legenda = $(idLegenda);
+  legenda.innerHTML =
+    `<span class="legenda-titulo">temperatura do ar (${dados.unidade})</span>
+     <div class="escala-chuva">
+       <div class="escala-barra" style="background:linear-gradient(90deg,${degrade})"></div>
+       <div class="escala-marcas">${marcas}</div>
+     </div>
+     <span class="legenda-estacao"><i></i>estação do INMET</span>`;
+  legenda.classList.remove("oculto");
+  esconderMarcasQueColidem(legenda);
+
+  observadorDaLegenda.observe(legenda);
+}
+
+
 /**
  * Interpola a chuva entre as estações e pinta no canvas.
  *
@@ -947,7 +1331,7 @@ function pintarChuva(tela, projecao, dados) {
     x: projecao.px(e.lon), y: projecao.py(e.lat), valor: e.chuva_mm,
   }));
 
-  const rampa = rampaDeChuva(dados.escala);
+  const rampa = rampaDeCores(dados.escala);
   const topo = rampa[rampa.length - 1].valor || 1;
 
   const passoX = projecao.largura / GRADE_CHUVA;
@@ -985,7 +1369,7 @@ function pintarChuva(tela, projecao, dados) {
       if (!pesos) continue;  // longe de tudo: fica transparente
 
       const milimetros = soma / pesos;
-      const cor = corDaChuva(milimetros, rampa);
+      const cor = corNaRampa(milimetros, rampa);
 
       // Duas coisas apagam a cor, por motivos diferentes.
       //
@@ -1048,8 +1432,17 @@ function mascaraDoMapa(projecao) {
   return projecao.mascara;
 }
 
-/** Marca onde cada estação fica: é o que separa medição de interpolação. */
-function desenharEstacoes(contexto, pontos) {
+/**
+ * Marca onde cada estação fica: é o que separa medição de interpolação.
+ *
+ * `escala` encolhe o marcador sem mudar a proporção entre o anel e o miolo.
+ * Ela existe por causa do mapa de calor: a camada de chuva é esburacada, e os
+ * pontos se distribuem entre manchas; a de temperatura é cheia, e os mesmos
+ * 600 marcadores em cima de um campo contínuo viram um chuvisco que compete
+ * com o próprio campo. Menores, continuam dizendo onde a medição é real sem
+ * disputar a leitura.
+ */
+function desenharEstacoes(contexto, pontos, escala = 1) {
   contexto.save();
   for (const ponto of pontos) {
     // Anel escuro por fora, miolo branco por dentro. O ponto branco sozinho
@@ -1057,12 +1450,12 @@ function desenharEstacoes(contexto, pontos) {
     // sumiria sobre o vinho do "choveu muito". Os dois juntos aparecem em
     // qualquer lugar da escala.
     contexto.beginPath();
-    contexto.arc(ponto.x, ponto.y, 2.6, 0, Math.PI * 2);
+    contexto.arc(ponto.x, ponto.y, 2.6 * escala, 0, Math.PI * 2);
     contexto.fillStyle = "rgba(12,22,38,.55)";
     contexto.fill();
 
     contexto.beginPath();
-    contexto.arc(ponto.x, ponto.y, 1.4, 0, Math.PI * 2);
+    contexto.arc(ponto.x, ponto.y, 1.4 * escala, 0, Math.PI * 2);
     contexto.fillStyle = "rgba(255,255,255,.95)";
     contexto.fill();
   }
@@ -1074,23 +1467,28 @@ const paraRgb = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16))
 /**
  * Transforma as faixas da API numa rampa contínua de cor.
  *
- * A API manda faixas ("60 a 120 mm"), que é como a legenda se lê e como se
- * fala de chuva. Pintar o mapa faixa a faixa, porém, desenha degraus onde a
- * chuva é contínua, e degrau no meio da mancha parece fronteira de dado. A
- * rampa mantém exatamente as mesmas cores, ancoradas no início de cada
- * faixa, e interpola entre elas — a legenda continua verdadeira.
+ * A API manda faixas ("60 a 120 mm", "20 a 24 °C"), que é como a legenda se
+ * lê e como se fala das duas grandezas. Pintar o mapa faixa a faixa, porém,
+ * desenha degraus onde o campo é contínuo, e degrau no meio da mancha parece
+ * fronteira de dado. A rampa mantém exatamente as mesmas cores, ancoradas no
+ * início de cada faixa, e interpola entre elas — a legenda continua
+ * verdadeira.
+ *
+ * Serve à chuva e ao mapa de calor sem mudar nada: as duas escalas chegam da
+ * API no mesmo formato, e a conta é a mesma. O que muda é só a unidade do
+ * número que entra.
  */
-function rampaDeChuva(escala) {
+function rampaDeCores(escala) {
   return escala.map((faixa) => ({ valor: faixa.de, cor: paraRgb(faixa.cor) }));
 }
 
-function corDaChuva(milimetros, rampa) {
-  if (milimetros <= rampa[0].valor) return rampa[0].cor;
+function corNaRampa(valor, rampa) {
+  if (valor <= rampa[0].valor) return rampa[0].cor;
 
   for (let i = 1; i < rampa.length; i++) {
-    if (milimetros >= rampa[i].valor) continue;
+    if (valor >= rampa[i].valor) continue;
     const antes = rampa[i - 1], depois = rampa[i];
-    const t = (milimetros - antes.valor) / (depois.valor - antes.valor);
+    const t = (valor - antes.valor) / (depois.valor - antes.valor);
     return [0, 1, 2].map(
       (c) => Math.round(antes.cor[c] + (depois.cor[c] - antes.cor[c]) * t)
     );
@@ -1588,6 +1986,7 @@ async function desenharMapaDoAno(ano, tipo = "") {
     renderizarSvg("ano-svg", "ano-dica", malhaCache.features, porMunicipio,
                   null, dicaDeOcorrencias);
     atualizarChuva("ano");
+    atualizarTemperatura("ano");
     reenquadrar("ano");
 
     mostrarNumerosDoAno(dados);
@@ -1928,6 +2327,15 @@ function reiniciarCamadas(prefixo) {
     // ela que para o laço de animação das partículas.
     atualizarVento(prefixo);
   }
+
+  const temperatura = $(`${prefixo}-temperatura`);
+  if (temperatura) {
+    temperatura.checked = false;
+    // Mesmo motivo da chuva: desmarcar por código não dispara `change`, e sem
+    // a chamada o canvas ficaria com o campo do mapa anterior por cima do
+    // novo — um mapa de calor do Brasil inteiro em cima de um município.
+    atualizarTemperatura(prefixo);
+  }
 }
 
 /** Devolve a câmera ao país inteiro, sem voo e sem estado marcado. */
@@ -2136,6 +2544,12 @@ function aplicarCamera(prefixo, escala, x, y) {
   const base = enquadramento(prefixo, caixaDoPais(prefixo)).escala;
   teatro.classList.toggle("ampliado", escala > base * 2.2);
   $(`${prefixo}-voltar`).classList.toggle("oculto", escala <= base * 1.05);
+
+  // O mapa de calor desenha os marcadores das estações no tamanho dividido
+  // pela ampliação, então ele precisa refazer-se quando ela muda. O pedido
+  // sai daqui porque este é o único caminho por onde a câmera passa; o
+  // adiamento de quem recebe é que garante um redesenho só, no fim do voo.
+  agendarRedesenhoDoCalor(prefixo);
 }
 
 /** Põe o enquadramento guardado de volta, sem animação. */

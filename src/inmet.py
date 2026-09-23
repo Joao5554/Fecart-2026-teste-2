@@ -333,6 +333,16 @@ def agregar_mensal(medicoes: pd.DataFrame, metadados: dict) -> pd.DataFrame:
     por_dia = dados.groupby(["ano", "mes", dados["data"].dt.day])["precipitacao"].sum()
     por_dia = por_dia.reset_index(name="chuva_dia")
 
+    # A máxima e a mínima do mês são as MÉDIAS das máximas e das mínimas
+    # diárias, e não o pico absoluto do mês. É a definição climatológica, e
+    # também a única robusta: o extremo absoluto de um mês é um único
+    # registro, e um sensor com uma leitura maluca viraria "a máxima". A
+    # média de trinta máximas diárias absorve o erro de uma delas.
+    temperatura_por_dia = dados.groupby(
+        ["ano", "mes", dados["data"].dt.day]
+    )["temperatura"].agg(["max", "min"])
+    temperatura_por_dia = temperatura_por_dia.reset_index()
+
     # O vento vira vetor ANTES de qualquer média, e é aqui que mora a
     # sutileza: direção é ângulo, e ângulo não se soma. A média aritmética de
     # 350° e 10° dá 180° — exatamente o rumo contrário ao de duas medições que
@@ -349,11 +359,21 @@ def agregar_mensal(medicoes: pd.DataFrame, metadados: dict) -> pd.DataFrame:
     diario = por_dia.groupby(["ano", "mes"]).agg(
         chuva_max_dia_mm=("chuva_dia", "max"),
         dias_com_chuva=("chuva_dia", lambda s: int((s >= 1.0).sum())),
+    ).join(
+        temperatura_por_dia.groupby(["ano", "mes"]).agg(
+            temperatura_max_c=("max", "mean"),
+            temperatura_min_c=("min", "mean"),
+        )
     )
 
     mensal = dados.groupby(["ano", "mes"]).agg(
         chuva_total_mm=("precipitacao", "sum"),
         temperatura_media_c=("temperatura", "mean"),
+        # Contada à parte da chuva: o sensor de temperatura e o pluviômetro
+        # falham em momentos diferentes, e um mês pode ter chuva completa e
+        # temperatura pela metade. Sem esta contagem, um mês de termômetro
+        # quebrado entraria na climatologia com o mesmo peso de um mês inteiro.
+        temperatura_horas=("temperatura", "count"),
         umidade_media_pct=("umidade", "mean"),
         rajada_max_ms=("rajada", "max"),
         # As componentes médias descrevem o vento PREDOMINANTE: para onde o ar
@@ -387,6 +407,11 @@ def agregar_mensal(medicoes: pd.DataFrame, metadados: dict) -> pd.DataFrame:
     # cada número foi medido de fato.
     mensal["latitude"] = metadados.get("latitude")
     mensal["longitude"] = metadados.get("longitude")
+    # A altitude vem junto por causa da temperatura: o ar esfria cerca de
+    # 6,5 °C a cada 1.000 m, e é por isso que Campos do Jordão aparece fria
+    # no meio de São Paulo. Sem este número não há como dizer se uma mancha
+    # fria no mapa é clima ou é serra.
+    mensal["altitude"] = metadados.get("altitude")
 
     return mensal.drop(columns=["rajada_max_ms"])
 

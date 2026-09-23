@@ -147,6 +147,10 @@
           <input type="checkbox" id="mapa-vento">
           <span>Camada: vento predominante (INMET)</span>
         </label>
+        <label class="camada-opcao" for="mapa-temperatura">
+          <input type="checkbox" id="mapa-temperatura">
+          <span>Camada: mapa de calor — temperatura (INMET)</span>
+        </label>
       </div>
 
       <!-- Controles do mapa histórico -->
@@ -180,6 +184,10 @@
           <input type="checkbox" id="ano-chuva">
           <span>Camada: chuva medida (acumulado do ano)</span>
         </label>
+        <label class="camada-opcao" for="ano-temperatura">
+          <input type="checkbox" id="ano-temperatura">
+          <span>Camada: mapa de calor — temperatura (média do ano)</span>
+        </label>
 
         <div id="ano-numeros" class="numeros-ano oculto"></div>
       </div>
@@ -195,6 +203,8 @@
         <div class="camera" id="camera-mapa">
           <svg id="mapa-svg" viewBox="0 0 1000 820" role="img"
                aria-label="Mapa de risco por município"></svg>
+          <canvas id="mapa-temperatura-canvas" class="camada-temperatura"
+                  width="1000" height="820" aria-hidden="true"></canvas>
           <canvas id="mapa-chuva-canvas" class="camada-chuva"
                   width="1000" height="820" aria-hidden="true"></canvas>
           <svg id="mapa-capitais-svg" class="camada-capitais"
@@ -221,6 +231,9 @@
           <p id="mapa-chuva-nota" class="nota-chuva oculto"></p>
           <div id="mapa-vento-legenda" class="mapa-legenda legenda-chuva oculto"></div>
           <p id="mapa-vento-nota" class="nota-chuva oculto"></p>
+          <div id="mapa-temperatura-legenda"
+               class="mapa-legenda legenda-temperatura oculto"></div>
+          <p id="mapa-temperatura-nota" class="nota-chuva oculto"></p>
         </div>
 
         <button type="button" class="botao-voltar-brasil oculto"
@@ -232,6 +245,8 @@
         <div class="camera" id="camera-ano">
           <svg id="ano-svg" viewBox="0 0 1000 820" role="img"
                aria-label="Mapa das ocorrências registradas no ano"></svg>
+          <canvas id="ano-temperatura-canvas" class="camada-temperatura"
+                  width="1000" height="820" aria-hidden="true"></canvas>
           <canvas id="ano-chuva-canvas" class="camada-chuva"
                   width="1000" height="820" aria-hidden="true"></canvas>
           <svg id="ano-capitais-svg" class="camada-capitais"
@@ -246,6 +261,9 @@
           <div id="ano-legenda" class="mapa-legenda oculto"></div>
           <div id="ano-chuva-legenda" class="mapa-legenda legenda-chuva oculto"></div>
           <p id="ano-chuva-nota" class="nota-chuva oculto"></p>
+          <div id="ano-temperatura-legenda"
+               class="mapa-legenda legenda-temperatura oculto"></div>
+          <p id="ano-temperatura-nota" class="nota-chuva oculto"></p>
         </div>
 
         <button type="button" class="botao-voltar-brasil oculto"
@@ -310,10 +328,16 @@
           <input type="checkbox" id="consulta-vento">
           <span>Camada: vento predominante (INMET)</span>
         </label>
+        <label class="camada-opcao" for="consulta-temperatura">
+          <input type="checkbox" id="consulta-temperatura">
+          <span>Camada: mapa de calor — temperatura (INMET)</span>
+        </label>
 
         <div class="mapa-area">
           <svg id="consulta-svg" viewBox="0 0 640 460" role="img"
                aria-label="Mapa do município consultado"></svg>
+          <canvas id="consulta-temperatura-canvas" class="camada-temperatura"
+                  width="640" height="460" aria-hidden="true"></canvas>
           <canvas id="consulta-chuva-canvas" class="camada-chuva"
                   width="640" height="460" aria-hidden="true"></canvas>
           <canvas id="consulta-vento-canvas" class="camada-vento"
@@ -328,6 +352,9 @@
         <p id="consulta-chuva-nota" class="nota-chuva oculto"></p>
         <div id="consulta-vento-legenda" class="mapa-legenda legenda-chuva oculto"></div>
         <p id="consulta-vento-nota" class="nota-chuva oculto"></p>
+        <div id="consulta-temperatura-legenda"
+             class="mapa-legenda legenda-temperatura oculto"></div>
+        <p id="consulta-temperatura-nota" class="nota-chuva oculto"></p>
       </section>
 
       <!-- O ano inteiro -->
@@ -361,10 +388,16 @@
           <input type="checkbox" id="cidade-vento">
           <span>Camada: vento predominante (INMET)</span>
         </label>
+        <label class="camada-opcao" for="cidade-temperatura">
+          <input type="checkbox" id="cidade-temperatura">
+          <span>Camada: mapa de calor — temperatura (INMET)</span>
+        </label>
 
         <div class="mapa-area">
           <svg id="cidade-svg" viewBox="0 0 640 460" role="img"
                aria-label="Mapa da cidade e da região"></svg>
+          <canvas id="cidade-temperatura-canvas" class="camada-temperatura"
+                  width="640" height="460" aria-hidden="true"></canvas>
           <canvas id="cidade-chuva-canvas" class="camada-chuva"
                   width="640" height="460" aria-hidden="true"></canvas>
           <canvas id="cidade-vento-canvas" class="camada-vento"
@@ -379,6 +412,9 @@
         <p id="cidade-chuva-nota" class="nota-chuva oculto"></p>
         <div id="cidade-vento-legenda" class="mapa-legenda legenda-chuva oculto"></div>
         <p id="cidade-vento-nota" class="nota-chuva oculto"></p>
+        <div id="cidade-temperatura-legenda"
+             class="mapa-legenda legenda-temperatura oculto"></div>
+        <p id="cidade-temperatura-nota" class="nota-chuva oculto"></p>
         <p id="cidade-setores" class="ajuda"></p>
       </section>
 
