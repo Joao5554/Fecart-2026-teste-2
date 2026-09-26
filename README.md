@@ -54,7 +54,7 @@ uvicorn backend.app:app --reload
 - Interface: **http://127.0.0.1:8000/app**
 - Documentação da API: **http://127.0.0.1:8000/docs**
 
-Pronto. **O modelo treinado vem junto no repositório** (23 MB), assim como o
+Pronto. **O modelo treinado vem junto no repositório** (1,3 MB), assim como o
 histórico de ocorrências que a API consulta — não é preciso baixar a base do
 Atlas nem treinar para apresentar o projeto.
 
@@ -105,6 +105,8 @@ arquivo novo; se foi só um teste, desfaça com `git checkout modelo/`.
 | `dados/baixar_mundo.py`            | Baixa o contorno dos outros países (Natural Earth), para o globo |
 | `dados/baixar_malha_estados.py`    | Baixa a divisa das 27 UFs (IBGE), para a camada de fronteiras   |
 | `dados/baixar_relevo.py`           | Baixa a altimetria do Brasil, para a camada de relevo           |
+| `dados/baixar_rios.py`             | Baixa a rede de rios principais (Natural Earth)                 |
+| `dados/preparar_geografia.py`      | Altitude, declividade, área e distância do rio, por município   |
 | `dados/README.md`                  | **Metodologia dos dados** e limitações — leitura obrigatória    |
 | `treinamento/treinar_modelo.py`    | Treina, avalia e salva o modelo                                 |
 | `backend/app.py`                   | API que serve as previsões                                      |
@@ -138,6 +140,63 @@ temporal — está em [`dados/README.md`](dados/README.md).
 
 ---
 
+## A janela de previsão, e até onde ela é honesta
+
+A interface oferece de **setembro de 2026 a dezembro de 2027**. Meses
+anteriores saíram da lista porque "prever" um mês que já passou não é
+previsão — para isso existe a aba Histórico.
+
+O limite de cima é mais interessante, e custou uma correção no código.
+
+### O problema: janelas que varrem o vazio
+
+Quatro das variáveis mais importantes contam o que aconteceu nos 12, 24 e 60
+meses **anteriores** ao mês pedido. A base do Atlas termina em dezembro de
+2025. Logo, ao pedir um mês de 2027, a janela de 12 meses cai inteira num
+período sem registro nenhum, e as contagens viram zero — não porque o país
+ficou seguro, mas porque o Atlas ainda não chegou lá.
+
+O efeito foi medido em `experimentos/horizonte_previsao.py`, nos 18.980 pares
+(município, tipo) com histórico:
+
+| Mês pedido | 09/2026 | 12/2026 | 01/2027 | 06/2027 | 12/2027 |
+| --- | --- | --- | --- | --- | --- |
+| Municípios em risco alto | 13,0% | 11,9% | 9,7% | 3,4% | 4,8% |
+| `ocorrencias_uf_grupo_12m` (média) | 14,5 | 4,8 | **0,0** | **0,0** | **0,0** |
+
+O sistema anunciava um Brasil cada vez mais seguro quanto mais longe se
+perguntasse. Era só o fim da base.
+
+### A correção: a janela para onde os dados param
+
+`src/atlas._ancora` faz as janelas pararem no último mês com registro. É a
+hipótese padrão em previsão com variáveis defasadas — *o que não se observa
+recebe a última observação disponível*. O mês-alvo continua valendo para tudo
+que é sazonal: o mês do calendário, o seno, o cosseno, e quantas vezes aquele
+desastre já aconteceu naquele mês.
+
+Com a correção, a previsão volta a variar por **estação**, e não por distância:
+
+| Mês pedido | 09/2026 | 12/2026 | 01/2027 | 06/2027 | 12/2027 |
+| --- | --- | --- | --- | --- | --- |
+| Antes | 13,0% | 11,9% | 9,7% | 3,4% | 4,8% |
+| **Depois** | **12,8%** | **19,9%** | **29,3%** | **15,6%** | **19,9%** |
+
+Janeiro passa a ser o pior mês do país, o que bate com a estação chuvosa.
+
+> **A consequência honesta:** setembro de 2026 e setembro de 2027 recebem a
+> **mesma** resposta. Sem dado novo entre os dois, não existe nada que os
+> distinga — e inventar essa diferença seria inventar informação. Quando o
+> Atlas for atualizado, a janela pode andar para frente; o teste
+> `testes/test_horizonte.py` falha de propósito nesse dia, avisando.
+
+O treino não mudou nada com isso: todo mês-alvo do dataset está dentro da
+base, então a âncora nunca chega a atuar ali. O teste
+`test_features_do_passado_nao_mudam_com_a_ancora` compara o dataset inteiro
+gerado com e sem a correção, e exige que sejam idênticos.
+
+---
+
 ## Resultados
 
 ### Como o modelo é avaliado
@@ -160,10 +219,10 @@ em dados novos. Escolhidos os hiperparâmetros, a validação volta para o trein
 
 | Métrica | Valor |
 | --- | --- |
-| Acurácia | 71,3% |
-| Acurácia balanceada | 55,3% |
-| F1 macro | 0,561 |
-| Casos de risco **alto** identificados | **57,8%** |
+| Acurácia | 70,2% |
+| Acurácia balanceada | 56,4% |
+| F1 macro | 0,568 |
+| Casos de risco **alto** identificados | **57,4%** |
 
 ### Validação walk-forward: o desempenho é estável?
 
@@ -172,15 +231,15 @@ até um ano e testa no seguinte, repetidamente — como o sistema seria usado:
 
 | Treina até | Testa | Acurácia balanceada | Risco alto detectado |
 | --- | --- | --- | --- |
-| 2017 | 2018 | 59,4% | 74,8% |
-| 2018 | 2019 | 64,5% | 80,5% |
-| 2019 | **2020** | **46,3%** | **34,7%** |
-| 2020 | 2021 | 54,9% | 59,8% |
-| 2021 | 2022 | 59,0% | 64,5% |
-| 2022 | 2023 | 55,8% | 56,7% |
-| 2023 | 2024 | 50,6% | 50,0% |
-| 2024 | 2025 | 59,3% | 73,1% |
-| | **média** | **56,2% ± 5,7** | **61,8% ± 14,9** |
+| 2017 | 2018 | 61,7% | 73,8% |
+| 2018 | 2019 | 66,6% | 80,3% |
+| 2019 | **2020** | **46,9%** | **32,3%** |
+| 2020 | 2021 | 58,1% | 62,5% |
+| 2021 | 2022 | 60,2% | 64,6% |
+| 2022 | 2023 | 57,6% | 62,4% |
+| 2023 | 2024 | 53,9% | 54,8% |
+| 2024 | 2025 | 59,3% | 71,1% |
+| | **média** | **58,1% ± 5,8** | **62,7% ± 14,6** |
 
 **2020 é o pior ano de todos**, e por uma margem grande. O modelo treinado até
 2019 não anteciparia o que aconteceu ali: a taxa de ocorrências registradas
@@ -191,27 +250,111 @@ histórico prevê uma mudança na forma de registrar.
 Esse é o resultado mais honesto do trabalho: o desempenho **varia com o ano**,
 e apresentar só a média esconderia isso.
 
-### Escolha dos hiperparâmetros pela parcimônia
+### Confiabilidade: a porcentagem quer dizer o quê?
 
-Entre os candidatos testados na validação, o de maior F1 foi profundidade 28
-(0,517), mas o escolhido foi profundidade 16 (0,508). É intencional: a
-diferença de 0,009 cabe dentro da tolerância de 0,01 e é ruído de amostra.
-**Entre modelos empatados, vence o mais simples** — generaliza melhor para
-dados que ainda não existem, e gera um arquivo menor (19 MB em vez de 31 MB).
+Acurácia e confiabilidade são perguntas diferentes, e a interface mostra as
+duas: o **selo** ("risco alto") é acurácia; a **porcentagem** ao lado é
+confiabilidade. Um modelo pode acertar muito o selo e mentir na porcentagem.
 
-**Como ler isso com honestidade.** A acurácia de 68% não é o número importante:
-como 75% das linhas são "baixo", chutar sempre "baixo" já daria mais que isso.
-O número que importa num sistema de alerta é quantos casos graves o modelo
-**pega** — 48,7% — e ele foi obtido pesando o erro: deixar de avisar um risco
-alto custa mais caro que um alarme falso. Com pesos neutros, o modelo acertava
-mais no total e detectava bem menos casos graves.
+A medida própria disso chama-se calibração, e está em
+`experimentos/confiabilidade.py`. Entre os casos a que o modelo deu X% de
+chance de risco alto, quantos foram de fato risco alto (teste 2022–2025):
 
-A classe `medio` é a mais difícil (recall 0,168), o que faz sentido: ela é
+| Faixa prometida | Casos | Prometido | Aconteceu | Desvio |
+| --- | --- | --- | --- | --- |
+| 0–10% | 19.303 | 4,5% | 4,4% | **−0,1%** |
+| 10–20% | 10.631 | 14,6% | 11,5% | −3,1% |
+| 20–30% | 6.284 | 24,6% | 16,9% | −7,7% |
+| 40–50% | 2.832 | 44,8% | 27,8% | −17,0% |
+| 50–60% | 2.064 | 54,7% | 34,6% | **−20,2%** |
+| 70–80% | 1.468 | 75,0% | 59,0% | −16,0% |
+| 90–100% | 1.589 | 93,4% | 83,6% | −9,7% |
+
+| Resumo | Valor |
+| --- | --- |
+| Erro de calibração esperado (ECE) | **6,2%** |
+| Escore de Brier | 0,1211 |
+| Brier de quem responde sempre a média | 0,1541 |
+| Taxa real de risco alto no teste | 19,0% |
+| Média prometida pelo modelo | 25,2% |
+
+**Onde o modelo é confiável:** na faixa baixa, que é a maior. Nos 19.303 casos
+em que ele promete até 10%, acontece 4,4% — praticamente no ponto. Quando o
+modelo diz "fique tranquilo", pode acreditar.
+
+**Onde ele não é:** no meio da escala. Onde promete 55%, acontece 35%. É
+otimista, e por dois motivos somados.
+
+1. **De propósito.** O treino usa peso 6 para "alto" contra 1 para "baixo" —
+   deixar de avisar um caso grave custa seis vezes mais que um alarme falso.
+   Isso empurra a probabilidade para cima de caso pensado.
+2. **Sem querer.** A taxa de risco alto sobe de **13,7%** (2010–2021, treino)
+   para **19,0%** (2022–2025, teste). O modelo aprendeu um mundo e foi
+   aplicado em outro.
+
+Os dois efeitos são de sinais opostos e se cancelam em parte. Tirando os pesos:
+
+| | Prometido | ECE | Brier | Risco alto detectado |
+| --- | --- | --- | --- | --- |
+| **Com pesos** *(produção)* | 25,2% | 6,2% | 0,1211 | **57,4%** |
+| Sem pesos | 13,2% | 5,9% | 0,1169 | 34,2% |
+
+Sem os pesos a porcentagem vira pessimista em vez de otimista, o ECE melhora
+0,3 ponto — e a detecção de casos graves **cai de 57% para 34%**. Não vale a
+troca. Calibrar depois do treino também foi testado, e piorou tudo (ver
+[`experimentos/README.md`](experimentos/README.md), seção 2).
+
+> **A ressalva que vale mais que todas:** os meses sem desastre foram
+> **amostrados** (3 negativos por positivo). A "taxa real de 19%" é a taxa
+> dentro do dataset, não a chance de um desastre acontecer em Manaus em
+> janeiro. A porcentagem serve para **comparar e priorizar** municípios — não
+> para apostar.
+
+### Qual algoritmo, e por quê
+
+O classificador é um **gradient boosting** (`HistGradientBoostingClassifier`).
+Era um Random Forest até setembro de 2026, e a troca só foi feita depois de
+medir: os dois foram comparados em **seis anos independentes**, cada um
+treinando só com o passado e sendo testado num ano inteiro que nunca viu.
+
+| Ano testado | 2019 | 2020 | 2021 | 2022 | 2023 | 2024 | média |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Random Forest | 62,2% | 47,4% | 52,1% | 56,5% | 54,5% | 50,5% | 53,9% |
+| **Gradient boosting** | 64,0% | 46,6% | 54,4% | 58,0% | 55,7% | 50,9% | **54,9%** |
+
+**+1,0 ponto em média, melhor em 5 dos 6 anos** (teste t pareado: p = 0,038
+unilateral; teste dos sinais: p = 0,11). É um ganho pequeno, e o próprio
+relatório em [`experimentos/README.md`](experimentos/README.md) discute o
+quanto ele é frágil. Foi aplicado porque é consistente, não porque é grande —
+e porque o arquivo do modelo caiu de 33,6 MB para **1,3 MB** de quebra.
+
+O critério de aprovação (vencer em 4 dos 6 anos, com média positiva) foi
+escrito antes de a medição rodar.
+
+Os hiperparâmetros do boosting **não** passam por busca no treino: são os que
+foram validados nos seis anos. Trocá-los depois seria substituir um modelo
+medido por um não medido. Para reproduzir o modelo antigo:
+
+```bash
+python treinamento/treinar_modelo.py --modelo floresta
+```
+
+Aí a busca por parcimônia volta a valer: entre candidatos cuja diferença de F1
+cabe na tolerância de 0,01 — ruído de amostra —, **vence o mais simples**.
+
+**Como ler os números com honestidade.** A acurácia de 70% não é o número
+importante: como 75% das linhas são "baixo", chutar sempre "baixo" já daria
+mais que isso. O que importa num sistema de alerta é quantos casos graves o
+modelo **pega** — 57,4% — e isso foi obtido pesando o erro: deixar de avisar
+um risco alto custa mais caro que um alarme falso. Com pesos neutros, o modelo
+acerta mais no total e detecta bem menos casos graves.
+
+A classe `medio` é a mais difícil (recall 0,300), o que faz sentido: ela é
 justamente a faixa ambígua entre "nada aconteceu" e "aconteceu algo grave".
 
 O modelo aprendeu padrões coerentes com a realidade — a variável mais
-importante é a atividade recente do mesmo tipo de desastre na UF, seguida do
-tempo desde a última ocorrência no município e da sazonalidade do mês.
+importante é o tipo de desastre, seguida do tempo desde a última ocorrência no
+município e da atividade recente na região.
 
 ---
 
@@ -256,7 +399,7 @@ vizinhos, quase copiando a resposta.
 
 Não é aplicada, e isso é decisão, não esquecimento. Árvores de decisão dividem
 por limiares ("ocorrências > 3?"), então multiplicar uma coluna por mil não
-muda divisão nenhuma — o Random Forest é indiferente à escala. Padronizar é
+muda divisão nenhuma — modelos de árvore são indiferentes à escala. Padronizar é
 indispensável em modelos que somam coeficientes, e é exatamente o que a
 análise de odds ratio faz na regressão logística.
 
@@ -324,16 +467,16 @@ total) e a estabilidade entre os anos melhorou um pouco (desvio de 5,7% para
 
 ## Odds ratio: quanto cada variável multiplica o risco
 
-A importância que o Random Forest devolve diz **quanto** uma variável ajudou a
-separar os casos — mas não diz a **direção** nem o **tamanho** do efeito. Para
-isso o projeto ajusta também uma **regressão logística** sobre os mesmos dados
-e reporta a razão de chances:
+A importância das variáveis diz **quanto** cada uma ajudou a separar os casos
+— mas não diz a **direção** nem o **tamanho** do efeito. Para isso o projeto
+ajusta também uma **regressão logística** sobre os mesmos dados e reporta a
+razão de chances:
 
     OR = 2,0  ->  a chance dobra
     OR = 1,0  ->  a variável não altera a chance
     OR = 0,5  ->  a chance cai pela metade
 
-São dois modelos com papéis diferentes, de propósito: a floresta **prevê** (é o
+São dois modelos com papéis diferentes, de propósito: o boosting **prevê** (é o
 que a API usa), a regressão **explica** (é o que se apresenta e se discute).
 
 ### Resultado — chance de o desastre ser grave
@@ -802,8 +945,9 @@ descartável na hora de apresentar:
 python ferramentas/preparar_apresentacao.py
 ```
 
-Gera a pasta `apresentacao/` com **28 MB** — cabe em qualquer pendrive. Dentro
-dela vai um `LEIAME.md` com o passo a passo para quem for rodar.
+Gera a pasta `apresentacao/` com **16 MB** — cabe em qualquer pendrive. Dentro
+dela vai um `LEIAME.md` com o passo a passo para quem for rodar. (Eram 28 MB
+enquanto o modelo era um Random Forest; o boosting sozinho economizou 12 MB.)
 
 Se o computador da escola não tiver internet (ou bloquear o `pip`), inclua as
 bibliotecas junto:
@@ -825,18 +969,25 @@ São 93 MB compactados, e a instalação passa a funcionar offline.
 ### E cortar anos antigos da base, para aliviar?
 
 Foi medido, e **não compensa**. O período do dataset afeta bastante a
-qualidade, enquanto o número de árvores da floresta afeta o tamanho:
+qualidade, enquanto o tamanho do arquivo depende do algoritmo:
 
-| Período | Árvores | Modelo | Acurácia balanceada | Risco alto detectado |
+| Período | Modelo | Arquivo | Acurácia balanceada | Risco alto detectado |
 | --- | --- | --- | --- | --- |
-| 2010–2025 | 300 | 68,8 MB | 0,499 | 48,7% |
-| **2010–2025** | **100** | **22,8 MB** | **0,499** | **48,9%** |
-| 2015–2025 | 100 | 15,6 MB | 0,476 | 43,4% |
-| 2018–2025 | 100 | 10,4 MB | 0,455 | 36,2% |
+| 2010–2025 | floresta, 300 árvores | 68,8 MB | 0,499 | 48,7% |
+| 2010–2025 | floresta, 100 árvores | 22,8 MB | 0,499 | 48,9% |
+| 2015–2025 | floresta, 100 árvores | 15,6 MB | 0,476 | 43,4% |
+| 2018–2025 | floresta, 100 árvores | 10,4 MB | 0,455 | 36,2% |
+| **2010–2025** | **boosting** *(atual)* | **1,3 MB** | **0,564** | **57,4%** |
 
-Reduzir de 300 para 100 árvores deixa o modelo **3× menor sem custo nenhum** —
-por isso 100 é o padrão. Já cortar até 2018 economizaria só mais 12 MB e
-derrubaria a detecção de casos graves de 49% para 36%.
+> As quatro primeiras linhas vêm da medição de agosto/2026, feita para decidir
+> o corte de anos; comparam-se entre si. A última é do modelo atual, medido
+> depois de a base ganhar as variáveis de clima — o salto de 0,499 para 0,564
+> não é só efeito do algoritmo.
+
+A troca pelo boosting resolveu o problema do tamanho por outro caminho: o
+arquivo ficou 17× menor que a floresta de 100 árvores, com a base inteira e
+acurácia maior. Cortar anos continua sendo má ideia — até 2018 derrubaria a
+detecção de casos graves de 49% para 36%.
 
 Se ainda assim quiser um dataset menor (para treinar mais rápido, por exemplo):
 
@@ -864,9 +1015,13 @@ interface.
 
 ## Limitações (para responder à banca)
 
-- **Sem gatilho climático.** O Atlas não traz chuva nem temperatura. O modelo
-  sabe que Petrópolis é perigosa em fevereiro, mas não sabe se vai chover neste
-  fevereiro. Incorporar o INMET é o próximo passo natural.
+- **Sem gatilho climático de verdade.** A chuva do INMET foi incorporada e
+  medida — e não melhorou a previsão (a seção acima explica por quê). O modelo
+  sabe que Petrópolis é perigosa em fevereiro; não sabe se vai chover **neste**
+  fevereiro, porque isso é meteorologia e não histórico.
+- **O futuro é sempre o mesmo futuro.** A base termina em dezembro de 2025.
+  De 2026 em diante o modelo responde com o histórico congelado nessa data, e
+  por isso o mesmo mês de anos diferentes recebe a mesma resposta.
 - **Subnotificação.** Município que não registra ocorrência aparece como sem
   risco.
 - **Probabilidade relativa, não absoluta.** Os meses sem desastre foram
@@ -877,10 +1032,14 @@ interface.
 
 ## Próximos passos
 
-- [ ] Incorporar chuva e temperatura do INMET/CEMADEN
+- [x] ~~Incorporar chuva e temperatura do INMET/CEMADEN~~ — feito, e medido:
+      explica o desastre, mas não melhora a previsão mensal
 - [x] ~~Adicionar coordenadas do IBGE para ativar o mapa~~ — feito: mapa do país
       inteiro, desenhado em SVG puro, sem biblioteca externa
-- [ ] Testar divisão temporal mais longa (treinar até 2019, testar 2020–2025)
+- [ ] Atualizar a base do Atlas quando 2026 entrar, e mover a janela de
+      previsão junto
+- [ ] Prever por semana ou por dia, e não por mês — é a mudança que faria a
+      chuva finalmente ajudar
 - [ ] Melhorar a detecção da classe `medio`
 
 ---

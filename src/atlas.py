@@ -271,16 +271,25 @@ def _features_de_uma_serie(alvos: np.ndarray, eventos: np.ndarray,
     return resultado
 
 
-def _ocorrencias_mesmo_mes(alvos: np.ndarray, eventos: np.ndarray) -> np.ndarray:
+def _ocorrencias_mesmo_mes(alvos: np.ndarray, eventos: np.ndarray,
+                           corte: np.ndarray | None = None) -> np.ndarray:
     """
     Quantas vezes esse tipo de desastre já ocorreu NESTE mês do calendário.
 
     Captura a sazonalidade local: seca no sertão tem época, assim como
     deslizamento no litoral. Só conta ocorrências anteriores ao mês-alvo.
+
+    `corte` separa duas perguntas que normalmente são a mesma: *qual mês do
+    calendário* (vem de `alvos`, sempre) e *até quando contar* (vem de `corte`,
+    que para um mês futuro para no fim da base). Ver `_ancora` em
+    `calcular_features`.
     """
     resultado = np.zeros(len(alvos))
     if len(eventos) == 0:
         return resultado
+
+    if corte is None:
+        corte = alvos
 
     calendario_evento = eventos % 12
     for mes_calendario in np.unique(alvos % 12):
@@ -288,9 +297,44 @@ def _ocorrencias_mesmo_mes(alvos: np.ndarray, eventos: np.ndarray) -> np.ndarray
         mesmos = eventos[calendario_evento == mes_calendario]
         if len(mesmos):
             resultado[selecao] = np.searchsorted(
-                mesmos, alvos[selecao], side="left"
+                mesmos, corte[selecao], side="left"
             )
     return resultado
+
+
+def _ancora(historico: pd.DataFrame, meses_alvo: np.ndarray) -> np.ndarray:
+    """
+    O mês até onde faz sentido olhar para trás.
+
+    As janelas móveis (12, 24 e 60 meses) contam o que aconteceu ANTES do
+    mês-alvo. Isso funciona enquanto o alvo está dentro da base. Para um mês
+    futuro, não: pedir "setembro de 2027" com a base terminando em dezembro de
+    2025 faz a janela de 12 meses cair inteira num período sem registro, e as
+    contagens viram zero — não porque nada aconteceu, mas porque o Atlas ainda
+    não chegou lá.
+
+    Sem esta correção o efeito é grande e enganoso: os municípios em risco alto
+    caíam de 13,0% em 09/2026 para 4,8% em 12/2027, e `ocorrencias_uf_grupo_12m`
+    (a quarta variável mais importante do modelo) ia de 14,5 a zero em TODO o
+    país. O modelo parecia anunciar um Brasil cada vez mais seguro; era só o
+    fim da base.
+
+    A correção é a hipótese padrão em previsão com variáveis defasadas: o que
+    não se observa recebe a última observação disponível. As janelas param no
+    primeiro mês sem dado, e o alvo continua valendo para o que é sazonal — o
+    mês do calendário, o seno e o cosseno. Consequência honesta: sem dado novo,
+    o modelo responde o mesmo para setembro de 2026 e setembro de 2027, porque
+    ele de fato não sabe nada sobre o que separa um do outro.
+
+    Para todo mês-alvo dentro da base — ou seja, para o treino inteiro — a
+    função devolve o próprio alvo e não muda coisa alguma.
+    """
+    if historico.empty:
+        return meses_alvo
+    # +1 porque as janelas contam o que é ESTRITAMENTE anterior ao alvo: parar
+    # no mês seguinte ao último registro é o que inclui esse último registro.
+    limite = int(historico["indice_mes"].max()) + 1
+    return np.minimum(meses_alvo, limite)
 
 
 def calcular_features(historico: pd.DataFrame, alvos: pd.DataFrame) -> pd.DataFrame:
@@ -304,6 +348,9 @@ def calcular_features(historico: pd.DataFrame, alvos: pd.DataFrame) -> pd.DataFr
     Esta é a ÚNICA função que calcula features no projeto. O dataset de treino
     e as consultas da API passam por aqui, então é impossível o modelo ser
     treinado com uma conta e consultado com outra.
+
+    Meses-alvo no futuro são tratados por `_ancora`: as janelas para trás param
+    no fim da base, em vez de varrerem um vazio.
     """
     partes = []
 
@@ -336,9 +383,12 @@ def calcular_features(historico: pd.DataFrame, alvos: pd.DataFrame) -> pd.DataFr
 
         eventos = serie["indice_mes"].to_numpy()
         meses_alvo = bloco_alvo["indice_mes"].to_numpy()
+        # Tudo que olha para trás usa o mês efetivo; o mês-alvo continua
+        # valendo para o que é do calendário.
+        meses_efetivos = _ancora(historico, meses_alvo)
 
         calculadas = _features_de_uma_serie(
-            meses_alvo, eventos,
+            meses_efetivos, eventos,
             pesos={
                 "mortos_historico": serie["mortos"].to_numpy(),
                 "afetados_historico": serie["afetados"].to_numpy(),
@@ -347,13 +397,14 @@ def calcular_features(historico: pd.DataFrame, alvos: pd.DataFrame) -> pd.DataFr
             },
         )
         calculadas["ocorrencias_mesmo_mes_historico"] = _ocorrencias_mesmo_mes(
-            meses_alvo, eventos
+            meses_alvo, eventos, corte=meses_efetivos
         )
+        calculadas["_indice_efetivo"] = meses_efetivos
 
         partes.append(bloco_alvo.reset_index(drop=True).assign(**calculadas))
 
     dados = pd.concat(partes, ignore_index=True)
-    return _adicionar_contexto(dados, historico)
+    return _adicionar_contexto(dados, historico).drop(columns=["_indice_efetivo"])
 
 
 def features_para_consulta(ocorrencias: pd.DataFrame, codigo_ibge: int,
@@ -580,17 +631,25 @@ def _adicionar_contexto(dados: pd.DataFrame, historico: pd.DataFrame) -> pd.Data
     dados["ocorrencias_uf_grupo_12m"] = 0.0
     vazio = (np.array([]), np.array([]))
 
+    # Estas duas janelas olham para trás como as outras, e param no mesmo
+    # lugar: o mês efetivo calculado em `calcular_features` (ver `_ancora`).
+    # Quem chama de fora, sem essa coluna, usa o próprio alvo.
+    if "_indice_efetivo" in dados.columns:
+        efetivo = dados["_indice_efetivo"]
+    else:
+        efetivo = dados["indice_mes"]
+
     for ibge, bloco in dados.groupby("codigo_ibge", sort=False):
         meses, contagens = mapa_municipio.get(ibge, vazio)
         dados.loc[bloco.index, "ocorrencias_municipio_12m"] = _soma_janela(
-            bloco["indice_mes"].to_numpy(), meses, contagens
+            efetivo.loc[bloco.index].to_numpy(), meses, contagens
         )
 
     dados["_uf_ref"] = dados["codigo_ibge"].map(uf_por_ibge)
     for chave, bloco in dados.groupby(["_uf_ref", "grupo_desastre"], sort=False):
         meses, contagens = mapa_uf.get(chave, vazio)
         dados.loc[bloco.index, "ocorrencias_uf_grupo_12m"] = _soma_janela(
-            bloco["indice_mes"].to_numpy(), meses, contagens
+            efetivo.loc[bloco.index].to_numpy(), meses, contagens
         )
 
     return dados.drop(columns=["_uf_ref"])

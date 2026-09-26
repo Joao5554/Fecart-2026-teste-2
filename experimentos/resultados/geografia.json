@@ -1,0 +1,179 @@
+{
+  "colunas_novas": [
+    "altitude_media_m",
+    "altitude_minima_m",
+    "amplitude_altitude_m",
+    "declividade_m_por_km",
+    "area_km2",
+    "distancia_rio_km",
+    "distancia_rio_grande_km",
+    "latitude",
+    "longitude"
+  ],
+  "linhas": 187088,
+  "por_ano": {
+    "sem geografia": [
+      {
+        "balanceada": 0.617013079741778,
+        "f1_macro": 0.5989430393992072,
+        "recall_alto": 0.7380777696258254,
+        "ano_teste": 2018
+      },
+      {
+        "balanceada": 0.6664322908697873,
+        "f1_macro": 0.6407221869235039,
+        "recall_alto": 0.8025621703089676,
+        "ano_teste": 2019
+      },
+      {
+        "balanceada": 0.46942786641082196,
+        "f1_macro": 0.48817788981384785,
+        "recall_alto": 0.32320441988950277,
+        "ano_teste": 2020
+      },
+      {
+        "balanceada": 0.5806304849483811,
+        "f1_macro": 0.5770360892846219,
+        "recall_alto": 0.6254912970241437,
+        "ano_teste": 2021
+      },
+      {
+        "balanceada": 0.6023858288421067,
+        "f1_macro": 0.6027227582278717,
+        "recall_alto": 0.6459968602825745,
+        "ano_teste": 2022
+      },
+      {
+        "balanceada": 0.5762610684581285,
+        "f1_macro": 0.578588731033905,
+        "recall_alto": 0.6240681576144835,
+        "ano_teste": 2023
+      },
+      {
+        "balanceada": 0.5393820717088674,
+        "f1_macro": 0.5357895669852573,
+        "recall_alto": 0.5478184222124284,
+        "ano_teste": 2024
+      },
+      {
+        "balanceada": 0.5934836540657257,
+        "f1_macro": 0.5760712588398343,
+        "recall_alto": 0.711220384443451,
+        "ano_teste": 2025
+      }
+    ],
+    "com geografia": [
+      {
+        "balanceada": 0.6264438879361879,
+        "f1_macro": 0.6074336081862229,
+        "recall_alto": 0.7490829053558328,
+        "ano_teste": 2018
+      },
+      {
+        "balanceada": 0.6633741267074925,
+        "f1_macro": 0.6427328576424534,
+        "recall_alto": 0.7867370007535796,
+        "ano_teste": 2019
+      },
+      {
+        "balanceada": 0.4568141810730045,
+        "f1_macro": 0.47516356532925313,
+        "recall_alto": 0.2946593001841621,
+        "ano_teste": 2020
+      },
+      {
+        "balanceada": 0.5854250796698778,
+        "f1_macro": 0.579995500951176,
+        "recall_alto": 0.6473891072431218,
+        "ano_teste": 2021
+      },
+      {
+        "balanceada": 0.5933276315027421,
+        "f1_macro": 0.5943841702863808,
+        "recall_alto": 0.6550235478806907,
+        "ano_teste": 2022
+      },
+      {
+        "balanceada": 0.5795214743871893,
+        "f1_macro": 0.5840669672571389,
+        "recall_alto": 0.6254881079162229,
+        "ano_teste": 2023
+      },
+      {
+        "balanceada": 0.5449225917344708,
+        "f1_macro": 0.5401066658908896,
+        "recall_alto": 0.5764654032613487,
+        "ano_teste": 2024
+      },
+      {
+        "balanceada": 0.6043283061913706,
+        "f1_macro": 0.5868409504667625,
+        "recall_alto": 0.7264193115780062,
+        "ano_teste": 2025
+      }
+    ]
+  },
+  "teste_pareado": {
+    "diferenca_media": 0.0011426167695923473,
+    "diferenca_desvio": 0.008543386336579977,
+    "vitorias": 5,
+    "anos": 8,
+    "t": 0.3782818822633971,
+    "p_unilateral": 0.3582159712041759
+  },
+  "aprovado": false,
+  "por_faixa_de_historico": {
+    "sem histórico (0)": {
+      "linhas": 20069,
+      "sem_geografia": {
+        "balanceada": 0.4543284183911336,
+        "f1_macro": 0.46864158504438175,
+        "recall_alto": 0.30943251533742333
+      },
+      "com_geografia": {
+        "balanceada": 0.45532366475803787,
+        "f1_macro": 0.4700932902034045,
+        "recall_alto": 0.3159509202453988
+      }
+    },
+    "pouco (1 a 2)": {
+      "linhas": 37205,
+      "sem_geografia": {
+        "balanceada": 0.49309501232884095,
+        "f1_macro": 0.4897029671791124,
+        "recall_alto": 0.39121081745543945
+      },
+      "com_geografia": {
+        "balanceada": 0.4925183892099587,
+        "f1_macro": 0.48941726978286954,
+        "recall_alto": 0.4025814382298709
+      }
+    },
+    "médio (3 a 9)": {
+      "linhas": 25531,
+      "sem_geografia": {
+        "balanceada": 0.5815870611599083,
+        "f1_macro": 0.5679654542420062,
+        "recall_alto": 0.544037412314887
+      },
+      "com_geografia": {
+        "balanceada": 0.584343908143249,
+        "f1_macro": 0.5717464563490757,
+        "recall_alto": 0.5536502987789036
+      }
+    },
+    "muito (10+)": {
+      "linhas": 15424,
+      "sem_geografia": {
+        "balanceada": 0.6388254177852853,
+        "f1_macro": 0.65173135705635,
+        "recall_alto": 0.8747611347934735
+      },
+      "com_geografia": {
+        "balanceada": 0.6396232567365527,
+        "f1_macro": 0.651880031575408,
+        "recall_alto": 0.8756430986329561
+      }
+    }
+  }
+}

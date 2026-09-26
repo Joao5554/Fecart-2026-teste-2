@@ -10,6 +10,18 @@ const API = (location.protocol === "file:" || location.port !== "8000")
 const MESES = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
                "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
 
+// A janela de previsão que a interface oferece: setembro de 2026 a dezembro de
+// 2027. Meses anteriores saíram da lista porque "prever" um mês que já passou
+// não é previsão — é consulta, e para isso existe a aba Histórico.
+//
+// O limite de cima é escolha de apresentação, não de modelo: a base do Atlas
+// termina em dezembro de 2025, e `src/atlas._ancora` congela as janelas
+// históricas aí. Por isso o mesmo mês de 2026 e de 2027 recebe a MESMA
+// resposta — o modelo não tem nada que distinga um do outro, e forjar essa
+// diferença seria inventar informação.
+const PERIODO_INICIAL = { ano: 2026, mes: 9 };
+const PERIODO_FINAL = { ano: 2027, mes: 12 };
+
 const CORES = { baixo: "#2E7D32", medio: "#F9A825", alto: "#C62828" };
 
 // Tipos de desastre, iguais aos de src/esquema.py (GRUPOS_COBRADE).
@@ -136,13 +148,40 @@ function bloquearFormulario(mensagem) {
   $("busca").placeholder = "indisponível — veja o aviso acima";
 }
 
-function preencherMeses() {
-  const seletor = $("mes");
-  const mesAtual = new Date().getMonth();
-  MESES.forEach((nome, i) => {
-    const opcao = new Option(nome, i + 1, false, i === mesAtual);
-    seletor.add(opcao);
+/** Todos os (ano, mês) da janela oferecida, do primeiro ao último. */
+function periodosDaJanela() {
+  const lista = [];
+  const inicio = PERIODO_INICIAL.ano * 12 + PERIODO_INICIAL.mes - 1;
+  const fim = PERIODO_FINAL.ano * 12 + PERIODO_FINAL.mes - 1;
+  for (let i = inicio; i <= fim; i += 1) {
+    lista.push({ ano: Math.floor(i / 12), mes: (i % 12) + 1 });
+  }
+  return lista;
+}
+
+// O valor da opção carrega o ano junto com o mês ("2026-09"). Guardar só o
+// número do mês voltaria ao problema antigo: setembro de 2026 e setembro de
+// 2027 teriam o mesmo valor, e o seletor não saberia qual dos dois está
+// escolhido.
+const valorDoPeriodo = (p) => `${p.ano}-${String(p.mes).padStart(2, "0")}`;
+
+/** Lê um seletor de período e devolve { ano, mes } como números. */
+function lerPeriodo(id) {
+  const bruto = $(id).value || valorDoPeriodo(PERIODO_INICIAL);
+  const [ano, mes] = bruto.split("-").map(Number);
+  return { ano, mes };
+}
+
+function preencherPeriodos(seletor) {
+  seletor.innerHTML = "";
+  periodosDaJanela().forEach((p) => {
+    seletor.add(new Option(`${MESES[p.mes - 1]} de ${p.ano}`, valorDoPeriodo(p)));
   });
+  seletor.selectedIndex = 0;
+}
+
+function preencherMeses() {
+  preencherPeriodos($("mes"));
 }
 
 function preencherTipos(tipos) {
@@ -237,8 +276,7 @@ $("formulario").addEventListener("submit", async (evento) => {
   }
 
   const tipo = $("tipo").value;
-  const mes = Number($("mes").value);
-  const ano = new Date().getFullYear();
+  const { ano, mes } = lerPeriodo("mes");
 
   $("botao").disabled = true;
   $("botao").textContent = "Calculando...";
@@ -252,7 +290,7 @@ $("formulario").addEventListener("submit", async (evento) => {
 
     // O voo é a resposta à pergunta "onde fica isso?", e ela não pode esperar
     // as doze previsões do gráfico do ano. Sai junto com o resto, não depois.
-    const voo = prepararEVoar(previsao, tipo, mes);
+    const voo = prepararEVoar(previsao, tipo, mes, ano);
 
     // Os demais em paralelo, e não um depois do outro. O gráfico do ano custa
     // doze previsões; enfileirado atrás dele, o mapa da cidade demorava quase
@@ -261,7 +299,7 @@ $("formulario").addEventListener("submit", async (evento) => {
     await Promise.all([
       voo,
       mostrarMapaDaConsulta(previsao),
-      mostrarMapaDaCidade(municipioEscolhido.codigo_ibge, tipo, mes),
+      mostrarMapaDaCidade(municipioEscolhido.codigo_ibge, tipo, mes, ano),
       mostrarAno(municipioEscolhido.codigo_ibge, tipo, ano, mes),
     ]);
   } catch (erro) {
@@ -347,20 +385,21 @@ function anunciarCidadeNoAno(municipio, tipo) {
  * redesenhado antes do voo: pousar sobre um município pintado com o risco de
  * outra pergunta mostraria uma cor que não responde a nada.
  */
-async function prepararEVoar(previsao, tipo, mes) {
+async function prepararEVoar(previsao, tipo, mes, ano) {
   mostrarMapa("mapa");
 
+  const periodo = valorDoPeriodo({ ano, mes });
   const jaDesenhado = Boolean(projecaoDoMapa["mapa-svg"]);
   const precisaRedesenhar = !jaDesenhado
     || $("mapa-tipo").value !== tipo
-    || Number($("mapa-mes").value) !== mes;
+    || $("mapa-mes").value !== periodo;
 
   let redesenho = Promise.resolve();
   if (precisaRedesenhar) {
     $("mapa-tipo").value = tipo;
-    $("mapa-mes").value = String(mes);
+    $("mapa-mes").value = periodo;
     mapaJaDesenhado = true;
-    redesenho = desenharMapa(tipo, mes);
+    redesenho = desenharMapa(tipo, mes, ano);
   }
 
   // O primeiro cálculo de um tipo e mês novos leva alguns segundos no
@@ -431,12 +470,34 @@ function mostrarResultado(p) {
   $("painel").scrollTo({ top: 0, behavior: "smooth" });
 }
 
+/**
+ * Doze meses seguidos que contenham o escolhido, sem sair da janela oferecida.
+ *
+ * O gráfico mostrava sempre janeiro a dezembro do ano escolhido. Com a janela
+ * começando em setembro de 2026, isso pediria previsão para janeiro a agosto
+ * de 2026 — meses que já passaram, e que a interface tirou da lista
+ * justamente por isso.
+ *
+ * A faixa começa no mês escolhido e recua só o necessário para caber: como a
+ * janela tem 16 meses e a faixa tem 12, ela sempre cabe, e o mês escolhido
+ * sempre aparece nela.
+ */
+function janelaDeDoze(escolhido) {
+  const todos = periodosDaJanela();
+  const posicao = todos.findIndex(
+    (p) => p.ano === escolhido.ano && p.mes === escolhido.mes
+  );
+  const inicio = Math.min(Math.max(posicao, 0), Math.max(todos.length - 12, 0));
+  return todos.slice(inicio, inicio + 12);
+}
+
 async function mostrarAno(codigoIbge, tipo, ano, mesEscolhido) {
-  const pedidos = MESES.map((_, i) =>
+  const faixa = janelaDeDoze({ ano, mes: mesEscolhido });
+
+  const previsoes = await Promise.all(faixa.map((p) =>
     pedir("/prever/municipio", {
-      codigo_ibge: codigoIbge, grupo_desastre: tipo, mes: i + 1, ano,
-    }));
-  const previsoes = await Promise.all(pedidos);
+      codigo_ibge: codigoIbge, grupo_desastre: tipo, mes: p.mes, ano: p.ano,
+    })));
 
   const valores = previsoes.map((p) => p.probabilidades.alto || 0);
   const maximo = Math.max(...valores, 0.01);
@@ -444,13 +505,22 @@ async function mostrarAno(codigoIbge, tipo, ano, mesEscolhido) {
   const grafico = $("grafico");
   grafico.innerHTML = "";
   valores.forEach((valor, i) => {
+    const p = faixa[i];
+    const escolhido = p.mes === mesEscolhido && p.ano === ano;
+    // A vira-ano ganha o ano abreviado: sem isso, uma faixa que vai de
+    // setembro a agosto mostra "Jan" sem dizer de qual dos dois anos.
+    const rotulo = (i === 0 || p.mes === 1)
+      ? `${MESES[p.mes - 1].slice(0, 3)}/${String(p.ano).slice(2)}`
+      : MESES[p.mes - 1].slice(0, 3);
+
     const coluna = document.createElement("div");
-    coluna.className = "coluna" + (i + 1 === mesEscolhido ? " destaque" : "");
+    coluna.className = "coluna" + (escolhido ? " destaque" : "");
     coluna.innerHTML =
       `<span class="coluna-valor">${porcento(valor)}</span>
        <div class="coluna-barra" style="height:${(valor / maximo) * 100}%"></div>
-       <span class="coluna-mes">${MESES[i].slice(0, 3)}</span>`;
-    coluna.title = `${MESES[i]}: ${porcento(valor)} de risco alto`;
+       <span class="coluna-mes">${rotulo}</span>`;
+    coluna.title = `${MESES[p.mes - 1]} de ${p.ano}: ${porcento(valor)} `
+                 + `de risco alto`;
     grafico.appendChild(coluna);
   });
 
@@ -483,7 +553,7 @@ function prepararMapa() {
   tipo.value = "INUNDACAO";
 
   const mes = $("mapa-mes");
-  MESES.forEach((nome, i) => mes.add(new Option(nome, i + 1, false, i === 1)));
+  preencherPeriodos(mes);
 
   // O seletor de estado deixou de recortar o desenho: ele agora aponta para
   // onde a câmera deve voar. O mapa continua sendo o país inteiro, e o estado
@@ -496,7 +566,9 @@ function prepararMapa() {
 
   $("form-mapa").addEventListener("submit", (evento) => {
     evento.preventDefault();
-    desenharMapa(tipo.value, Number(mes.value));
+    const periodo = lerPeriodo("mapa-mes");
+    mapaJaDesenhado = true;
+    desenharMapa(tipo.value, periodo.mes, periodo.ano);
   });
 }
 
@@ -520,7 +592,7 @@ function voarAteOEstado(prefixo, sigla) {
   }
 }
 
-async function desenharMapa(tipo, mes) {
+async function desenharMapa(tipo, mes, ano) {
   const botao = $("mapa-botao");
   botao.disabled = true;
   botao.textContent = "Desenhando...";
@@ -536,7 +608,7 @@ async function desenharMapa(tipo, mes) {
     if (!malhaCache) malhaCache = await pedir("/mapa/malha");
     await carregarCapitais();
     const dados = await pedir(
-      `/mapa/brasil?grupo_desastre=${tipo}&mes=${mes}&ano=${new Date().getFullYear()}`
+      `/mapa/brasil?grupo_desastre=${tipo}&mes=${mes}&ano=${ano}`
     );
 
     const doMapa = dados.municipios;
@@ -553,7 +625,7 @@ async function desenharMapa(tipo, mes) {
     doMapa.forEach((m) => { resumo[m.nivel_risco] += 1; });
 
     $("mapa-estado").textContent =
-      `${formatarTipo(tipo)} em ${MESES[mes - 1]}, no Brasil · `
+      `${formatarTipo(tipo)} em ${MESES[mes - 1]} de ${ano}, no Brasil · `
       + `${doMapa.length.toLocaleString("pt-BR")} municípios com histórico · `
       + `${resumo.alto} em risco alto, ${resumo.medio} em médio.`;
 
@@ -637,13 +709,13 @@ async function mostrarMapaDaConsulta(previsao) {
 // Mapa da cidade e da região
 // ---------------------------------------------------------------------------
 
-async function mostrarMapaDaCidade(codigoIbge, tipo, mes) {
+async function mostrarMapaDaCidade(codigoIbge, tipo, mes, ano) {
   try {
     if (!malhaCache) malhaCache = await pedir("/mapa/malha");
     await carregarCapitais();
     const dados = await pedir(
       `/mapa/municipio/${codigoIbge}?grupo_desastre=${tipo}&mes=${mes}`
-      + `&ano=${new Date().getFullYear()}`
+      + `&ano=${ano}`
     );
 
     const daRegiao = new Set(dados.codigos_da_vizinhanca);
@@ -702,9 +774,9 @@ const POTENCIA_IDW = 2.4; // quanto o peso cai com a distância
 
 // Cada mapa e o que ele pede à API.
 const MAPAS_COM_CHUVA = {
-  consulta: { svg: "consulta-svg", periodo: () => ({ mes: Number($("mes").value) }) },
-  mapa: { svg: "mapa-svg", periodo: () => ({ mes: Number($("mapa-mes").value) }) },
-  cidade: { svg: "cidade-svg", periodo: () => ({ mes: Number($("mes").value) }) },
+  consulta: { svg: "consulta-svg", periodo: () => ({ mes: lerPeriodo("mes").mes }) },
+  mapa: { svg: "mapa-svg", periodo: () => ({ mes: lerPeriodo("mapa-mes").mes }) },
+  cidade: { svg: "cidade-svg", periodo: () => ({ mes: lerPeriodo("mes").mes }) },
   ano: {
     svg: "ano-svg",
     // No mapa por ano faz sentido o acumulado do ano inteiro escolhido.
@@ -791,9 +863,9 @@ async function atualizarChuva(prefixo) {
 // nenhum dos dois.
 
 const MAPAS_COM_VENTO = {
-  consulta: { svg: "consulta-svg", mes: () => Number($("mes").value) },
-  mapa: { svg: "mapa-svg", mes: () => Number($("mapa-mes").value) },
-  cidade: { svg: "cidade-svg", mes: () => Number($("mes").value) },
+  consulta: { svg: "consulta-svg", mes: () => lerPeriodo("mes").mes },
+  mapa: { svg: "mapa-svg", mes: () => lerPeriodo("mapa-mes").mes },
+  cidade: { svg: "cidade-svg", mes: () => lerPeriodo("mes").mes },
 };
 
 // Uma camada por mapa, criada na primeira vez que o mapa pede vento.
@@ -988,9 +1060,9 @@ const SUAVIZACAO_TEMPERATURA = 2.5;
 // — média de médias continua sendo média, enquanto a direção predominante de
 // um ano inteiro não descreve mês nenhum.
 const MAPAS_COM_TEMPERATURA = {
-  consulta: { svg: "consulta-svg", periodo: () => ({ mes: Number($("mes").value) }) },
-  mapa: { svg: "mapa-svg", periodo: () => ({ mes: Number($("mapa-mes").value) }) },
-  cidade: { svg: "cidade-svg", periodo: () => ({ mes: Number($("mes").value) }) },
+  consulta: { svg: "consulta-svg", periodo: () => ({ mes: lerPeriodo("mes").mes }) },
+  mapa: { svg: "mapa-svg", periodo: () => ({ mes: lerPeriodo("mapa-mes").mes }) },
+  cidade: { svg: "cidade-svg", periodo: () => ({ mes: lerPeriodo("mes").mes }) },
   ano: {
     svg: "ano-svg",
     periodo: () => ({ ano: Number($("ano-escolhido").value) }),
@@ -2951,7 +3023,7 @@ function trocarPalco(nome) {
     fundoGlobo?.restaurar();
   }
 
-  if (nome === "mapas") garantirMapaDesenhado();
+  if (nome === "mapas") convidarADesenhar();
 }
 
 // O ponto do globo onde a câmera pousa. Não é o centroide exato do país: é o
@@ -2963,18 +3035,21 @@ const MERGULHO_S = 1.9;
 /**
  * A entrada nos mapas: o globo desce até o Brasil e entrega a tela ao mapa.
  *
- * O desenho do mapa começa junto com o mergulho, e não depois dele. São 3 MB
- * de fronteiras e alguns segundos de cálculo no servidor — pedir isso só na
- * troca de palco faria a viagem terminar num teatro vazio, que é exatamente o
- * contrário do que a animação acabou de prometer. Os dois correm juntos, e a
- * descida serve de espera.
+ * A malha do IBGE (3 MB) é pedida junto com o mergulho, e não depois dele:
+ * baixá-la só na troca de palco faria o primeiro "Desenhar" esperar por ela.
+ * A descida serve de espera, e quando a tela troca o download já terminou.
  */
 async function entrarNosMapas() {
   const botao = $("botao-entrar");
   if (botao.disabled) return;   // a descida já começou; o segundo clique não conta
   botao.disabled = true;
 
-  garantirMapaDesenhado();
+  // Adiantar o download, sem desenhar nada: o mapa continua esperando uma
+  // escolha. `catch` porque uma falha de rede aqui não pode travar a entrada —
+  // ela reaparece, com mensagem, no primeiro desenho de verdade.
+  if (!malhaCache) {
+    pedir("/mapa/malha").then((m) => { malhaCache = m; }).catch(() => {});
+  }
   document.body.classList.add("mergulhando");
 
   // Em aba escondida o navegador não entrega quadro nenhum, e o mergulho
@@ -2990,14 +3065,21 @@ async function entrarNosMapas() {
   botao.disabled = false;
 }
 
-/** Desenha o mapa da previsão uma vez só, quando ele passa a ser preciso. */
-function garantirMapaDesenhado() {
+// O mapa NÃO vem pintado de fábrica.
+//
+// Ele vinha, e a intenção era boa: poupar um clique. O efeito na apresentação
+// foi outro — quem abria o projeto encontrava um mapa já calculado, de um tipo
+// e de um mês que ninguém escolheu, e era impossível saber se aquilo era uma
+// resposta ou só o estado inicial. Pior no segundo uso: depois de "Encerrar",
+// o mapa reaparecia igual ao anterior, e parecia que a tela tinha guardado a
+// consulta de quem estava antes.
+//
+// Agora o mapa nasce vazio, com o convite no lugar do desenho. A primeira cor
+// que aparece na tela é sempre resposta a uma pergunta que alguém fez.
+function convidarADesenhar() {
   if (mapaJaDesenhado) return;
-  mapaJaDesenhado = true;
-  // Entrar num mapa vazio e ter de apertar "Desenhar" para ver qualquer coisa
-  // é um passo a mais sem nenhuma informação nova. O país já vem pintado, e a
-  // pessoa começa mexendo, não configurando.
-  desenharMapa($("mapa-tipo").value, Number($("mapa-mes").value));
+  $("mapa-estado").textContent =
+    "Escolha o tipo de desastre e o mês, e toque em Desenhar.";
 }
 
 // ---------------------------------------------------------------------------
@@ -3039,7 +3121,7 @@ function reiniciarConsulta() {
   $("botao").disabled = true;
 
   $("tipo").selectedIndex = 0;
-  $("mes").value = String(new Date().getMonth() + 1);
+  $("mes").selectedIndex = 0;   // o primeiro mês da janela oferecida
 }
 
 /** A coluna da direita volta a ser o convite a escolher um município. */
@@ -3079,7 +3161,7 @@ function reiniciarPainel() {
 /** O mapa grande da previsão: filtros, câmera e desenho, todos do zero. */
 function reiniciarMapaDaPrevisao() {
   $("mapa-tipo").value = "INUNDACAO";
-  $("mapa-mes").value = "2";
+  $("mapa-mes").selectedIndex = 0;   // o primeiro mês da janela oferecida
   $("mapa-uf").value = "";
   reiniciarCamadas("mapa");
 
@@ -3091,10 +3173,8 @@ function reiniciarMapaDaPrevisao() {
 
   reiniciarCamera("mapa");
 
-  // O desenho não é refeito agora: quem encerra pode nunca mais voltar aos
-  // mapas, e redesenhar custa uma chamada à API. Marcar como não desenhado faz
-  // `trocarPalco` refazê-lo na volta — o mesmo caminho da primeira vez, com o
-  // palco já em cena.
+  // Volta a ser um mapa que nunca foi desenhado — é o que faz `trocarPalco`
+  // mostrar o convite outra vez, em vez de um país pintado que ninguém pediu.
   mapaJaDesenhado = false;
 }
 

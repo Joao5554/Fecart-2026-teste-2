@@ -481,3 +481,53 @@ que entra em países vizinhos: o ponto mais alto do arquivo tem 6.546 m e está
 nos Andes argentinos, não no Brasil. O mapa recorta o desenho no contorno do
 país, então isso não aparece — mas é por esse motivo que o campo dos metadados
 se chama `altitude_maxima_grade_m`, e não "altitude máxima do Brasil".
+
+---
+
+## Rios e geografia por município
+
+```bash
+python dados/baixar_rios.py          # dados/rios_brasil.json      (0,5 MB)
+python dados/preparar_geografia.py   # dados/geografia_municipios.csv (0,8 MB)
+```
+
+O primeiro baixa a rede de rios do **Natural Earth 1:10m** (domínio público) e
+recorta no retângulo do Brasil: 185 trechos, 29 mil vértices, 100 rios
+nomeados — Amazonas, Negro, Madeira, Tapajós, Xingu, Tocantins, São Francisco,
+Paraná, Paraguai, Uruguai e afluentes grandes.
+
+O segundo cruza três coisas que já estavam no repositório — a malha do IBGE, a
+grade de relevo e os rios — e produz **uma linha por município**:
+
+| Coluna | O que é |
+| --- | --- |
+| `latitude`, `longitude` | centroide do maior polígono do município |
+| `area_km2` | área, pela fórmula do shoelace em quilômetros |
+| `altitude_media_m` | média da grade de relevo dentro da fronteira |
+| `altitude_minima_m` | o ponto mais baixo do município |
+| `amplitude_altitude_m` | máxima menos mínima — o quanto o terreno varia |
+| `declividade_m_por_km` | inclinação média entre células vizinhas |
+| `distancia_rio_km` | do centroide até o vértice de rio mais próximo |
+| `distancia_rio_grande_km` | idem, só para os rios de maior porte |
+
+Conferência do resultado: a soma das áreas dá 8.493.683 km² contra os
+8.510.000 km² oficiais (0,2% de diferença), Campos do Jordão sai com 1.556 m,
+Manaus a 46 km de rio grande e Fortaleza a 533 km.
+
+### O que estas colunas NÃO são
+
+**Não são features do modelo.** Foram medidas em
+[`experimentos/testar_geografia.py`](../experimentos/README.md) e não passaram
+no critério: o ganho ficou em +0,1 ponto em oito anos, dentro do ruído. O
+arquivo continua aqui porque é barato, é reprodutível e serve à próxima
+tentativa — não porque o modelo o use.
+
+### Duas limitações honestas
+
+**Rio grande, não água.** Natural Earth 1:10m traz os rios principais. Córrego
+de bairro — que é o que alaga a maioria das cidades pequenas — não está lá. A
+variável mede "beira de rio grande".
+
+**Distância do centroide.** Um município extenso, atravessado por um rio só na
+ponta, aparece mais longe do que de fato está. Medir da fronteira seria mais
+correto e bem mais caro.

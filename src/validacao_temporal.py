@@ -78,15 +78,25 @@ def _medir(y_real, y_previsto) -> dict:
     }
 
 
+def _fit_simples(modelo, X, y):
+    return modelo.fit(X, y)
+
+
 def validar_walk_forward(criar_modelo, X: pd.DataFrame, y: pd.Series,
                          anos: pd.Series, janelas: list[tuple[int, int]],
-                         ao_terminar_janela=None) -> dict:
+                         ao_terminar_janela=None, ajustar=_fit_simples) -> dict:
     """
     Roda a validação walk-forward.
 
     `criar_modelo` é uma função sem argumentos que devolve um modelo novo —
     precisa ser novo a cada janela, senão o modelo carregaria o que aprendeu
     do futuro para a janela anterior.
+
+    `ajustar` é como o modelo é treinado. O padrão é `modelo.fit(X, y)`, mas
+    nem todo modelo aceita os pesos das classes na construção — o gradient
+    boosting precisa recebê-los linha a linha no `fit`. Quem chama passa a
+    mesma função de treino que usa em produção, e assim a validação mede o
+    modelo que de fato vai para o disco, e não uma versão sem pesos.
     """
     resultados = []
 
@@ -100,7 +110,7 @@ def validar_walk_forward(criar_modelo, X: pd.DataFrame, y: pd.Series,
             continue
 
         modelo = criar_modelo()
-        modelo.fit(X[treino], y[treino])
+        ajustar(modelo, X[treino], y[treino])
         previsao = modelo.predict(X[teste])
 
         medida = _medir(y[teste], previsao)

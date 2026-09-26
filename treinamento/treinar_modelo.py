@@ -3,13 +3,18 @@ Treinamento do modelo de previsão de risco de desastres naturais.
 
 Como executar (a partir da raiz do projeto):
     python treinamento/treinar_modelo.py
-    python treinamento/treinar_modelo.py --dados dados/dados.csv --arvores 300
+    python treinamento/treinar_modelo.py --modelo floresta   (o modelo antigo)
     python treinamento/treinar_modelo.py --sem-validacao-cruzada   (mais rápido)
+
+O classificador padrão é o gradient boosting desde setembro de 2026, depois de
+uma comparação de seis anos contra o Random Forest (ver CONFIG_BOOSTING, e o
+experimento em experimentos/validar_ganho.py). A floresta continua disponível
+em `--modelo floresta`.
 
 O que o script faz:
     1. Carrega e valida o CSV contra o contrato de src/esquema.py
     2. Separa treino e teste, mantendo a proporção das classes
-    3. Monta um Pipeline: imputação + one-hot + Random Forest
+    3. Monta um Pipeline: imputação + one-hot + classificador
     4. Avalia: acurácia, precisão/recall/F1 por classe, matriz de confusão
     5. Faz validação cruzada, para saber se o resultado é estável
     6. Mostra quais variáveis mais pesaram na decisão
@@ -30,7 +35,8 @@ import joblib
 import numpy as np
 import pandas as pd
 import sklearn
-from sklearn.ensemble import RandomForestClassifier
+from sklearn.ensemble import HistGradientBoostingClassifier, RandomForestClassifier
+from sklearn.inspection import permutation_importance
 from sklearn.metrics import (
     accuracy_score,
     balanced_accuracy_score,
@@ -77,6 +83,41 @@ PESOS_CLASSE = {"baixo": 1.0, "medio": 3.0, "alto": 6.0}
 MIN_AMOSTRAS_FOLHA = 5
 
 
+# --------------------------------------------------------------------------
+# Árvores impulsionadas (gradient boosting) — o modelo padrão desde 2026-09
+# --------------------------------------------------------------------------
+# Enquanto a floresta constrói 100 árvores independentes e tira a média, o
+# boosting constrói árvores em sequência, cada uma corrigindo o erro das
+# anteriores. Os dois foram medidos no MESMO protocolo, em seis anos
+# independentes (experimentos/validar_ganho.py):
+#
+#     ano de teste      2019   2020   2021   2022   2023   2024   média
+#     floresta         62,2%  47,4%  52,1%  56,5%  54,5%  50,5%   53,9%
+#     boosting         64,0%  46,6%  54,4%  58,0%  55,7%  50,9%   54,9%
+#     diferença        +1,8%  -0,9%  +2,3%  +1,6%  +1,2%  +0,4%   +1,0%
+#
+# Vence em 5 dos 6 anos, com detecção de risco alto equivalente (54,1% contra
+# 54,8%) e F1 macro um pouco melhor. O ganho é pequeno e o teste pareado fica
+# no limite da significância (p≈0,07) — está longe de ser uma virada, mas é a
+# única mudança testada que melhorou de forma consistente, e vem de graça:
+# o arquivo do modelo cai de ~35 MB para ~2 MB.
+#
+# Estes valores NÃO são escolhidos aqui. São exatamente os que passaram pela
+# validação de seis anos; mexer neles depois seria trocar o modelo medido por
+# outro, não medido.
+CONFIG_BOOSTING = {
+    "max_iter": 300,
+    "learning_rate": 0.08,
+    "max_leaf_nodes": 31,
+    "min_samples_leaf": 40,
+    "l2_regularization": 1.0,
+    # Separa uma fatia do treino para parar sozinho quando as árvores novas
+    # deixam de ajudar. Evita decorar o passado sem precisar chutar max_iter.
+    "early_stopping": True,
+    "validation_fraction": 0.12,
+}
+
+
 # Configurações testadas na etapa de validação. A busca é pequena e
 # proposital: cada candidato precisa de um treino completo, e o objetivo é
 # escolher entre alternativas razoáveis, não varrer o espaço todo.
@@ -110,6 +151,34 @@ def construir_modelo(arvores: int, profundidade: int | None, semente: int,
         ("preparacao", caracteristicas.construir_preprocessador()),
         ("floresta", floresta),
     ])
+
+
+def construir_boosting(semente: int) -> Pipeline:
+    """Monta o pipeline com árvores impulsionadas, no lugar da floresta."""
+    return Pipeline([
+        ("preparacao", caracteristicas.construir_preprocessador()),
+        ("boosting", HistGradientBoostingClassifier(
+            random_state=semente, **CONFIG_BOOSTING
+        )),
+    ])
+
+
+def ajustar(modelo: Pipeline, X: pd.DataFrame, y: pd.Series) -> Pipeline:
+    """
+    Treina o pipeline aplicando os pesos de classe do jeito que cada modelo aceita.
+
+    A floresta recebe os pesos na construção (`class_weight`). O boosting não:
+    ele recodifica o alvo como 0/1/2 antes de aplicar os pesos, e um dicionário
+    com os nomes das classes deixa de ser encontrado. Passar o peso LINHA A
+    LINHA (`sample_weight`) tem o mesmo efeito e não depende dessa recodificação.
+
+    Existir uma única função que treina evita o erro mais fácil de cometer
+    aqui: medir o boosting sem os pesos e comparar com a floresta que os tem.
+    """
+    if "boosting" in modelo.named_steps:
+        pesos = np.array([PESOS_CLASSE[classe] for classe in y])
+        return modelo.fit(X, y, boosting__sample_weight=pesos)
+    return modelo.fit(X, y)
 
 
 def avaliar(modelo: Pipeline, X_teste: pd.DataFrame, y_teste: pd.Series) -> dict:
@@ -172,8 +241,7 @@ def avaliar(modelo: Pipeline, X_teste: pd.DataFrame, y_teste: pd.Series) -> dict
 
 
 def validar_walk_forward(dados: pd.DataFrame, X: pd.DataFrame, y: pd.Series,
-                         arvores: int, profundidade: int | None, folha: int,
-                         semente: int) -> dict:
+                         criar_modelo) -> dict:
     """
     Validação temporal com janela expansiva (walk-forward).
 
@@ -189,8 +257,7 @@ def validar_walk_forward(dados: pd.DataFrame, X: pd.DataFrame, y: pd.Series,
     try:
         janelas = validacao_temporal.gerar_janelas(dados["ano"])
         resumo = validacao_temporal.validar_walk_forward(
-            lambda: construir_modelo(arvores, profundidade, semente, folha),
-            X, y, dados["ano"], janelas,
+            criar_modelo, X, y, dados["ano"], janelas, ajustar=ajustar,
         )
     except ValueError as erro:
         print(f"[aviso] não foi possível validar ({erro}).")
@@ -200,17 +267,72 @@ def validar_walk_forward(dados: pd.DataFrame, X: pd.DataFrame, y: pd.Series,
     return resumo
 
 
-def mostrar_importancias(modelo: Pipeline, quantidade: int = 15) -> dict:
+def importancia_por_permutacao(modelo: Pipeline, X: pd.DataFrame, y: pd.Series,
+                               semente: int, amostra: int = 8000,
+                               repeticoes: int = 5) -> dict:
+    """
+    Importância medida embaralhando uma variável de cada vez.
+
+    O gradient boosting não expõe `feature_importances_` como a floresta, e é
+    bom que não exponha: aquela medida conta quantas vezes a variável foi usada
+    para partir um nó, o que favorece variáveis com muitos valores distintos.
+
+    Aqui a pergunta é direta — *quanto o modelo piora se esta variável virar
+    ruído?* Embaralha-se a coluna, mede-se a queda do F1 macro, e repete-se
+    algumas vezes para não depender de um embaralhamento sortudo. A medida é
+    feita sobre as colunas ORIGINAIS, antes do one-hot, então `uf` já sai
+    inteira, sem precisar somar as 27 colunas de volta.
+
+    É medida numa amostra: a permutação custa um `predict` por variável por
+    repetição, e a base inteira levaria minutos sem mudar a ordem do ranking.
+    """
+    if len(X) > amostra:
+        sorteio = np.random.default_rng(semente).choice(
+            len(X), size=amostra, replace=False
+        )
+        X, y = X.iloc[sorteio], y.iloc[sorteio]
+
+    resultado = permutation_importance(
+        modelo, X, y,
+        scoring="f1_macro",
+        n_repeats=repeticoes,
+        random_state=semente,
+        n_jobs=-1,
+    )
+
+    # Queda negativa é ruído: embaralhar a variável "melhorou" o modelo por
+    # acaso. Vira zero, senão a normalização abaixo ficaria distorcida.
+    quedas = np.clip(resultado.importances_mean, 0.0, None)
+    total = quedas.sum()
+    if total <= 0:
+        return {}
+
+    # Normalizado para somar 1, na mesma escala das importâncias da floresta —
+    # assim os dois modelos podem ser lidos lado a lado, e a interface não
+    # precisa saber qual deles gerou o número.
+    pares = zip(X.columns, quedas / total)
+    return dict(sorted(pares, key=lambda item: item[1], reverse=True))
+
+
+def mostrar_importancias(modelo: Pipeline, X: pd.DataFrame, y: pd.Series,
+                         semente: int, quantidade: int = 15) -> tuple[dict, str]:
     """Mostra quais variáveis mais influenciaram as decisões do modelo."""
     titulo("VARIÁVEIS MAIS IMPORTANTES")
 
-    preparacao = modelo.named_steps["preparacao"]
-    floresta = modelo.named_steps["floresta"]
-
-    nomes = list(preparacao.get_feature_names_out())
-    agregadas = caracteristicas.importancia_por_coluna_original(
-        nomes, floresta.feature_importances_
-    )
+    if "floresta" in modelo.named_steps:
+        preparacao = modelo.named_steps["preparacao"]
+        floresta = modelo.named_steps["floresta"]
+        nomes = list(preparacao.get_feature_names_out())
+        agregadas = caracteristicas.importancia_por_coluna_original(
+            nomes, floresta.feature_importances_
+        )
+        metodo = "ganho_de_impureza"
+        print("Medida pelo ganho de impureza acumulado nas árvores.\n")
+    else:
+        metodo = "permutacao"
+        print("Medida por permutação: quanto o F1 macro cai quando a variável")
+        print("vira ruído. Demora alguns segundos.\n")
+        agregadas = importancia_por_permutacao(modelo, X, y, semente)
 
     print(f"{'variável':<38} {'peso':>8}")
     print("-" * 48)
@@ -221,7 +343,7 @@ def mostrar_importancias(modelo: Pipeline, quantidade: int = 15) -> dict:
         if info and info.descricao:
             print(f"    {info.descricao}")
 
-    return agregadas
+    return agregadas, metodo
 
 
 def calcular_odds_ratios(dados: pd.DataFrame) -> dict:
@@ -252,7 +374,8 @@ def calcular_odds_ratios(dados: pd.DataFrame) -> dict:
 
 def salvar(modelo: Pipeline, dados: pd.DataFrame, metricas: dict,
            cruzada: dict | None, importancias: dict, argumentos,
-           odds: dict | None = None, escolha: dict | None = None) -> None:
+           odds: dict | None = None, escolha: dict | None = None,
+           metodo_importancia: str = "ganho_de_impureza") -> None:
     """Salva o modelo e um arquivo de metadados ao lado dele."""
     PASTA_MODELO.mkdir(parents=True, exist_ok=True)
     # Sem compressão uma floresta de 300 árvores passa de 100 MB. compress=3
@@ -304,17 +427,34 @@ def salvar(modelo: Pipeline, dados: pd.DataFrame, metricas: dict,
             "numericas": esquema.COLUNAS_MODELO_NUMERICAS,
             "categoricas": esquema.COLUNAS_MODELO_CATEGORICAS,
         },
-        "hiperparametros": {
-            "n_estimators": argumentos.arvores,
-            "max_depth": (escolha["escolhido"]["profundidade"] if escolha
-                          else argumentos.profundidade),
-            "class_weight": PESOS_CLASSE,
-            "min_samples_leaf": (escolha["escolhido"]["folha"] if escolha
-                                 else MIN_AMOSTRAS_FOLHA),
-            "random_state": argumentos.semente,
-        },
+        # Qual algoritmo gerou este .pkl. Sem isso, meses depois, ninguém sabe
+        # ler os hiperparâmetros abaixo — "max_depth" e "max_leaf_nodes" são
+        # de modelos diferentes.
+        "algoritmo": (
+            "hist_gradient_boosting" if argumentos.modelo == "boosting"
+            else "random_forest"
+        ),
+        "hiperparametros": (
+            {**CONFIG_BOOSTING,
+             "class_weight": PESOS_CLASSE,
+             "random_state": argumentos.semente}
+            if argumentos.modelo == "boosting"
+            else {
+                "n_estimators": argumentos.arvores,
+                "max_depth": (escolha["escolhido"]["profundidade"] if escolha
+                              else argumentos.profundidade),
+                "class_weight": PESOS_CLASSE,
+                "min_samples_leaf": (escolha["escolhido"]["folha"] if escolha
+                                     else MIN_AMOSTRAS_FOLHA),
+                "random_state": argumentos.semente,
+            }
+        ),
         "metricas": metricas,
         "validacao_temporal": cruzada,
+        # Duas medidas diferentes de importância, dependendo do algoritmo.
+        # Registrar qual foi usada evita comparar peras com maçãs ao confrontar
+        # este arquivo com um modelo antigo.
+        "metodo_importancia": metodo_importancia,
         "importancia_variaveis": importancias,
         # Importância diz QUANTO a variável ajuda a prever; odds ratio diz
         # em que DIREÇÃO ela empurra o risco e quanto multiplica a chance.
@@ -352,14 +492,22 @@ def main() -> int:
     )
     parser.add_argument("--dados", type=Path, default=ARQUIVO_DADOS_PADRAO,
                         help="caminho do CSV de treino")
+    # O padrão mudou de 'floresta' para 'boosting' em 2026-09, depois da
+    # comparação de seis anos (ver CONFIG_BOOSTING). A floresta continua aqui:
+    # é a base de comparação, e `--modelo floresta` reproduz o modelo antigo.
+    parser.add_argument("--modelo", choices=["boosting", "floresta"],
+                        default="boosting",
+                        help="algoritmo do classificador (padrão: boosting)")
     # 100 árvores medidas contra 300: acurácia balanceada e detecção de risco
     # alto ficam iguais (0,499 e ~49%), mas o modelo.pkl cai de 68 MB para
     # 23 MB. Arquivo menor é o que torna o projeto transportável para
     # apresentar em outro computador.
     parser.add_argument("--arvores", type=int, default=100,
-                        help="número de árvores da floresta (padrão: 100)")
+                        help="número de árvores, só com --modelo floresta "
+                             "(padrão: 100)")
     parser.add_argument("--profundidade", type=int, default=20,
-                        help="profundidade máxima das árvores (padrão: 20)")
+                        help="profundidade máxima, só com --modelo floresta "
+                             "(padrão: 20)")
     parser.add_argument("--proporcao-teste", type=float, default=0.2,
                         help="fração para teste, só com --split-aleatorio (padrão: 0.2)")
     parser.add_argument("--ano-corte", type=int, default=2022,
@@ -401,6 +549,7 @@ def main() -> int:
           f"(viram colunas separadas no one-hot)")
 
     escolha = None
+    eh_boosting = argumentos.modelo == "boosting"
 
     if argumentos.split_aleatorio:
         # stratify mantém a mesma proporção de baixo/medio/alto nos dois lados.
@@ -442,55 +591,74 @@ def main() -> int:
             print(f"  {nome}: {anos_parte.min()}–{anos_parte.max()}  "
                   f"({int(mascara.sum()):,} linhas)")
 
-        titulo("ESCOLHA DOS HIPERPARÂMETROS (no conjunto de validação)")
-        print("O conjunto de teste NÃO é usado aqui.\n")
-        print(f"{'profundidade':>13}{'folha':>7}{'balanceada':>13}{'F1 macro':>11}")
-        print("-" * 44)
+        if eh_boosting:
+            # O boosting não passa por busca de hiperparâmetros aqui, e isso é
+            # deliberado: os valores de CONFIG_BOOSTING são os que foram
+            # medidos em seis anos independentes. Procurar valores melhores
+            # agora, olhando dois anos de validação, trocaria um modelo testado
+            # por um não testado — exatamente o erro que o conjunto de
+            # validação existe para evitar.
+            titulo("HIPERPARÂMETROS DO BOOSTING (fixos, já validados)")
+            print("Não há busca nesta etapa. Os valores vêm da comparação de")
+            print("seis anos em experimentos/validar_ganho.py, onde o boosting")
+            print("venceu a floresta em 5 dos 6 anos (+1,0 ponto em média).\n")
+            for chave, valor in CONFIG_BOOSTING.items():
+                print(f"  {chave:<22} {valor}")
+            print(f"  {'pesos das classes':<22} {PESOS_CLASSE}")
+            profundidade, folha = None, None
+        else:
+            titulo("ESCOLHA DOS HIPERPARÂMETROS (no conjunto de validação)")
+            print("O conjunto de teste NÃO é usado aqui.\n")
+            print(f"{'profundidade':>13}{'folha':>7}{'balanceada':>13}"
+                  f"{'F1 macro':>11}")
+            print("-" * 44)
 
-        def mostrar(medida):
-            p = medida["parametros"]
-            print(f"{str(p['profundidade'] or 'sem limite'):>13}{p['folha']:>7}"
-                  f"{medida['balanceada']:>12.1%}{medida['f1_macro']:>11.3f}")
+            def mostrar(medida):
+                p = medida["parametros"]
+                print(f"{str(p['profundidade'] or 'sem limite'):>13}"
+                      f"{p['folha']:>7}"
+                      f"{medida['balanceada']:>12.1%}{medida['f1_macro']:>11.3f}")
 
-        melhores, historico = validacao_temporal.escolher_hiperparametros(
-            lambda profundidade, folha: construir_modelo(
-                argumentos.arvores, profundidade, argumentos.semente, folha
-            ),
-            CANDIDATOS, X, y, treino, validacao,
-            tolerancia=TOLERANCIA_PARCIMONIA,
-            # Árvore mais rasa e folha maior = modelo mais simples.
-            complexidade=lambda p: (p["profundidade"] or 999, -p["folha"]),
-            ao_testar=mostrar,
-        )
+            melhores, historico = validacao_temporal.escolher_hiperparametros(
+                lambda profundidade, folha: construir_modelo(
+                    argumentos.arvores, profundidade, argumentos.semente, folha
+                ),
+                CANDIDATOS, X, y, treino, validacao,
+                tolerancia=TOLERANCIA_PARCIMONIA,
+                # Árvore mais rasa e folha maior = modelo mais simples.
+                complexidade=lambda p: (p["profundidade"] or 999, -p["folha"]),
+                ao_testar=mostrar,
+            )
 
-        profundidade, folha = melhores["profundidade"], melhores["folha"]
-        melhor_nota = max(h["f1_macro"] for h in historico)
-        nota_escolhida = next(
-            h["f1_macro"] for h in historico if h["parametros"] == melhores
-        )
+            profundidade, folha = melhores["profundidade"], melhores["folha"]
+            melhor_nota = max(h["f1_macro"] for h in historico)
+            nota_escolhida = next(
+                h["f1_macro"] for h in historico if h["parametros"] == melhores
+            )
 
-        print(f"\nEscolhido: profundidade={profundidade or 'sem limite'}, "
-              f"folha={folha}")
-        if nota_escolhida < melhor_nota:
-            print(f"Não é o maior F1 ({nota_escolhida:.3f} contra "
-                  f"{melhor_nota:.3f}), e isso é proposital: a diferença cabe "
-                  f"dentro da tolerância de {TOLERANCIA_PARCIMONIA:.3f}, que é")
-            print("ruído de amostra. Entre empatados, vence o modelo mais")
-            print("simples — generaliza melhor e gera um arquivo menor.")
+            print(f"\nEscolhido: profundidade={profundidade or 'sem limite'}, "
+                  f"folha={folha}")
+            if nota_escolhida < melhor_nota:
+                print(f"Não é o maior F1 ({nota_escolhida:.3f} contra "
+                      f"{melhor_nota:.3f}), e isso é proposital: a diferença "
+                      f"cabe dentro da tolerância de "
+                      f"{TOLERANCIA_PARCIMONIA:.3f}, que é")
+                print("ruído de amostra. Entre empatados, vence o modelo mais")
+                print("simples — generaliza melhor e gera um arquivo menor.")
 
-        escolha = {
-            "metrica": "f1_macro",
-            "tolerancia_parcimonia": TOLERANCIA_PARCIMONIA,
-            "escolhido": melhores,
-            "f1_escolhido": round(nota_escolhida, 4),
-            "f1_melhor_candidato": round(melhor_nota, 4),
-            "candidatos": [
-                {"parametros": h["parametros"],
-                 "balanceada": round(h["balanceada"], 4),
-                 "f1_macro": round(h["f1_macro"], 4)}
-                for h in historico
-            ],
-        }
+            escolha = {
+                "metrica": "f1_macro",
+                "tolerancia_parcimonia": TOLERANCIA_PARCIMONIA,
+                "escolhido": melhores,
+                "f1_escolhido": round(nota_escolhida, 4),
+                "f1_melhor_candidato": round(melhor_nota, 4),
+                "candidatos": [
+                    {"parametros": h["parametros"],
+                     "balanceada": round(h["balanceada"], 4),
+                     "f1_macro": round(h["f1_macro"], 4)}
+                    for h in historico
+                ],
+            }
 
         # Escolhidos os hiperparâmetros, a validação já cumpriu seu papel e
         # volta para o treino. Descartá-la seria jogar fora dois anos de dados
@@ -503,26 +671,38 @@ def main() -> int:
 
     print(f"\nTreino: {len(X_treino):,} linhas | Teste: {len(X_teste):,} linhas")
 
-    titulo("TREINANDO O RANDOM FOREST")
-    print(f"Árvores: {argumentos.arvores} | "
-          f"Profundidade máxima: {profundidade or 'sem limite'} | "
-          f"Folha mínima: {folha}")
-    modelo = construir_modelo(
-        argumentos.arvores, profundidade, argumentos.semente, folha
-    )
-    modelo.fit(X_treino, y_treino)
+    # Uma única receita para construir o modelo, usada no treino, na validação
+    # walk-forward e no retreino final. Se cada etapa montasse o seu, bastaria
+    # um esquecimento para a validação medir um modelo diferente do que é salvo.
+    def criar_modelo():
+        if eh_boosting:
+            return construir_boosting(argumentos.semente)
+        return construir_modelo(
+            argumentos.arvores, profundidade, argumentos.semente, folha
+        )
+
+    if eh_boosting:
+        titulo("TREINANDO O GRADIENT BOOSTING")
+        print(f"Até {CONFIG_BOOSTING['max_iter']} árvores em sequência, "
+              f"com parada automática.")
+    else:
+        titulo("TREINANDO O RANDOM FOREST")
+        print(f"Árvores: {argumentos.arvores} | "
+              f"Profundidade máxima: {profundidade or 'sem limite'} | "
+              f"Folha mínima: {folha}")
+
+    modelo = ajustar(criar_modelo(), X_treino, y_treino)
     print("Treinamento concluído.")
 
     metricas = avaliar(modelo, X_teste, y_teste)
 
     cruzada = None
     if not argumentos.sem_validacao_cruzada:
-        cruzada = validar_walk_forward(
-            dados, X, y, argumentos.arvores, profundidade, folha,
-            argumentos.semente,
-        )
+        cruzada = validar_walk_forward(dados, X, y, criar_modelo)
 
-    importancias = mostrar_importancias(modelo)
+    importancias, metodo_importancia = mostrar_importancias(
+        modelo, X_teste, y_teste, argumentos.semente
+    )
 
     odds = {} if argumentos.sem_odds_ratio else calcular_odds_ratios(dados)
 
@@ -537,14 +717,11 @@ def main() -> int:
         print(f"  {len(X):,} linhas ({dados['ano'].min()}–{dados['ano'].max()})")
         print("  As métricas relatadas continuam sendo as do teste temporal:")
         print("  elas medem o método, não este objeto específico.")
-        modelo = construir_modelo(
-            argumentos.arvores, profundidade, argumentos.semente, folha
-        )
-        modelo.fit(X, y)
+        modelo = ajustar(criar_modelo(), X, y)
         print("Concluído.")
 
     salvar(modelo, dados, metricas, cruzada, importancias, argumentos, odds,
-           escolha)
+           escolha, metodo_importancia)
     return 0
 
 

@@ -318,6 +318,11 @@ def info_modelo():
         # treinando só com o que veio antes. Traz média, desvio e o pior ano.
         "validacao_temporal": metadados.get("validacao_temporal"),
         "escolha_hiperparametros": metadados.get("escolha_hiperparametros"),
+        # Qual algoritmo gerou este modelo, e por qual medida a importância
+        # abaixo foi calculada — as duas não são intercambiáveis (ganho de
+        # impureza na floresta, permutação no boosting).
+        "algoritmo": metadados.get("algoritmo"),
+        "metodo_importancia": metadados.get("metodo_importancia"),
         "variaveis_mais_importantes": dict(
             list(metadados.get("importancia_variaveis", {}).items())[:10]
         ),
@@ -330,8 +335,8 @@ def odds_ratio_modelo(analise: str | None = None):
     """
     Razão de chances (odds ratio) de cada variável.
 
-    Enquanto a importância do Random Forest diz *quanto* uma variável ajuda a
-    prever, o odds ratio diz em que **direção** ela empurra o risco e quanto
+    Enquanto a importância das variáveis diz *quanto* elas ajudam a prever, o
+    odds ratio diz em que **direção** cada uma empurra o risco e quanto
     multiplica a chance: OR 2,0 dobra, 1,0 não altera, 0,5 corta pela metade.
 
     Vem de uma regressão logística ajustada sobre os mesmos dados, e cada

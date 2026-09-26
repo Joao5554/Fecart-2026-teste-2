@@ -1,0 +1,306 @@
+{
+  "protocolo": {
+    "anos_testados": [
+      2019,
+      2020,
+      2021,
+      2022,
+      2023,
+      2024
+    ],
+    "treino": "tudo até o ano Y-2",
+    "validacao": "ano Y-1 (escolha do limiar)",
+    "teste": "ano Y",
+    "minimo_de_vitorias": 4,
+    "modelo_floresta": {
+      "arvores": 100,
+      "profundidade": 20,
+      "folha": 5
+    }
+  },
+  "por_ano": [
+    {
+      "ano": 2019,
+      "linhas_treino": 88859,
+      "linhas_teste": 11122,
+      "variantes": {
+        "floresta": {
+          "balanceada": 0.6223112957201479,
+          "f1_macro": 0.6079875955079839,
+          "recall_alto": 0.7889977392614921
+        },
+        "floresta+limiar": {
+          "balanceada": 0.6139598472629789,
+          "f1_macro": 0.630430219248927,
+          "recall_alto": 0.7143933685003768
+        },
+        "boosting": {
+          "balanceada": 0.6398414787423412,
+          "f1_macro": 0.6168648007417322,
+          "recall_alto": 0.7739261492087415
+        },
+        "boosting+limiar": {
+          "balanceada": 0.6199999782868296,
+          "f1_macro": 0.6375370211509168,
+          "recall_alto": 0.640542577241899
+        }
+      },
+      "limiares": {
+        "floresta": 0.575,
+        "boosting": 0.65
+      }
+    },
+    {
+      "ano": 2020,
+      "linhas_treino": 99976,
+      "linhas_teste": 12254,
+      "variantes": {
+        "floresta": {
+          "balanceada": 0.47449270448364284,
+          "f1_macro": 0.48804776111333875,
+          "recall_alto": 0.40239410681399634
+        },
+        "floresta+limiar": {
+          "balanceada": 0.4401147744039679,
+          "f1_macro": 0.4611592577147059,
+          "recall_alto": 0.23388581952117865
+        },
+        "boosting": {
+          "balanceada": 0.4655281698503038,
+          "f1_macro": 0.4822839498831148,
+          "recall_alto": 0.3314917127071823
+        },
+        "boosting+limiar": {
+          "balanceada": 0.45542290153735504,
+          "f1_macro": 0.47587935467583825,
+          "recall_alto": 0.2472375690607735
+        }
+      },
+      "limiares": {
+        "floresta": 0.625,
+        "boosting": 0.575
+      }
+    },
+    {
+      "ano": 2021,
+      "linhas_treino": 111098,
+      "linhas_teste": 11867,
+      "variantes": {
+        "floresta": {
+          "balanceada": 0.5211325155610173,
+          "f1_macro": 0.5310970168702581,
+          "recall_alto": 0.5115103874227962
+        },
+        "floresta+limiar": {
+          "balanceada": 0.5320397975523492,
+          "f1_macro": 0.5310783084743863,
+          "recall_alto": 0.5682201010668164
+        },
+        "boosting": {
+          "balanceada": 0.5437147233653785,
+          "f1_macro": 0.5520257381096224,
+          "recall_alto": 0.5160022459292533
+        },
+        "boosting+limiar": {
+          "balanceada": 0.5415077823207919,
+          "f1_macro": 0.5523125841118647,
+          "recall_alto": 0.5002807411566536
+        }
+      },
+      "limiares": {
+        "floresta": 0.375,
+        "boosting": 0.45
+      }
+    },
+    {
+      "ano": 2022,
+      "linhas_treino": 123352,
+      "linhas_teste": 13252,
+      "variantes": {
+        "floresta": {
+          "balanceada": 0.5645056442333252,
+          "f1_macro": 0.578883438741127,
+          "recall_alto": 0.5910518053375197
+        },
+        "floresta+limiar": {
+          "balanceada": 0.558746730592209,
+          "f1_macro": 0.5793842911991824,
+          "recall_alto": 0.5572998430141287
+        },
+        "boosting": {
+          "balanceada": 0.5802436468676633,
+          "f1_macro": 0.5823073705107097,
+          "recall_alto": 0.6161695447409733
+        },
+        "boosting+limiar": {
+          "balanceada": 0.58001101836476,
+          "f1_macro": 0.5850979663040926,
+          "recall_alto": 0.598116169544741
+        }
+      },
+      "limiares": {
+        "floresta": 0.45,
+        "boosting": 0.45
+      }
+    },
+    {
+      "ano": 2023,
+      "linhas_treino": 135219,
+      "linhas_teste": 13262,
+      "variantes": {
+        "floresta": {
+          "balanceada": 0.5450647244136011,
+          "f1_macro": 0.5656469342221014,
+          "recall_alto": 0.5250266240681576
+        },
+        "floresta+limiar": {
+          "balanceada": 0.5435595571817413,
+          "f1_macro": 0.5702501065915002,
+          "recall_alto": 0.4849130280440185
+        },
+        "boosting": {
+          "balanceada": 0.5569617004038339,
+          "f1_macro": 0.5663737031771933,
+          "recall_alto": 0.5321263755768548
+        },
+        "boosting+limiar": {
+          "balanceada": 0.5317343288903374,
+          "f1_macro": 0.5507484097632255,
+          "recall_alto": 0.3635072772452964
+        }
+      },
+      "limiares": {
+        "floresta": 0.45,
+        "boosting": 0.6
+      }
+    },
+    {
+      "ano": 2024,
+      "linhas_treino": 148471,
+      "linhas_teste": 12792,
+      "variantes": {
+        "floresta": {
+          "balanceada": 0.5049851968417013,
+          "f1_macro": 0.5148961452727192,
+          "recall_alto": 0.46804759806081975
+        },
+        "floresta+limiar": {
+          "balanceada": 0.4946629352858393,
+          "f1_macro": 0.5192880934047633,
+          "recall_alto": 0.35654473336271486
+        },
+        "boosting": {
+          "balanceada": 0.508574047865765,
+          "f1_macro": 0.5121996715817042,
+          "recall_alto": 0.47377699427060377
+        },
+        "boosting+limiar": {
+          "balanceada": 0.5076081371255246,
+          "f1_macro": 0.5196942279670281,
+          "recall_alto": 0.41956809167033937
+        }
+      },
+      "limiares": {
+        "floresta": 0.5,
+        "boosting": 0.5
+      }
+    }
+  ],
+  "medias": {
+    "floresta": {
+      "balanceada_media": 0.5387486802089059,
+      "balanceada_desvio": 0.04701977740558606,
+      "f1_macro_media": 0.5477598152879214,
+      "recall_alto_media": 0.5478380434941302
+    },
+    "floresta+limiar": {
+      "balanceada_media": 0.5305139403798477,
+      "balanceada_desvio": 0.0538363723888745,
+      "f1_macro_media": 0.5485983794389109,
+      "recall_alto_media": 0.4858761489182057
+    },
+    "boosting": {
+      "balanceada_media": 0.5491439611825476,
+      "balanceada_desvio": 0.05465245074968134,
+      "f1_macro_media": 0.5520092056673461,
+      "recall_alto_media": 0.5405821704056014
+    },
+    "boosting+limiar": {
+      "balanceada_media": 0.5393806910875997,
+      "balanceada_desvio": 0.052076370115698455,
+      "f1_macro_media": 0.5535449273288277,
+      "recall_alto_media": 0.4615420709866171
+    }
+  },
+  "comparacoes": {
+    "floresta+limiar": {
+      "referencia": "floresta",
+      "candidato": "floresta+limiar",
+      "diferenca_por_ano": [
+        -0.0084,
+        -0.0344,
+        0.0109,
+        -0.0058,
+        -0.0015,
+        -0.0103
+      ],
+      "diferenca_media": -0.008234739829058304,
+      "diferenca_desvio": 0.014870585908899834,
+      "vitorias": 1,
+      "anos": 6,
+      "teste_t_pareado": {
+        "t": -1.3564301278602893,
+        "graus_de_liberdade": 5,
+        "p_bilateral": 0.23299451390901407,
+        "p_unilateral": 0.8835027430454929
+      },
+      "aprovado": false
+    },
+    "boosting": {
+      "referencia": "floresta",
+      "candidato": "boosting",
+      "diferenca_por_ano": [
+        0.0175,
+        -0.009,
+        0.0226,
+        0.0157,
+        0.0119,
+        0.0036
+      ],
+      "diferenca_media": 0.010395280973641693,
+      "diferenca_desvio": 0.011413656070524242,
+      "vitorias": 5,
+      "anos": 6,
+      "teste_t_pareado": {
+        "t": 2.230935815916425,
+        "graus_de_liberdade": 5,
+        "p_bilateral": 0.07607554979169141,
+        "p_unilateral": 0.03803777489584571
+      },
+      "aprovado": true
+    },
+    "boosting+limiar": {
+      "referencia": "floresta",
+      "candidato": "boosting+limiar",
+      "diferenca_por_ano": [
+        -0.0023,
+        -0.0191,
+        0.0204,
+        0.0155,
+        -0.0133,
+        0.0026
+      ],
+      "diferenca_media": 0.0006320108786938375,
+      "diferenca_desvio": 0.015535445466480703,
+      "vitorias": 3,
+      "anos": 6,
+      "teste_t_pareado": {
+        "t": 0.0996498084350481,
+        "graus_de_liberdade": 5,
+        "p_bilateral": 0.9244944279506527,
+        "p_unilateral": 0.46224721397532637
+      },
+      "aprovado": false
+    }
+  }
+}

@@ -1,8 +1,8 @@
 {
-  "treinado_em": "2026-08-14T20:29:12+00:00",
+  "treinado_em": "2026-09-25T22:47:52+00:00",
   "versao_esquema": "3.0.0",
   "assinatura_esquema": "a3812804df3f148f",
-  "arquivo_dados": "C:\\Users\\jpcos\\OneDrive\\Documentos\\Fecart 2026\\dados\\dados.csv",
+  "arquivo_dados": "C:\\Users\\jpcos\\Downloads\\Fecart-2026-teste-2-main ff\\Fecart-2026-teste-2-main\\dados\\dados.csv",
   "origem_dados": "real",
   "hash_dados_sha256": "64f79fb65ef7ded3087effe8cb9811021c7914e19c6737a9d59359bac3dc89bc",
   "aviso_dados": null,
@@ -13,58 +13,7 @@
     "ano_corte": 2022,
     "modelo_final_com_toda_a_base": true
   },
-  "escolha_hiperparametros": {
-    "metrica": "f1_macro",
-    "tolerancia_parcimonia": 0.01,
-    "escolhido": {
-      "profundidade": 20,
-      "folha": 5
-    },
-    "f1_escolhido": 0.5113,
-    "f1_melhor_candidato": 0.5159,
-    "candidatos": [
-      {
-        "parametros": {
-          "profundidade": 12,
-          "folha": 10
-        },
-        "balanceada": 0.5003,
-        "f1_macro": 0.5056
-      },
-      {
-        "parametros": {
-          "profundidade": 16,
-          "folha": 5
-        },
-        "balanceada": 0.4929,
-        "f1_macro": 0.5055
-      },
-      {
-        "parametros": {
-          "profundidade": 20,
-          "folha": 5
-        },
-        "balanceada": 0.4954,
-        "f1_macro": 0.5113
-      },
-      {
-        "parametros": {
-          "profundidade": 28,
-          "folha": 3
-        },
-        "balanceada": 0.4946,
-        "f1_macro": 0.5159
-      },
-      {
-        "parametros": {
-          "profundidade": null,
-          "folha": 5
-        },
-        "balanceada": 0.4975,
-        "f1_macro": 0.5151
-      }
-    ]
-  },
+  "escolha_hiperparametros": null,
   "classes": [
     "baixo",
     "medio",
@@ -130,68 +79,73 @@
       "grupo_desastre"
     ]
   },
+  "algoritmo": "hist_gradient_boosting",
   "hiperparametros": {
-    "n_estimators": 100,
-    "max_depth": 20,
+    "max_iter": 300,
+    "learning_rate": 0.08,
+    "max_leaf_nodes": 31,
+    "min_samples_leaf": 40,
+    "l2_regularization": 1.0,
+    "early_stopping": true,
+    "validation_fraction": 0.12,
     "class_weight": {
       "baixo": 1.0,
       "medio": 3.0,
       "alto": 6.0
     },
-    "min_samples_leaf": 5,
     "random_state": 42
   },
   "metricas": {
-    "acuracia": 0.728257726194837,
-    "acuracia_balanceada": 0.550191842312664,
-    "f1_macro": 0.5643631164476456,
+    "acuracia": 0.7024234128284718,
+    "acuracia_balanceada": 0.5642858991478806,
+    "f1_macro": 0.5679725170178652,
     "matriz_confusao": [
       [
-        30761,
-        997,
-        3217
+        28668,
+        2176,
+        4131
       ],
       [
-        4604,
-        1475,
-        944
+        3824,
+        2104,
+        1095
       ],
       [
-        3968,
-        365,
-        5538
+        3510,
+        699,
+        5662
       ]
     ],
     "relatorio_por_classe": {
       "baixo": {
-        "precision": 0.7820659497114383,
-        "recall": 0.8795139385275197,
-        "f1-score": 0.827932389513915,
+        "precision": 0.796289095050275,
+        "recall": 0.8196711937097927,
+        "f1-score": 0.8078109810220212,
         "support": 34975.0
       },
       "medio": {
-        "precision": 0.5199154035953472,
-        "recall": 0.21002420617969528,
-        "f1-score": 0.29918864097363085,
+        "precision": 0.4225748142197228,
+        "recall": 0.29958707105225685,
+        "f1-score": 0.3506082319613398,
         "support": 7023.0
       },
       "alto": {
-        "precision": 0.5709866996597588,
-        "recall": 0.561037382230777,
-        "f1-score": 0.5659683188553909,
+        "precision": 0.5200220426157237,
+        "recall": 0.5735994326815925,
+        "f1-score": 0.5454983380702346,
         "support": 9871.0
       },
-      "accuracy": 0.728257726194837,
+      "accuracy": 0.7024234128284718,
       "macro avg": {
-        "precision": 0.6243226843221814,
-        "recall": 0.550191842312664,
-        "f1-score": 0.5643631164476456,
+        "precision": 0.5796286506285738,
+        "recall": 0.5642858991478806,
+        "f1-score": 0.5679725170178652,
         "support": 51869.0
       },
       "weighted avg": {
-        "precision": 0.7064013607925574,
-        "recall": 0.728257726194837,
-        "f1-score": 0.70648769832132,
+        "precision": 0.693113258445474,
+        "recall": 0.7024234128284718,
+        "f1-score": 0.6959865192967083,
         "support": 51869.0
       }
     }
@@ -199,72 +153,72 @@
   "validacao_temporal": {
     "janelas": [
       {
-        "balanceada": 0.5842899598962307,
-        "f1_macro": 0.5630196196540204,
-        "recall_alto": 0.7366104181951577,
+        "balanceada": 0.617013079741778,
+        "f1_macro": 0.5989430393992072,
+        "recall_alto": 0.7380777696258254,
         "ano_teste": 2018,
         "treino_ate": 2017,
         "linhas_treino": 88859,
         "linhas_teste": 11117
       },
       {
-        "balanceada": 0.6419554638089339,
-        "f1_macro": 0.6330878069133551,
-        "recall_alto": 0.7920120572720422,
+        "balanceada": 0.6664322908697873,
+        "f1_macro": 0.6407221869235039,
+        "recall_alto": 0.8025621703089676,
         "ano_teste": 2019,
         "treino_ate": 2018,
         "linhas_treino": 99976,
         "linhas_teste": 11122
       },
       {
-        "balanceada": 0.47380484466314593,
-        "f1_macro": 0.49200567539937873,
-        "recall_alto": 0.3752302025782689,
+        "balanceada": 0.46942786641082196,
+        "f1_macro": 0.48817788981384785,
+        "recall_alto": 0.32320441988950277,
         "ano_teste": 2020,
         "treino_ate": 2019,
         "linhas_treino": 111098,
         "linhas_teste": 12254
       },
       {
-        "balanceada": 0.5440077372450738,
-        "f1_macro": 0.5495047552171749,
-        "recall_alto": 0.5693430656934306,
+        "balanceada": 0.5806304849483811,
+        "f1_macro": 0.5770360892846219,
+        "recall_alto": 0.6254912970241437,
         "ano_teste": 2021,
         "treino_ate": 2020,
         "linhas_treino": 123352,
         "linhas_teste": 11867
       },
       {
-        "balanceada": 0.5814626357346523,
-        "f1_macro": 0.5917733917449057,
-        "recall_alto": 0.6361852433281004,
+        "balanceada": 0.6023858288421067,
+        "f1_macro": 0.6027227582278717,
+        "recall_alto": 0.6459968602825745,
         "ano_teste": 2022,
         "treino_ate": 2021,
         "linhas_treino": 135219,
         "linhas_teste": 13252
       },
       {
-        "balanceada": 0.5580365469862051,
-        "f1_macro": 0.5732454615669538,
-        "recall_alto": 0.5740149094781682,
+        "balanceada": 0.5762610684581285,
+        "f1_macro": 0.578588731033905,
+        "recall_alto": 0.6240681576144835,
         "ano_teste": 2023,
         "treino_ate": 2022,
         "linhas_treino": 148471,
         "linhas_teste": 13262
       },
       {
-        "balanceada": 0.5303267043531977,
-        "f1_macro": 0.5337910438390653,
-        "recall_alto": 0.5495813133539004,
+        "balanceada": 0.5393820717088674,
+        "f1_macro": 0.5357895669852573,
+        "recall_alto": 0.5478184222124284,
         "ano_teste": 2024,
         "treino_ate": 2023,
         "linhas_treino": 161733,
         "linhas_teste": 12792
       },
       {
-        "balanceada": 0.5869675574217731,
-        "f1_macro": 0.5866378140742534,
-        "recall_alto": 0.6714349575324094,
+        "balanceada": 0.5934836540657257,
+        "f1_macro": 0.5760712588398343,
+        "recall_alto": 0.711220384443451,
         "ano_teste": 2025,
         "treino_ate": 2024,
         "linhas_treino": 174525,
@@ -273,49 +227,50 @@
     ],
     "n_janelas": 8,
     "periodo_testado": "2018–2025",
-    "balanceada_media": 0.5626064312636516,
-    "balanceada_desvio": 0.0492949767192543,
-    "balanceada_pior": 0.47380484466314593,
-    "f1_macro_media": 0.5653831960511384,
-    "f1_macro_desvio": 0.0421459483939901,
-    "f1_macro_pior": 0.49200567539937873,
-    "recall_alto_media": 0.6130515209289348,
-    "recall_alto_desvio": 0.12831835535541516,
-    "recall_alto_pior": 0.3752302025782689
+    "balanceada_media": 0.5806270431306996,
+    "balanceada_desvio": 0.05783064896458141,
+    "balanceada_pior": 0.46942786641082196,
+    "f1_macro_media": 0.5747564400635061,
+    "f1_macro_desvio": 0.04591056657364285,
+    "f1_macro_pior": 0.48817788981384785,
+    "recall_alto_media": 0.627304935175172,
+    "recall_alto_desvio": 0.1459872328866948,
+    "recall_alto_pior": 0.32320441988950277
   },
+  "metodo_importancia": "permutacao",
   "importancia_variaveis": {
-    "ocorrencias_uf_grupo_12m": 0.13219210606286047,
-    "grupo_desastre": 0.07735147635336959,
-    "meses_desde_ultima_ocorrencia": 0.05407268980924443,
-    "uf": 0.05107515934848892,
-    "anos_de_historico": 0.04844698321855986,
-    "ocorrencias_total_historico": 0.03908602440045347,
-    "regiao": 0.03759596921999094,
-    "prejuizo_historico_log": 0.03444074454496661,
-    "chuva_mes_anterior_mm": 0.034216556055721374,
-    "ocorrencias_por_ano": 0.03359289348092608,
-    "mes": 0.033479218278255576,
-    "temperatura_mes_anterior_c": 0.02944103283935126,
-    "ocorrencias_60m": 0.028559093748866622,
-    "reconhecimentos_historico": 0.028373052449522308,
-    "chuva_3_meses_anteriores_mm": 0.028293676112587533,
-    "umidade_mes_anterior_pct": 0.02737687127265074,
-    "ocorrencias_mesmo_mes_historico": 0.027194551799556904,
-    "mes_cosseno": 0.02518808481695904,
-    "mes_seno": 0.024526517441935965,
-    "ocorrencias_24m": 0.02438188549039815,
-    "chuva_max_dia_mes_anterior_mm": 0.023912624628104395,
-    "dias_com_chuva_mes_anterior": 0.02385948589757608,
-    "anomalia_chuva_pct": 0.0224359367993631,
-    "rajada_mes_anterior_kmh": 0.02012493618134971,
-    "afetados_historico": 0.019056537865619505,
-    "proporcao_reconhecidas": 0.01861621488271489,
-    "ocorrencias_municipio_12m": 0.018582550831186987,
-    "gravidade_media_historica": 0.016825110693929727,
-    "ocorrencias_12m": 0.010168935106263733,
-    "meses_de_clima_disponiveis": 0.003897659786860433,
-    "ja_ocorreu": 0.0026275598197707077,
-    "mortos_historico": 0.0010078607625949657
+    "grupo_desastre": 0.25255630278743657,
+    "meses_desde_ultima_ocorrencia": 0.13896465826628576,
+    "ocorrencias_municipio_12m": 0.11054275768209659,
+    "ocorrencias_uf_grupo_12m": 0.08068151217416344,
+    "uf": 0.051734774857634766,
+    "chuva_mes_anterior_mm": 0.050183146035176464,
+    "anos_de_historico": 0.029716460191905283,
+    "mes": 0.029713798576568827,
+    "mes_seno": 0.027554121050179157,
+    "mes_cosseno": 0.02443922875826641,
+    "ocorrencias_mesmo_mes_historico": 0.02429542013361958,
+    "afetados_historico": 0.01857195000201875,
+    "ocorrencias_total_historico": 0.01631338527025595,
+    "regiao": 0.01533021391702157,
+    "ocorrencias_por_ano": 0.014729079487582569,
+    "anomalia_chuva_pct": 0.013278039635180146,
+    "chuva_3_meses_anteriores_mm": 0.013042540345473953,
+    "reconhecimentos_historico": 0.012667617858931992,
+    "proporcao_reconhecidas": 0.01174500309267082,
+    "gravidade_media_historica": 0.01132048638144181,
+    "prejuizo_historico_log": 0.011137169090310088,
+    "ocorrencias_60m": 0.010774582372279125,
+    "dias_com_chuva_mes_anterior": 0.01061869733141471,
+    "ocorrencias_24m": 0.008496495046398716,
+    "chuva_max_dia_mes_anterior_mm": 0.007625365610473265,
+    "umidade_mes_anterior_pct": 0.0031765058969139186,
+    "rajada_mes_anterior_kmh": 0.0007906881482997453,
+    "ocorrencias_12m": 0.0,
+    "ja_ocorreu": 0.0,
+    "mortos_historico": 0.0,
+    "temperatura_mes_anterior_c": 0.0,
+    "meses_de_clima_disponiveis": 0.0
   },
   "odds_ratio": {
     "ocorrencia": {

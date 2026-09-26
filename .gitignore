@@ -5,7 +5,7 @@
 __pycache__/
 *.pyc
 
-# O modelo treinado (23 MB) VAI para o repositório, de propósito: assim quem
+# O modelo treinado (1,3 MB) VAI para o repositório, de propósito: assim quem
 # clonar consegue rodar o sistema na hora, sem baixar a base do Atlas nem
 # treinar. É o que permite apresentar o projeto em outro computador com um
 # `git clone`. Modelos de teste em outros lugares continuam ignorados.
@@ -27,6 +27,10 @@ __pycache__/
 #  - clima_mensal.csv (102 MB) fica de fora: passa do limite de 100 MB do
 #    GitHub, só serve para treinar e sai do mesmo comando que o anterior;
 #  - dados.csv (24 MB) fica de fora: só serve para treinar e é regenerável;
+#  - geografia_municipios.csv (0,8 MB) VAI: altitude, declividade, área e
+#    distância do rio de cada município. Sai de `preparar_geografia.py`, que
+#    precisa da malha, do relevo e dos rios — tudo junto, dois minutos de
+#    cálculo. Versionar o resultado poupa esse passo de quem clonar;
 #  - a base bruta do Atlas (82 MB) e os ZIPs do INMET (1,7 GB) ficam de fora:
 #    são dados de terceiros e pesados.
 dados/*.csv
@@ -34,6 +38,7 @@ dados/*.csv
 !dados/clima_estacoes.csv
 !dados/vento_estacoes.csv
 !dados/temperatura_estacoes.csv
+!dados/geografia_municipios.csv
 dados/bruto/
 
 # Registro de procedência do CSV local: descreve o arquivo de dados de cada

@@ -145,6 +145,36 @@ def test_walk_forward_treina_modelo_novo_a_cada_janela(base_anual):
     )
 
 
+def test_walk_forward_treina_do_jeito_que_o_chamador_pediu(base_anual):
+    """
+    Quem valida precisa treinar igual a quem vai para produção.
+
+    O gradient boosting recebe os pesos das classes linha a linha, no `fit`.
+    Se a validação chamasse `modelo.fit(X, y)` direto, ela mediria um modelo
+    sem pesos e reportaria um número que não corresponde ao que é salvo.
+    """
+    chamadas = []
+
+    def ajustar_registrando(modelo, X, y):
+        chamadas.append(len(X))
+        return modelo.fit(X, y)
+
+    X = base_anual[["x1", "x2"]]
+    y = base_anual[esquema.COLUNA_ALVO]
+    janelas = validacao_temporal.gerar_janelas(base_anual["ano"])
+
+    validacao_temporal.validar_walk_forward(
+        lambda: DecisionTreeClassifier(max_depth=2, random_state=1),
+        X, y, base_anual["ano"], janelas,
+        ajustar=ajustar_registrando,
+    )
+
+    assert len(chamadas) == len(janelas), "alguma janela não usou o `ajustar`"
+    # Janela expansiva: cada treino é maior que o anterior.
+    assert chamadas == sorted(chamadas)
+    assert chamadas[0] < chamadas[-1]
+
+
 # --------------------------------------------------------------------------
 # Divisão em três partes
 # --------------------------------------------------------------------------
